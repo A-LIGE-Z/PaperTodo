@@ -21,7 +21,6 @@ on:
 permissions:
   contents: write
   id-token: write
-  attestations: write
 
 jobs:
   build:
@@ -117,6 +116,34 @@ jobs:
           Set-Content -LiteralPath (Join-Path $releaseDir "SHA256SUMS.txt") -Value $lines -Encoding utf8
           Get-ChildItem -LiteralPath $releaseDir -File | Sort-Object Name | Format-Table Name, Length
 
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Sign release executables
+        env:
+          SELF_CONTAINED_EXE: ${{ steps.meta.outputs.self_contained_exe }}
+          FRAMEWORK_DEPENDENT_EXE: ${{ steps.meta.outputs.framework_dependent_exe }}
+        run: |
+          $releaseDir = Join-Path $env:GITHUB_WORKSPACE "release"
+          $exeFiles = @(
+            (Join-Path $releaseDir $env:SELF_CONTAINED_EXE),
+            (Join-Path $releaseDir $env:FRAMEWORK_DEPENDENT_EXE)
+          )
+
+          foreach ($exe in $exeFiles) {
+            if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) {
+              throw "Release executable not found: $exe"
+            }
+
+            cosign sign-blob `
+              --yes `
+              --output-signature "$exe.sig" `
+              --output-certificate "$exe.crt" `
+              "$exe"
+          }
+
+          Get-ChildItem -LiteralPath $releaseDir -File | Sort-Object Name | Format-Table Name, Length
+
       - name: Upload executable package
         uses: actions/upload-artifact@v4
         with:
@@ -124,18 +151,12 @@ jobs:
           if-no-files-found: error
           path: |
             release/${{ steps.meta.outputs.self_contained_exe }}
+            release/${{ steps.meta.outputs.self_contained_exe }}.sig
+            release/${{ steps.meta.outputs.self_contained_exe }}.crt
             release/${{ steps.meta.outputs.framework_dependent_exe }}
+            release/${{ steps.meta.outputs.framework_dependent_exe }}.sig
+            release/${{ steps.meta.outputs.framework_dependent_exe }}.crt
             release/SHA256SUMS.txt
-
-      - name: Attest self-contained executable
-        uses: actions/attest-build-provenance@v2
-        with:
-          subject-path: release/${{ steps.meta.outputs.self_contained_exe }}
-
-      - name: Attest framework-dependent executable
-        uses: actions/attest-build-provenance@v2
-        with:
-          subject-path: release/${{ steps.meta.outputs.framework_dependent_exe }}
 
       - name: Resolve release tag
         id: release
@@ -164,6 +185,7 @@ jobs:
           $repo = "${{ github.repository }}"
           $selfContained = "${{ steps.meta.outputs.self_contained_exe }}"
           $frameworkDependent = "${{ steps.meta.outputs.framework_dependent_exe }}"
+          $identityPattern = "^https://github[.]com/$repo/[.]github/workflows/release[.]yml@refs/(heads/main|tags/v.*)$"
 
           @"
           PaperTodo $tag
@@ -175,11 +197,11 @@ jobs:
 
           SHA256 hashes are included in SHA256SUMS.txt.
 
-          Provenance signatures are published with GitHub Artifact Attestations. Verify them with:
+          Sigstore keyless signatures are included as .sig and .crt files. Verify them with:
 
           ````powershell
-          gh attestation verify .\$selfContained --repo $repo
-          gh attestation verify .\$frameworkDependent --repo $repo
+          cosign verify-blob --certificate .\$selfContained.crt --signature .\$selfContained.sig --certificate-identity-regexp "$identityPattern" --certificate-oidc-issuer "https://token.actions.githubusercontent.com" .\$selfContained
+          cosign verify-blob --certificate .\$frameworkDependent.crt --signature .\$frameworkDependent.sig --certificate-identity-regexp "$identityPattern" --certificate-oidc-issuer "https://token.actions.githubusercontent.com" .\$frameworkDependent
           ````
           "@.TrimStart() | Set-Content -LiteralPath (Join-Path $releaseDir "RELEASE_NOTES.md") -Encoding utf8
 
@@ -192,7 +214,11 @@ jobs:
           $tag = "${{ steps.release.outputs.tag }}"
           $assets = @(
             (Join-Path $releaseDir "${{ steps.meta.outputs.self_contained_exe }}"),
+            (Join-Path $releaseDir "${{ steps.meta.outputs.self_contained_exe }}.sig"),
+            (Join-Path $releaseDir "${{ steps.meta.outputs.self_contained_exe }}.crt"),
             (Join-Path $releaseDir "${{ steps.meta.outputs.framework_dependent_exe }}"),
+            (Join-Path $releaseDir "${{ steps.meta.outputs.framework_dependent_exe }}.sig"),
+            (Join-Path $releaseDir "${{ steps.meta.outputs.framework_dependent_exe }}.crt"),
             (Join-Path $releaseDir "SHA256SUMS.txt")
           )
           $notes = Join-Path $releaseDir "RELEASE_NOTES.md"
