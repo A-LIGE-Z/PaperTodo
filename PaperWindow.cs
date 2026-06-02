@@ -59,7 +59,7 @@ public sealed partial class PaperWindow : Window
     private readonly List<Border> _todoRows = new();
     private TodoDragState? _todoDrag;
     private MarkdownTextBox? _noteBox;
-    private FlowDocumentScrollViewer? _notePreview;
+    private RichTextBox? _notePreview;
     private string? _lastRenderedText;
     private System.Windows.Documents.FlowDocument? _lastRenderedDocument;
     private bool _lastRenderedIsDark;
@@ -706,12 +706,17 @@ public sealed partial class PaperWindow : Window
         };
         var box = _noteBox;
 
-        _notePreview = new FlowDocumentScrollViewer
+        _notePreview = new RichTextBox
         {
             Visibility = Visibility.Collapsed,
             Background = Brushes.Transparent,
+            BorderBrush = Brushes.Transparent,
+            BorderThickness = new Thickness(0),
+            Padding = new Thickness(0),
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-            IsToolBarVisible = false,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            IsReadOnly = true,
+            IsDocumentEnabled = true,
             Focusable = true,
             FocusVisualStyle = null
         };
@@ -724,6 +729,9 @@ public sealed partial class PaperWindow : Window
 
         void ShowPreview()
         {
+            var anchorIndex = Math.Clamp(box.CaretIndex, 0, box.Text.Length);
+            var anchorRatio = GetEditorCaretViewportRatio();
+
             try
             {
                 bool isDark = Theme.IsDark;
@@ -747,15 +755,286 @@ public sealed partial class PaperWindow : Window
             box.Visibility = Visibility.Collapsed;
             preview.Visibility = Visibility.Visible;
             isPreviewing = true;
+            ScrollPreviewToSourceIndex(anchorIndex, anchorRatio);
         }
 
-        void ShowEditor()
+        void ShowEditor(bool focus = true)
         {
             preview.Visibility = Visibility.Collapsed;
             box.Visibility = Visibility.Visible;
             isPreviewing = false;
-            box.Focus();
-            box.CaretIndex = box.Text.Length;
+            if (focus && !box.IsKeyboardFocusWithin)
+            {
+                box.Focus();
+            }
+        }
+
+        void ShowEditorAtPreviewPoint(Point previewPoint)
+        {
+            var hasPreviewCaret = TryGetCaretIndexAtPreviewPoint(previewPoint, out var caretIndex);
+            var anchorRatio = GetPreviewPointViewportRatio(previewPoint);
+
+            ShowEditor(focus: false);
+
+            if (!box.IsKeyboardFocusWithin)
+            {
+                box.Focus();
+            }
+
+            if (!hasPreviewCaret)
+            {
+                caretIndex = box.CaretIndex;
+            }
+
+            box.CaretIndex = Math.Clamp(caretIndex, 0, box.Text.Length);
+            box.SelectionLength = 0;
+            ScrollEditorToCaret(box.CaretIndex, anchorRatio);
+        }
+
+        double GetPreviewPointViewportRatio(Point previewPoint)
+        {
+            var height = preview.ActualHeight > 1 ? preview.ActualHeight : 1;
+            return Math.Clamp(previewPoint.Y / height, 0, 1);
+        }
+
+        double GetEditorCaretViewportRatio()
+        {
+            try
+            {
+                box.UpdateLayout();
+                var rect = GetEditorCaretRect(Math.Clamp(box.CaretIndex, 0, box.Text.Length));
+                if (IsUsableRect(rect) && box.ActualHeight > 1)
+                {
+                    return Math.Clamp(rect.Top / box.ActualHeight, 0, 1);
+                }
+            }
+            catch
+            {
+                // Fall back to line-based positioning when WPF has not measured the caret yet.
+            }
+
+            try
+            {
+                var firstLine = box.GetFirstVisibleLineIndex();
+                var lastLine = box.GetLastVisibleLineIndex();
+                var caretLine = box.GetLineIndexFromCharacterIndex(Math.Clamp(box.CaretIndex, 0, box.Text.Length));
+                if (firstLine >= 0 && lastLine >= firstLine)
+                {
+                    var visibleLineCount = Math.Max(1, lastLine - firstLine);
+                    return Math.Clamp((caretLine - firstLine) / (double)visibleLineCount, 0, 1);
+                }
+            }
+            catch
+            {
+                // Keep the default top anchor if line information is unavailable.
+            }
+
+            return 0;
+        }
+
+        void ScrollEditorToCaret(int caretIndex, double viewportRatio)
+        {
+            void Apply()
+            {
+                try
+                {
+                    box.UpdateLayout();
+                    var clampedIndex = Math.Clamp(caretIndex, 0, box.Text.Length);
+                    var rect = GetEditorCaretRect(clampedIndex);
+                    if (!IsUsableRect(rect))
+                    {
+                        var line = box.GetLineIndexFromCharacterIndex(clampedIndex);
+                        box.ScrollToLine(Math.Max(0, line));
+                        box.UpdateLayout();
+                        rect = GetEditorCaretRect(clampedIndex);
+                    }
+
+                    if (!IsUsableRect(rect))
+                    {
+                        return;
+                    }
+
+                    var viewportHeight = box.ViewportHeight > 1 ? box.ViewportHeight : box.ActualHeight;
+                    if (viewportHeight <= 1)
+                    {
+                        return;
+                    }
+
+                    var targetOffset = box.VerticalOffset + rect.Top - viewportHeight * Math.Clamp(viewportRatio, 0, 1);
+                    var maxOffset = Math.Max(0, box.ExtentHeight - viewportHeight);
+                    box.ScrollToVerticalOffset(Math.Clamp(targetOffset, 0, maxOffset));
+                }
+                catch
+                {
+                    // Scrolling is best-effort; caret placement above is the functional part.
+                }
+            }
+
+            Apply();
+            Dispatcher.BeginInvoke(new Action(Apply), System.Windows.Threading.DispatcherPriority.Loaded);
+        }
+
+        Rect GetEditorCaretRect(int caretIndex)
+        {
+            try
+            {
+                var clampedIndex = Math.Clamp(caretIndex, 0, box.Text.Length);
+                var rect = box.GetRectFromCharacterIndex(clampedIndex, true);
+                if (IsUsableRect(rect))
+                {
+                    return rect;
+                }
+
+                if (clampedIndex > 0)
+                {
+                    rect = box.GetRectFromCharacterIndex(clampedIndex - 1, true);
+                    if (IsUsableRect(rect))
+                    {
+                        return rect;
+                    }
+                }
+            }
+            catch
+            {
+                // The caller has line-based fallbacks.
+            }
+
+            return Rect.Empty;
+        }
+
+        void ScrollPreviewToSourceIndex(int sourceIndex, double viewportRatio)
+        {
+            void Apply()
+            {
+                try
+                {
+                    preview.ApplyTemplate();
+                    preview.UpdateLayout();
+
+                    var viewer = FindVisualChild<ScrollViewer>(preview);
+                    if (!TryFindPreviewAnchor(preview.Document, sourceIndex, out var element, out var pointer))
+                    {
+                        return;
+                    }
+
+                    element.BringIntoView();
+                    preview.UpdateLayout();
+
+                    if (viewer == null)
+                    {
+                        return;
+                    }
+
+                    var rect = GetPointerCharacterRect(pointer);
+                    if (!IsUsableRect(rect))
+                    {
+                        return;
+                    }
+
+                    var viewportHeight = viewer.ViewportHeight > 1 ? viewer.ViewportHeight : preview.ActualHeight;
+                    if (viewportHeight <= 1)
+                    {
+                        return;
+                    }
+
+                    var targetOffset = viewer.VerticalOffset + rect.Top - viewportHeight * Math.Clamp(viewportRatio, 0, 1);
+                    var maxOffset = Math.Max(0, viewer.ExtentHeight - viewportHeight);
+                    viewer.ScrollToVerticalOffset(Math.Clamp(targetOffset, 0, maxOffset));
+                }
+                catch
+                {
+                    // The preview still opens even if the visual tree is not ready for scrolling.
+                }
+            }
+
+            Apply();
+            Dispatcher.BeginInvoke(new Action(Apply), System.Windows.Threading.DispatcherPriority.Loaded);
+        }
+
+        Rect GetPointerCharacterRect(System.Windows.Documents.TextPointer pointer)
+        {
+            try
+            {
+                var rect = pointer.GetCharacterRect(System.Windows.Documents.LogicalDirection.Forward);
+                if (IsUsableRect(rect))
+                {
+                    return rect;
+                }
+
+                rect = pointer.GetCharacterRect(System.Windows.Documents.LogicalDirection.Backward);
+                if (IsUsableRect(rect))
+                {
+                    return rect;
+                }
+            }
+            catch
+            {
+                // The preview can still switch states if layout has not produced character boxes yet.
+            }
+
+            return Rect.Empty;
+        }
+
+        bool TryGetCaretIndexAtPreviewPoint(Point previewPoint, out int caretIndex)
+        {
+            caretIndex = box.CaretIndex;
+
+            System.Windows.Documents.TextPointer? pointer;
+            try
+            {
+                pointer = preview.GetPositionFromPoint(previewPoint, true);
+            }
+            catch
+            {
+                pointer = null;
+            }
+
+            return pointer != null && TryGetCaretIndexFromPointer(pointer, out caretIndex);
+        }
+
+        bool TryGetCaretIndexFromPointer(System.Windows.Documents.TextPointer pointer, out int caretIndex)
+        {
+            if (TryGetCaretIndexFromElement(pointer.Parent, pointer, out caretIndex))
+            {
+                return true;
+            }
+
+            var forward = pointer.GetAdjacentElement(System.Windows.Documents.LogicalDirection.Forward);
+            if (TryGetCaretIndexFromElement(forward, pointer, out caretIndex))
+            {
+                return true;
+            }
+
+            var backward = pointer.GetAdjacentElement(System.Windows.Documents.LogicalDirection.Backward);
+            if (TryGetCaretIndexFromElement(backward, pointer, out caretIndex))
+            {
+                return true;
+            }
+
+            caretIndex = box.CaretIndex;
+            return false;
+        }
+
+        bool TryGetCaretIndexFromElement(DependencyObject? current, System.Windows.Documents.TextPointer pointer, out int caretIndex)
+        {
+            while (current != null)
+            {
+                if (current is System.Windows.Documents.Run run &&
+                    MarkdownRenderer.TryGetSourceSpan(run, out var sourceStart, out var sourceLength))
+                {
+                    var offset = run.ContentStart.GetOffsetToPosition(pointer);
+                    if (offset >= 0)
+                    {
+                        caretIndex = Math.Clamp(sourceStart + offset, sourceStart, sourceStart + sourceLength);
+                        return true;
+                    }
+                }
+
+                current = GetSafeParent(current);
+            }
+
+            caretIndex = box.CaretIndex;
+            return false;
         }
 
         box.TextChanged += (_, _) =>
@@ -832,7 +1111,7 @@ public sealed partial class PaperWindow : Window
 
             if (!isHyperlink)
             {
-                ShowEditor();
+                ShowEditorAtPreviewPoint(e.GetPosition(preview));
                 e.Handled = true;
             }
         };
@@ -2154,6 +2433,176 @@ public sealed partial class PaperWindow : Window
         if (current is ContentElement ce)
         {
             return ContentOperations.GetParent(ce);
+        }
+
+        return null;
+    }
+
+    private static bool IsUsableRect(Rect rect)
+    {
+        return !rect.IsEmpty &&
+               !double.IsNaN(rect.Top) &&
+               !double.IsInfinity(rect.Top) &&
+               !double.IsNaN(rect.Height) &&
+               !double.IsInfinity(rect.Height);
+    }
+
+    private static bool TryFindPreviewAnchor(
+        System.Windows.Documents.FlowDocument document,
+        int sourceIndex,
+        out System.Windows.Documents.TextElement element,
+        out System.Windows.Documents.TextPointer pointer)
+    {
+        element = null!;
+        pointer = null!;
+
+        System.Windows.Documents.TextElement? bestElement = null;
+        var bestStart = 0;
+        var bestDistance = int.MaxValue;
+        var bestRank = int.MaxValue;
+        var bestLength = int.MaxValue;
+
+        foreach (var candidate in EnumerateTextElements(document))
+        {
+            if (!MarkdownRenderer.TryGetSourceSpan(candidate, out var start, out var length))
+            {
+                continue;
+            }
+
+            var end = start + length;
+            var distance = sourceIndex < start
+                ? start - sourceIndex
+                : sourceIndex > end
+                    ? sourceIndex - end
+                    : 0;
+            var rank = candidate is System.Windows.Documents.Run
+                ? 0
+                : candidate is System.Windows.Documents.Inline
+                    ? 1
+                    : 2;
+
+            if (distance > bestDistance)
+            {
+                continue;
+            }
+
+            if (distance == bestDistance && (rank > bestRank || (rank == bestRank && length >= bestLength)))
+            {
+                continue;
+            }
+
+            bestElement = candidate;
+            bestStart = start;
+            bestDistance = distance;
+            bestRank = rank;
+            bestLength = length;
+        }
+
+        if (bestElement == null)
+        {
+            return false;
+        }
+
+        element = bestElement;
+        if (bestElement is System.Windows.Documents.Run run)
+        {
+            var offset = Math.Clamp(sourceIndex - bestStart, 0, run.Text.Length);
+            pointer = run.ContentStart.GetPositionAtOffset(offset, System.Windows.Documents.LogicalDirection.Forward)
+                      ?? run.ContentStart;
+            return true;
+        }
+
+        pointer = bestElement.ContentStart;
+        return true;
+    }
+
+    private static IEnumerable<System.Windows.Documents.TextElement> EnumerateTextElements(System.Windows.Documents.FlowDocument document)
+    {
+        foreach (System.Windows.Documents.Block block in document.Blocks)
+        {
+            foreach (var element in EnumerateBlockElements(block))
+            {
+                yield return element;
+            }
+        }
+    }
+
+    private static IEnumerable<System.Windows.Documents.TextElement> EnumerateBlockElements(System.Windows.Documents.Block block)
+    {
+        yield return block;
+
+        switch (block)
+        {
+            case System.Windows.Documents.Paragraph paragraph:
+                foreach (System.Windows.Documents.Inline inline in paragraph.Inlines)
+                {
+                    foreach (var element in EnumerateInlineElements(inline))
+                    {
+                        yield return element;
+                    }
+                }
+                break;
+
+            case System.Windows.Documents.Section section:
+                foreach (System.Windows.Documents.Block child in section.Blocks)
+                {
+                    foreach (var element in EnumerateBlockElements(child))
+                    {
+                        yield return element;
+                    }
+                }
+                break;
+
+            case System.Windows.Documents.List list:
+                foreach (System.Windows.Documents.ListItem item in list.ListItems)
+                {
+                    yield return item;
+                    foreach (System.Windows.Documents.Block child in item.Blocks)
+                    {
+                        foreach (var element in EnumerateBlockElements(child))
+                        {
+                            yield return element;
+                        }
+                    }
+                }
+                break;
+        }
+    }
+
+    private static IEnumerable<System.Windows.Documents.TextElement> EnumerateInlineElements(System.Windows.Documents.Inline inline)
+    {
+        yield return inline;
+
+        if (inline is not System.Windows.Documents.Span span)
+        {
+            yield break;
+        }
+
+        foreach (System.Windows.Documents.Inline child in span.Inlines)
+        {
+            foreach (var element in EnumerateInlineElements(child))
+            {
+                yield return element;
+            }
+        }
+    }
+
+    private static T? FindVisualChild<T>(DependencyObject parent) where T : DependencyObject
+    {
+        if (parent is T match)
+        {
+            return match;
+        }
+
+        var count = VisualTreeHelper.GetChildrenCount(parent);
+        for (var i = 0; i < count; i++)
+        {
+            var child = VisualTreeHelper.GetChild(parent, i);
+            var found = FindVisualChild<T>(child);
+            if (found != null)
+            {
+                return found;
+            }
         }
 
         return null;
