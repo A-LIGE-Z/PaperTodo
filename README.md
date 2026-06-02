@@ -234,7 +234,7 @@ GitHub Actions 会构建两个 Windows x64 单文件 exe，并直接作为 GitHu
   - 面向普通用户。
   - 自包含，包含 .NET Desktop Runtime。
   - 单文件，开启 ReadyToRun 和单文件压缩。
-- `PaperTodo-v<版本>-win-x64-framework-dependent.exe`
+- `PaperTodo-v<版本>-win-x64-no-runtime-uncompressed.exe`
   - 面向已安装对应 .NET Desktop Runtime 的环境。
   - 框架依赖，不携带运行库。
   - 单文件，不开启 ReadyToRun，不开启单文件压缩。
@@ -243,7 +243,7 @@ GitHub Actions 会构建两个 Windows x64 单文件 exe，并直接作为 GitHu
 
 ```powershell
 cosign verify-blob --certificate .\PaperTodo-v<版本>-win-x64-self-contained-compressed.exe.crt --signature .\PaperTodo-v<版本>-win-x64-self-contained-compressed.exe.sig --certificate-identity-regexp "^https://github[.]com/testsnow0722/PaperTodo/[.]github/workflows/release[.]yml@refs/(heads/main|tags/v.*)$" --certificate-oidc-issuer "https://token.actions.githubusercontent.com" .\PaperTodo-v<版本>-win-x64-self-contained-compressed.exe
-cosign verify-blob --certificate .\PaperTodo-v<版本>-win-x64-framework-dependent.exe.crt --signature .\PaperTodo-v<版本>-win-x64-framework-dependent.exe.sig --certificate-identity-regexp "^https://github[.]com/testsnow0722/PaperTodo/[.]github/workflows/release[.]yml@refs/(heads/main|tags/v.*)$" --certificate-oidc-issuer "https://token.actions.githubusercontent.com" .\PaperTodo-v<版本>-win-x64-framework-dependent.exe
+cosign verify-blob --certificate .\PaperTodo-v<版本>-win-x64-no-runtime-uncompressed.exe.crt --signature .\PaperTodo-v<版本>-win-x64-no-runtime-uncompressed.exe.sig --certificate-identity-regexp "^https://github[.]com/testsnow0722/PaperTodo/[.]github/workflows/release[.]yml@refs/(heads/main|tags/v.*)$" --certificate-oidc-issuer "https://token.actions.githubusercontent.com" .\PaperTodo-v<版本>-win-x64-no-runtime-uncompressed.exe
 ```
 
 这个签名用于证明产物来自本仓库的 GitHub Actions 构建；它不是 Windows Authenticode 代码签名，所以 Windows 仍可能显示未知发布者。
@@ -252,7 +252,7 @@ cosign verify-blob --certificate .\PaperTodo-v<版本>-win-x64-framework-depende
 
 ```powershell
 Get-FileHash .\PaperTodo-v<版本>-win-x64-self-contained-compressed.exe -Algorithm SHA256
-Get-FileHash .\PaperTodo-v<版本>-win-x64-framework-dependent.exe -Algorithm SHA256
+Get-FileHash .\PaperTodo-v<版本>-win-x64-no-runtime-uncompressed.exe -Algorithm SHA256
 ```
 
 ---
@@ -506,3 +506,11 @@ Get-FileHash .\PaperTodo-v<版本>-win-x64-framework-dependent.exe -Algorithm SH
 - **Markdown 预览缓存修正**：预览缓存同步记录深浅色状态，切换主题或文本变化后不会复用错误主题下的旧文档。
 - **崩溃日志补充**：启动失败和全局未处理异常会追加写入 `PaperTodo.crash.log`，便于定位无法通过弹窗展示的内部异常；日志超过 100KB 时会自动保留最近内容，避免长期累积。
 - **发布策略明确**：主发布版采用自包含、单文件、ReadyToRun、压缩、不 Trim；轻量版采用框架依赖单文件、不 ReadyToRun、不 Trim，并明确需要用户安装 .NET Desktop Runtime。
+
+### v1.4 发布流程与版本整理
+
+- **版本号更新**：项目程序集版本、文件版本、显示版本和资源文本版本标记统一更新为 `1.4`。
+- **Markdown 渲染逻辑修复**：修复笔记纸在编辑和预览切换时的 Markdown 渲染锚点与滚动定位逻辑，点击预览内容返回编辑时能更稳定地落到对应文本位置。
+- **云端双产物默认构建**：默认 GitHub Actions 发布流程继续构建两份 Windows x64 单文件 exe：一份自包含、ReadyToRun、压缩并携带运行库；一份框架依赖、不压缩、不携带运行库。
+- **轻量版命名明确**：不携带运行库的产物命名改为 `PaperTodo-v<版本>-win-x64-no-runtime-uncompressed.exe`，让下载页直接区分运行库和压缩策略。
+- **发布说明同步**：README、开发设计文档和 release workflow 的发布参数保持一致，减少后续发版时的人工核对成本。

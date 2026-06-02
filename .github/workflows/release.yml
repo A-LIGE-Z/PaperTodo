@@ -55,7 +55,7 @@ jobs:
 
           "version=$version" >> $env:GITHUB_OUTPUT
           "self_contained_exe=PaperTodo-v$version-win-x64-self-contained-compressed.exe" >> $env:GITHUB_OUTPUT
-          "framework_dependent_exe=PaperTodo-v$version-win-x64-framework-dependent.exe" >> $env:GITHUB_OUTPUT
+          "framework_dependent_exe=PaperTodo-v$version-win-x64-no-runtime-uncompressed.exe" >> $env:GITHUB_OUTPUT
 
       - name: Restore
         run: dotnet restore .\PaperTodo.csproj
@@ -67,7 +67,7 @@ jobs:
         run: |
           $releaseDir = Join-Path $env:GITHUB_WORKSPACE "release"
           $selfContainedOut = Join-Path $env:RUNNER_TEMP "publish-self-contained-compressed"
-          $frameworkDependentOut = Join-Path $env:RUNNER_TEMP "publish-framework-dependent"
+          $frameworkDependentOut = Join-Path $env:RUNNER_TEMP "publish-no-runtime-uncompressed"
 
           Remove-Item -LiteralPath $releaseDir, $selfContainedOut, $frameworkDependentOut -Recurse -Force -ErrorAction SilentlyContinue
           New-Item -ItemType Directory -Force -Path $releaseDir, $selfContainedOut, $frameworkDependentOut | Out-Null
@@ -94,6 +94,7 @@ jobs:
             -o $frameworkDependentOut `
             /p:PublishSingleFile=true `
             /p:PublishReadyToRun=false `
+            /p:EnableCompressionInSingleFile=false `
             /p:PublishTrimmed=false `
             /p:DebugType=none `
             /p:DebugSymbols=false
@@ -193,7 +194,7 @@ jobs:
           Windows x64 executables:
 
           - $selfContained: self-contained single file, includes .NET Desktop Runtime, ReadyToRun enabled, single-file compression enabled.
-          - $frameworkDependent: framework-dependent single file, does not include .NET Desktop Runtime, ReadyToRun disabled, single-file compression disabled.
+          - $frameworkDependent: no-runtime framework-dependent single file, ReadyToRun disabled, single-file compression disabled.
 
           SHA256 hashes are included in SHA256SUMS.txt.
 
