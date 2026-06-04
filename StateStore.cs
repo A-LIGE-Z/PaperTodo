@@ -151,6 +151,11 @@ public sealed class StateStore
             state.Theme = "system";
         }
 
+        if (!MarkdownRenderModes.IsValid(state.MarkdownRenderMode))
+        {
+            state.MarkdownRenderMode = MarkdownRenderModes.Enhanced;
+        }
+
         if (!state.UseCapsuleMode)
         {
             state.UseDeepCapsuleMode = false;

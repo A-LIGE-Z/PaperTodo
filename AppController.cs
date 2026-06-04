@@ -140,7 +140,8 @@ public sealed partial class AppController : IDisposable
             Y = newY,
             Width = type == PaperTypes.Note ? PaperLayoutDefaults.NoteDefaultWidth : PaperLayoutDefaults.TodoDefaultWidth,
             Height = type == PaperTypes.Note ? PaperLayoutDefaults.NoteDefaultHeight : PaperLayoutDefaults.TodoDefaultHeight,
-            IsVisible = show
+            IsVisible = show,
+            AlwaysOnTop = sourcePaper?.AlwaysOnTop ?? false
         };
 
         RescuePaperIfOffScreen(paper, State.Papers.Count);
@@ -163,6 +164,10 @@ public sealed partial class AppController : IDisposable
             try
             {
                 ShowPaper(paper);
+                if (sourcePaper != null && _windows.TryGetValue(paper.Id, out var window))
+                {
+                    ForceWindowToFront(window);
+                }
             }
             finally
             {
@@ -263,6 +268,17 @@ public sealed partial class AppController : IDisposable
         }
         RefreshTrayMenu();
         MarkDirty();
+    }
+
+    private static void ForceWindowToFront(Window window)
+    {
+        var restoreTopmost = window.Topmost;
+        window.Topmost = true;
+        window.Activate();
+        window.Focus();
+        window.Dispatcher.BeginInvoke(
+            () => window.Topmost = restoreTopmost,
+            DispatcherPriority.ApplicationIdle);
     }
 
     public void HidePaper(PaperData paper)
@@ -928,6 +944,18 @@ public sealed partial class AppController : IDisposable
         };
         _trayMenu.Items.Add(themeMenuItem);
 
+        _trayMenu.Items.Add(TrayHeader(Strings.Get("TrayMarkdownRenderMode")));
+
+        var markdownMenuItem = new MenuItem
+        {
+            Header = CreateMarkdownRenderSegmentSelector(),
+            Template = SharedSegmentMenuItemTemplate,
+            HorizontalContentAlignment = HorizontalAlignment.Stretch,
+            Focusable = false,
+            IsTabStop = false
+        };
+        _trayMenu.Items.Add(markdownMenuItem);
+
         var startupPrefix = SystemSettingsHelper.IsStartupEnabled() ? "☑ " : "☐ ";
         _trayMenu.Items.Add(TrayItem(startupPrefix + Strings.Get("TrayStartup"), ToggleStartup));
 
@@ -971,6 +999,48 @@ public sealed partial class AppController : IDisposable
 
     private UIElement CreateThemeSegmentSelector()
     {
+        var segments = new[]
+        {
+            ("system", Strings.Get("ThemeSystem")),
+            ("light", Strings.Get("ThemeLight")),
+            ("dark", Strings.Get("ThemeDark"))
+        };
+
+        return CreateSegmentSelector(segments, State.Theme, SetTheme);
+    }
+
+    private void SetMarkdownRenderMode(string mode)
+    {
+        if (!MarkdownRenderModes.IsValid(mode))
+        {
+            return;
+        }
+
+        State.MarkdownRenderMode = mode;
+        SaveNow();
+
+        foreach (var window in _windows.Values)
+        {
+            window.UpdateMarkdownRenderMode();
+        }
+
+        RebuildTrayMenu();
+    }
+
+    private UIElement CreateMarkdownRenderSegmentSelector()
+    {
+        var segments = new[]
+        {
+            (MarkdownRenderModes.Off, Strings.Get("MarkdownRenderOff")),
+            (MarkdownRenderModes.Basic, Strings.Get("MarkdownRenderBasic")),
+            (MarkdownRenderModes.Enhanced, Strings.Get("MarkdownRenderEnhanced"))
+        };
+
+        return CreateSegmentSelector(segments, State.MarkdownRenderMode, SetMarkdownRenderMode);
+    }
+
+    private UIElement CreateSegmentSelector((string Key, string Label)[] segments, string activeKey, Action<string> onSelect)
+    {
         var container = new Border
         {
             BorderBrush = TrayBorderBrush,
@@ -983,22 +1053,16 @@ public sealed partial class AppController : IDisposable
         };
 
         var grid = new Grid();
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-
-        var segments = new[]
+        for (var i = 0; i < segments.Length; i++)
         {
-            ("system", Strings.Get("ThemeSystem")),
-            ("light", Strings.Get("ThemeLight")),
-            ("dark", Strings.Get("ThemeDark"))
-        };
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        }
 
         for (int i = 0; i < segments.Length; i++)
         {
-            var themeKey = segments[i].Item1;
-            var label = segments[i].Item2;
-            var isActive = State.Theme == themeKey;
+            var key = segments[i].Key;
+            var label = segments[i].Label;
+            var isActive = activeKey == key;
 
             var segmentBorder = new Border
             {
@@ -1015,7 +1079,8 @@ public sealed partial class AppController : IDisposable
                 VerticalAlignment = VerticalAlignment.Center,
                 FontSize = 12,
                 FontWeight = isActive ? FontWeights.SemiBold : FontWeights.Normal,
-                Foreground = isActive ? TrayPaperBrush : TrayTextBrush
+                Foreground = isActive ? TrayPaperBrush : TrayTextBrush,
+                TextTrimming = TextTrimming.CharacterEllipsis
             };
 
             segmentBorder.Child = textBlock;
@@ -1038,7 +1103,7 @@ public sealed partial class AppController : IDisposable
                 {
                     _trayMenu.IsOpen = false;
                 }
-                SetTheme(themeKey);
+                onSelect(key);
             };
 
             Grid.SetColumn(segmentBorder, i);

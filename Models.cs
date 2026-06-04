@@ -21,12 +21,25 @@ public static class PaperLayoutDefaults
     public const double NoteDefaultHeight = 360;
 }
 
+public static class MarkdownRenderModes
+{
+    public const string Off = "off";
+    public const string Basic = "basic";
+    public const string Enhanced = "enhanced";
+
+    public static bool IsValid(string? mode)
+    {
+        return mode is Off or Basic or Enhanced;
+    }
+}
+
 public sealed class AppState
 {
     public List<PaperData> Papers { get; set; } = new();
     public string Theme { get; set; } = "system";
-    public bool UseCapsuleMode { get; set; } = false;
-    public bool UseDeepCapsuleMode { get; set; } = false;
+    public string MarkdownRenderMode { get; set; } = MarkdownRenderModes.Enhanced;
+    public bool UseCapsuleMode { get; set; } = true;
+    public bool UseDeepCapsuleMode { get; set; } = true;
 }
 
 public sealed class PaperData

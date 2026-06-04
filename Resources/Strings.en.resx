@@ -16,7 +16,7 @@
     <value>Startup failed: unable to load the data file. It may be in use or corrupted.&#x0A;To prevent your data from being overwritten with an empty state, the app has stopped safely.&#x0A;&#x0A;Error: {0}</value>
   </data>
   <data name="ResourceTextVersion" xml:space="preserve">
-    <value>1.4</value>
+    <value>1.6</value>
   </data>
   <data name="AppStartupFailureTitle" xml:space="preserve">
     <value>PaperTodo - Error</value>
@@ -65,6 +65,15 @@
   </data>
   <data name="MarkdownDefaultLinkLabel" xml:space="preserve">
     <value>Link</value>
+  </data>
+  <data name="MarkdownRenderBasic" xml:space="preserve">
+    <value>On</value>
+  </data>
+  <data name="MarkdownRenderEnhanced" xml:space="preserve">
+    <value>Enhanced</value>
+  </data>
+  <data name="MarkdownRenderOff" xml:space="preserve">
+    <value>Off</value>
   </data>
   <data name="MarkdownPreviewFailure" xml:space="preserve">
     <value>*Preview failed. The original text was kept. Error: {0}*</value>
@@ -200,6 +209,9 @@
   </data>
   <data name="TrayHideAll" xml:space="preserve">
     <value>Hide all papers</value>
+  </data>
+  <data name="TrayMarkdownRenderMode" xml:space="preserve">
+    <value>MD parsing</value>
   </data>
   <data name="TrayInlineConfirmDelete" xml:space="preserve">
     <value>⚠ Delete</value>

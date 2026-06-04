@@ -16,7 +16,7 @@
     <value>起動に失敗しました: データファイルを読み込めません。ファイルが使用中、または破損している可能性があります。&#x0A;データが空の状態で上書きされないよう、アプリは安全に停止しました。&#x0A;&#x0A;エラー: {0}</value>
   </data>
   <data name="ResourceTextVersion" xml:space="preserve">
-    <value>1.4</value>
+    <value>1.6</value>
   </data>
   <data name="AppStartupFailureTitle" xml:space="preserve">
     <value>PaperTodo - エラー</value>
@@ -65,6 +65,15 @@
   </data>
   <data name="MarkdownDefaultLinkLabel" xml:space="preserve">
     <value>リンク</value>
+  </data>
+  <data name="MarkdownRenderBasic" xml:space="preserve">
+    <value>有効</value>
+  </data>
+  <data name="MarkdownRenderEnhanced" xml:space="preserve">
+    <value>強化</value>
+  </data>
+  <data name="MarkdownRenderOff" xml:space="preserve">
+    <value>無効</value>
   </data>
   <data name="MarkdownPreviewFailure" xml:space="preserve">
     <value>*プレビューに失敗しました。原文は保持されました。エラー: {0}*</value>
@@ -200,6 +209,9 @@
   </data>
   <data name="TrayHideAll" xml:space="preserve">
     <value>すべての紙片を隠す</value>
+  </data>
+  <data name="TrayMarkdownRenderMode" xml:space="preserve">
+    <value>MD 解析</value>
   </data>
   <data name="TrayInlineConfirmDelete" xml:space="preserve">
     <value>⚠ 削除</value>

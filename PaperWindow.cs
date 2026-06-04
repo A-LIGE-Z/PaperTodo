@@ -46,8 +46,10 @@ public sealed partial class PaperWindow : Window
     private readonly PaperData _paper;
     private readonly AppController _controller;
 
+    private Border _paperChrome = null!;
     private readonly Grid _containerGrid = new();
     private readonly Grid _shell = new();
+    private readonly ScaleTransform _chromeScale = new(1.0, 1.0);
     private Canvas? _dragLayer;
     private StackPanel? _todoPanel;
     private Button? _paperIconButton;
@@ -80,10 +82,20 @@ public sealed partial class PaperWindow : Window
     private double _startTransitionHeight;
     private double _targetTransitionWidth;
     private double _targetTransitionHeight;
+    private double _transitionBaseWidth;
+    private double _transitionBaseHeight;
+    private bool _isTransitionVisualsActive;
     private const double DeepCapsuleVisibleWidth = PaperLayoutDefaults.CapsuleWidth / 2 + 10;
     private const double DeepCapsuleHoverOutsideOffset = 8;
     private const double DeepCapsuleTopMargin = 8;
     private const double DeepCapsuleGap = 4;
+    private const double WindowChromeMargin = 8;
+    private const double WindowChromeInset = WindowChromeMargin * 2;
+    private const int CollapseShellFadeMilliseconds = 70;
+    private const int CollapseResizeMilliseconds = 150;
+    private const int ExpandAnimationMilliseconds = 220;
+    private const double ExpandedChromeCornerRadius = 14;
+    private const double CapsuleChromeCornerRadius = 18;
 
     public bool IsDeepCapsulePlaced => _isDeepCapsulePlaced;
     public bool SuppressGeometrySave => _suppressGeometrySave || _isDeepCapsulePlaced;
@@ -460,6 +472,8 @@ public sealed partial class PaperWindow : Window
         AllowsTransparency = true;
         Background = Brushes.Transparent;
         FontFamily = new FontFamily("Segoe UI");
+        SnapsToDevicePixels = true;
+        UseLayoutRounding = true;
     }
 
     private void InitializeThemeResources()
@@ -502,6 +516,14 @@ public sealed partial class PaperWindow : Window
         }
     }
 
+    public void UpdateMarkdownRenderMode()
+    {
+        if (_paper.Type == PaperTypes.Note && _noteBox != null)
+        {
+            _noteBox.SetMarkdownRenderMode(_controller.State.MarkdownRenderMode);
+        }
+    }
+
     private void ExitNoteEditor()
     {
         if (_paper.Type != PaperTypes.Note || _noteBox == null)
@@ -520,11 +542,21 @@ public sealed partial class PaperWindow : Window
 
     private void BuildShell()
     {
-        var root = new Border
+        var windowHost = new Grid
         {
-            Margin = new Thickness(8),
-            CornerRadius = new CornerRadius(14),
+            Background = Brushes.Transparent,
+            ClipToBounds = false
+        };
+        Content = windowHost;
+
+        _paperChrome = new Border
+        {
+            Margin = new Thickness(WindowChromeMargin),
+            CornerRadius = PaperChromeCornerRadiusForState(_paper.IsCollapsed && _controller.State.UseCapsuleMode),
             BorderThickness = new Thickness(1),
+            RenderTransform = _chromeScale,
+            RenderTransformOrigin = new Point(0, 0),
+            SnapsToDevicePixels = true,
             Effect = new DropShadowEffect
             {
                 BlurRadius = 14,
@@ -532,13 +564,14 @@ public sealed partial class PaperWindow : Window
                 Opacity = 0.18
             }
         };
-        root.SetResourceReference(Border.BackgroundProperty, "PaperBrushKey");
-        root.SetResourceReference(Border.BorderBrushProperty, "PaperBorderBrushKey");
+        _paperChrome.SetResourceReference(Border.BackgroundProperty, "PaperBrushKey");
+        _paperChrome.SetResourceReference(Border.BorderBrushProperty, "PaperBorderBrushKey");
 
-        Content = root;
+        windowHost.Children.Add(_paperChrome);
 
         _containerGrid.Background = Brushes.Transparent;
-        root.Child = _containerGrid;
+        _containerGrid.ClipToBounds = false;
+        _paperChrome.Child = _containerGrid;
 
         _shell.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         _shell.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
@@ -550,7 +583,11 @@ public sealed partial class PaperWindow : Window
         BuildDragLayer();
 
         BuildCapsuleShell();
-        _containerGrid.Children.Add(_capsuleShell);
+        _capsuleShell.Margin = new Thickness(WindowChromeMargin);
+        _capsuleShell.HorizontalAlignment = HorizontalAlignment.Left;
+        _capsuleShell.VerticalAlignment = VerticalAlignment.Top;
+        Panel.SetZIndex(_capsuleShell, 10);
+        windowHost.Children.Add(_capsuleShell);
 
         if (_paper.IsCollapsed && _controller.State.UseCapsuleMode)
         {
@@ -567,7 +604,7 @@ public sealed partial class PaperWindow : Window
             _capsuleShell.Opacity = 0;
         }
 
-        root.ContextMenu = BuildPaperContextMenu();
+        _paperChrome.ContextMenu = BuildPaperContextMenu();
     }
 
     private void BuildDragLayer()
@@ -721,6 +758,7 @@ public sealed partial class PaperWindow : Window
         };
         NoteTypography.ApplyTextRendering(_noteBox);
         var box = _noteBox;
+        box.SetMarkdownRenderMode(_controller.State.MarkdownRenderMode);
 
         host.Children.Add(box);
         var editorMenu = CreateContextMenu();
@@ -2414,18 +2452,119 @@ public sealed partial class PaperWindow : Window
         set => SetValue(TransitionProgressProperty, value);
     }
 
+    private static readonly DependencyProperty DeepCapsuleAnimatedLeftProperty =
+        DependencyProperty.Register(
+            nameof(DeepCapsuleAnimatedLeft),
+            typeof(double),
+            typeof(PaperWindow),
+            new PropertyMetadata(double.NaN, OnDeepCapsuleAnimatedLeftChanged));
+
+    private double DeepCapsuleAnimatedLeft
+    {
+        get => (double)GetValue(DeepCapsuleAnimatedLeftProperty);
+        set => SetValue(DeepCapsuleAnimatedLeftProperty, value);
+    }
+
     private static void OnTransitionProgressChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
     {
         if (d is PaperWindow window)
         {
-            window.UpdateTransitionSize((double)e.NewValue);
+            window.UpdateTransitionVisuals((double)e.NewValue);
         }
     }
 
-    private void UpdateTransitionSize(double progress)
+    private static void OnDeepCapsuleAnimatedLeftChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
     {
-        Width = _startTransitionWidth + (_targetTransitionWidth - _startTransitionWidth) * progress;
-        Height = _startTransitionHeight + (_targetTransitionHeight - _startTransitionHeight) * progress;
+        if (d is not PaperWindow window || e.NewValue is not double left || double.IsNaN(left) || double.IsInfinity(left))
+        {
+            return;
+        }
+
+        window.MoveWindowWithoutGeometrySave(() => window.Left = window.RoundToDevicePixelX(left));
+    }
+
+    private void UpdateTransitionVisuals(double progress)
+    {
+        if (!_isTransitionVisualsActive)
+        {
+            return;
+        }
+
+        var currentProgress = double.IsNaN(progress) || double.IsInfinity(progress)
+            ? 0.0
+            : Math.Clamp(progress, 0.0, 1.0);
+
+        var visualWidth = _startTransitionWidth + (_targetTransitionWidth - _startTransitionWidth) * currentProgress;
+        var visualHeight = _startTransitionHeight + (_targetTransitionHeight - _startTransitionHeight) * currentProgress;
+        var baseChromeWidth = Math.Max(1.0, _transitionBaseWidth - WindowChromeInset);
+        var baseChromeHeight = Math.Max(1.0, _transitionBaseHeight - WindowChromeInset);
+        var chromeScaleX = Math.Max(0.01, (visualWidth - WindowChromeInset) / baseChromeWidth);
+        var chromeScaleY = Math.Max(0.01, (visualHeight - WindowChromeInset) / baseChromeHeight);
+
+        _chromeScale.ScaleX = chromeScaleX;
+        _chromeScale.ScaleY = chromeScaleY;
+        UpdateTransitionCornerRadius(visualWidth, visualHeight, baseChromeWidth, baseChromeHeight, chromeScaleX, chromeScaleY);
+    }
+
+    private void ResetTransitionVisuals()
+    {
+        _isTransitionVisualsActive = false;
+        _chromeScale.ScaleX = 1.0;
+        _chromeScale.ScaleY = 1.0;
+        _paperChrome.CornerRadius = PaperChromeCornerRadiusForState(_paper.IsCollapsed && _controller.State.UseCapsuleMode);
+    }
+
+    private void UpdateTransitionCornerRadius(
+        double visualWidth,
+        double visualHeight,
+        double baseChromeWidth,
+        double baseChromeHeight,
+        double chromeScaleX,
+        double chromeScaleY)
+    {
+        var visualChromeWidth = Math.Max(1.0, visualWidth - WindowChromeInset);
+        var visualChromeHeight = Math.Max(1.0, visualHeight - WindowChromeInset);
+        var visualChromeMin = Math.Min(visualChromeWidth, visualChromeHeight);
+        var expandedChromeMin = Math.Max(1.0, Math.Min(baseChromeWidth, baseChromeHeight));
+        var capsuleChromeMin = Math.Max(
+            1.0,
+            Math.Min(
+                PaperLayoutDefaults.CapsuleWidth - WindowChromeInset,
+                PaperLayoutDefaults.CapsuleHeight - WindowChromeInset));
+        var compactRange = Math.Max(1.0, expandedChromeMin - capsuleChromeMin);
+        var compactness = Math.Clamp((expandedChromeMin - visualChromeMin) / compactRange, 0.0, 1.0);
+        var compactVisualRadius = Math.Min(CapsuleChromeCornerRadius, visualChromeMin / 2.0);
+        var desiredVisualRadius = ExpandedChromeCornerRadius + (compactVisualRadius - ExpandedChromeCornerRadius) * compactness;
+        var minScale = Math.Max(0.01, Math.Min(chromeScaleX, chromeScaleY));
+        var maxLayoutRadius = Math.Max(ExpandedChromeCornerRadius, Math.Min(baseChromeWidth, baseChromeHeight) / 2.0);
+        var layoutRadius = Math.Clamp(desiredVisualRadius / minScale, ExpandedChromeCornerRadius, maxLayoutRadius);
+
+        _paperChrome.CornerRadius = new CornerRadius(layoutRadius);
+    }
+
+    private static CornerRadius PaperChromeCornerRadiusForState(bool collapsed)
+    {
+        return new CornerRadius(collapsed ? CapsuleChromeCornerRadius : ExpandedChromeCornerRadius);
+    }
+
+    private double RoundToDevicePixelX(double value)
+    {
+        return RoundToDevicePixel(value, VisualTreeHelper.GetDpi(this).DpiScaleX);
+    }
+
+    private double RoundToDevicePixelY(double value)
+    {
+        return RoundToDevicePixel(value, VisualTreeHelper.GetDpi(this).DpiScaleY);
+    }
+
+    private static double RoundToDevicePixel(double value, double scale)
+    {
+        if (double.IsNaN(value) || double.IsInfinity(value) || scale <= 0)
+        {
+            return value;
+        }
+
+        return Math.Round(value * scale, MidpointRounding.AwayFromZero) / scale;
     }
 
     private void SaveGeometryIfAllowed()
@@ -2454,6 +2593,7 @@ public sealed partial class PaperWindow : Window
 
     private void ClearDeepCapsulePositionAnimation()
     {
+        BeginAnimation(DeepCapsuleAnimatedLeftProperty, null);
         BeginAnimation(Window.LeftProperty, null);
     }
 
@@ -2478,10 +2618,10 @@ public sealed partial class PaperWindow : Window
         }
 
         var area = DeepCapsuleWorkArea();
-        var targetLeft = Math.Round(_isDeepCapsuleHovering
+        var targetLeft = RoundToDevicePixelX(_isDeepCapsuleHovering
             ? area.Right - PaperLayoutDefaults.CapsuleWidth + DeepCapsuleHoverOutsideOffset
             : area.Right - DeepCapsuleVisibleWidth);
-        var targetTop = Math.Round(DeepCapsuleTopForIndex(_deepCapsuleIndex));
+        var targetTop = RoundToDevicePixelY(DeepCapsuleTopForIndex(_deepCapsuleIndex));
 
         MoveWindowWithoutGeometrySave(() =>
         {
@@ -2497,7 +2637,7 @@ public sealed partial class PaperWindow : Window
             return;
         }
 
-        var currentLeft = double.IsNaN(Left) || double.IsInfinity(Left) ? targetLeft : Left;
+        var currentLeft = double.IsNaN(Left) || double.IsInfinity(Left) ? targetLeft : RoundToDevicePixelX(Left);
         if (Math.Abs(currentLeft - targetLeft) < 0.5)
         {
             ClearDeepCapsulePositionAnimation();
@@ -2530,7 +2670,7 @@ public sealed partial class PaperWindow : Window
             });
         };
 
-        BeginAnimation(Window.LeftProperty, leftAnimation, System.Windows.Media.Animation.HandoffBehavior.SnapshotAndReplace);
+        BeginAnimation(DeepCapsuleAnimatedLeftProperty, leftAnimation, System.Windows.Media.Animation.HandoffBehavior.SnapshotAndReplace);
     }
 
     private void SetDeepCapsuleHover(bool hovering)
@@ -2571,8 +2711,8 @@ public sealed partial class PaperWindow : Window
         {
             MoveWindowWithoutGeometrySave(() =>
             {
-                Left = _paper.X;
-                Top = _paper.Y;
+                Left = RoundToDevicePixelX(_paper.X);
+                Top = RoundToDevicePixelY(_paper.Y);
                 Width = PaperLayoutDefaults.CapsuleWidth;
                 Height = PaperLayoutDefaults.CapsuleHeight;
             });
@@ -2600,8 +2740,8 @@ public sealed partial class PaperWindow : Window
         var height = Math.Max(targetHeight, PaperLayoutDefaults.MinHeight);
         var targetTop = Math.Clamp(Top, area.Top + DeepCapsuleTopMargin, Math.Max(area.Top + DeepCapsuleTopMargin, area.Bottom - height - DeepCapsuleTopMargin));
 
-        Left = Math.Round(area.Right - width);
-        Top = Math.Round(targetTop);
+        Left = RoundToDevicePixelX(area.Right - width);
+        Top = RoundToDevicePixelY(targetTop);
     }
 
     private void RegisterNameSafe(string name, object scopedElement)
@@ -2673,10 +2813,7 @@ public sealed partial class PaperWindow : Window
             RefreshEffectiveTopmost();
         }
 
-        if (Content is Border root)
-        {
-            root.ContextMenu = BuildPaperContextMenu();
-        }
+        _paperChrome.ContextMenu = BuildPaperContextMenu();
     }
 
     private void RefreshCapsuleLabel()
@@ -2889,6 +3026,7 @@ public sealed partial class PaperWindow : Window
             BeginAnimation(TransitionProgressProperty, null);
             _shell.BeginAnimation(UIElement.OpacityProperty, null);
             _capsuleShell.BeginAnimation(UIElement.OpacityProperty, null);
+            ResetTransitionVisuals();
 
             _shell.Width = double.NaN;
             _shell.Height = double.NaN;
@@ -2899,6 +3037,8 @@ public sealed partial class PaperWindow : Window
 
         double targetWidth = collapsed ? PaperLayoutDefaults.CapsuleWidth : _paper.Width;
         double targetHeight = collapsed ? PaperLayoutDefaults.CapsuleHeight : _paper.Height;
+        double finalTargetWidth = RoundToDevicePixelX(targetWidth);
+        double finalTargetHeight = RoundToDevicePixelY(targetHeight);
         var arrangeDeepCapsulesAfterCollapse = collapsed && _controller.State.UseCapsuleMode && _controller.State.UseDeepCapsuleMode;
 
         var wasDeepCapsulePlaced = _isDeepCapsulePlaced;
@@ -2909,30 +3049,19 @@ public sealed partial class PaperWindow : Window
             ClearDeepCapsulePlacement(restoreCollapsedPosition: false);
             if (alignExpandedToRight || wasDeepCapsulePlaced)
             {
-                MoveWindowWithoutGeometrySave(() => AlignExpandedToRightEdge(targetWidth, targetHeight));
+                MoveWindowWithoutGeometrySave(() => AlignExpandedToRightEdge(finalTargetWidth, finalTargetHeight));
             }
         }
 
         RefreshEffectiveTopmost();
         _controller.MarkDirty();
 
-        var root = Content as Border;
-        if (root == null)
-        {
-            _isApplyingCollapsedState = false;
-            return;
-        }
-
         if (collapsed)
         {
             RefreshCapsuleLabel();
             _capsuleShell.Visibility = Visibility.Visible;
 
-            MinWidth = PaperLayoutDefaults.CapsuleWidth;
-            MinHeight = PaperLayoutDefaults.CapsuleHeight;
-            ResizeMode = ResizeMode.NoResize;
-
-            if (root.Effect is System.Windows.Media.Effects.DropShadowEffect shadow)
+            if (_paperChrome.Effect is System.Windows.Media.Effects.DropShadowEffect shadow)
             {
                 shadow.BlurRadius = 8;
                 shadow.Opacity = 0.08;
@@ -2947,7 +3076,7 @@ public sealed partial class PaperWindow : Window
                 RebuildTodoRows();
             }
 
-            if (root.Effect is System.Windows.Media.Effects.DropShadowEffect shadow)
+            if (_paperChrome.Effect is System.Windows.Media.Effects.DropShadowEffect shadow)
             {
                 shadow.BlurRadius = 14;
                 shadow.Opacity = 0.18;
@@ -2956,16 +3085,27 @@ public sealed partial class PaperWindow : Window
 
         if (animate)
         {
-            _startTransitionWidth = Width;
-            _startTransitionHeight = Height;
-            _targetTransitionWidth = targetWidth;
-            _targetTransitionHeight = targetHeight;
+            var expandedWidth = collapsed ? RoundToDevicePixelX(Width) : finalTargetWidth;
+            var expandedHeight = collapsed ? RoundToDevicePixelY(Height) : finalTargetHeight;
+            _transitionBaseWidth = expandedWidth;
+            _transitionBaseHeight = expandedHeight;
+            _startTransitionWidth = collapsed ? expandedWidth : PaperLayoutDefaults.CapsuleWidth;
+            _startTransitionHeight = collapsed ? expandedHeight : PaperLayoutDefaults.CapsuleHeight;
+            _targetTransitionWidth = collapsed ? finalTargetWidth : expandedWidth;
+            _targetTransitionHeight = collapsed ? finalTargetHeight : expandedHeight;
+            _isTransitionVisualsActive = true;
 
             // Prevent shell content reflow/wrapping by locking its size to the expanded dimensions
-            double expandedWidth = collapsed ? _startTransitionWidth : _targetTransitionWidth;
-            double expandedHeight = collapsed ? _startTransitionHeight : _targetTransitionHeight;
-            _shell.Width = Math.Max(0, expandedWidth - 16);
-            _shell.Height = Math.Max(0, expandedHeight - 16);
+            _shell.Width = Math.Max(0, expandedWidth - WindowChromeInset);
+            _shell.Height = Math.Max(0, expandedHeight - WindowChromeInset);
+
+            TransitionProgress = 0.0;
+            UpdateTransitionVisuals(0.0);
+            if (!collapsed)
+            {
+                Width = expandedWidth;
+                Height = expandedHeight;
+            }
 
             var easeOut = new System.Windows.Media.Animation.CubicEase { EasingMode = System.Windows.Media.Animation.EasingMode.EaseOut };
 
@@ -2973,7 +3113,8 @@ public sealed partial class PaperWindow : Window
             {
                 From = 0.0,
                 To = 1.0,
-                Duration = TimeSpan.FromMilliseconds(collapsed ? 200 : 220),
+                Duration = TimeSpan.FromMilliseconds(collapsed ? CollapseResizeMilliseconds : ExpandAnimationMilliseconds),
+                BeginTime = collapsed ? TimeSpan.FromMilliseconds(CollapseShellFadeMilliseconds) : TimeSpan.Zero,
                 EasingFunction = easeOut
             };
 
@@ -2986,7 +3127,7 @@ public sealed partial class PaperWindow : Window
                 {
                     From = 1.0,
                     To = 0.0,
-                    Duration = TimeSpan.FromMilliseconds(80),
+                    Duration = TimeSpan.FromMilliseconds(CollapseShellFadeMilliseconds),
                     EasingFunction = easeOut
                 };
                 _shell.BeginAnimation(UIElement.OpacityProperty, fadeOutShell);
@@ -2995,8 +3136,8 @@ public sealed partial class PaperWindow : Window
                 {
                     From = 0.0,
                     To = 1.0,
-                    Duration = TimeSpan.FromMilliseconds(120),
-                    BeginTime = TimeSpan.FromMilliseconds(80),
+                    Duration = TimeSpan.FromMilliseconds(CollapseResizeMilliseconds),
+                    BeginTime = TimeSpan.FromMilliseconds(CollapseShellFadeMilliseconds),
                     EasingFunction = easeOut
                 };
                 _capsuleShell.BeginAnimation(UIElement.OpacityProperty, fadeInCapsule);
@@ -3030,6 +3171,7 @@ public sealed partial class PaperWindow : Window
             {
                 // 1. Set local values before clearing animations to prevent snapping/flicker
                 TransitionProgress = 1.0;
+                UpdateTransitionVisuals(1.0);
 
                 if (collapsed)
                 {
@@ -3044,25 +3186,33 @@ public sealed partial class PaperWindow : Window
                     _capsuleShell.Visibility = Visibility.Collapsed;
                 }
 
-                Width = targetWidth;
-                Height = targetHeight;
-
-                // 2. Clear animations
-                BeginAnimation(TransitionProgressProperty, null);
-                _shell.BeginAnimation(UIElement.OpacityProperty, null);
-                _capsuleShell.BeginAnimation(UIElement.OpacityProperty, null);
-
-                // 3. Unlock shell layout
-                _shell.Width = double.NaN;
-                _shell.Height = double.NaN;
-
-                // 4. Update window constraints
-                if (!collapsed)
+                if (collapsed)
+                {
+                    MinWidth = PaperLayoutDefaults.CapsuleWidth;
+                    MinHeight = PaperLayoutDefaults.CapsuleHeight;
+                    ResizeMode = ResizeMode.NoResize;
+                }
+                else
                 {
                     MinWidth = PaperLayoutDefaults.MinWidth;
                     MinHeight = PaperLayoutDefaults.MinHeight;
                     ResizeMode = ResizeMode.CanResizeWithGrip;
                 }
+
+                Width = finalTargetWidth;
+                Height = finalTargetHeight;
+                // Re-measure at the final window size before removing the visual scale.
+                UpdateLayout();
+
+                // 2. Clear animations
+                BeginAnimation(TransitionProgressProperty, null);
+                _shell.BeginAnimation(UIElement.OpacityProperty, null);
+                _capsuleShell.BeginAnimation(UIElement.OpacityProperty, null);
+                ResetTransitionVisuals();
+
+                // 3. Unlock shell layout
+                _shell.Width = double.NaN;
+                _shell.Height = double.NaN;
 
                 _isApplyingCollapsedState = false;
                 if (saveGeometry)
@@ -3082,6 +3232,7 @@ public sealed partial class PaperWindow : Window
             BeginAnimation(TransitionProgressProperty, null);
             _shell.BeginAnimation(UIElement.OpacityProperty, null);
             _capsuleShell.BeginAnimation(UIElement.OpacityProperty, null);
+            ResetTransitionVisuals();
 
             TransitionProgress = 0.0;
 
@@ -3111,8 +3262,8 @@ public sealed partial class PaperWindow : Window
             _shell.Width = double.NaN;
             _shell.Height = double.NaN;
 
-            Width = targetWidth;
-            Height = targetHeight;
+            Width = finalTargetWidth;
+            Height = finalTargetHeight;
 
             _isApplyingCollapsedState = false;
             if (saveGeometry)
@@ -3125,6 +3276,6 @@ public sealed partial class PaperWindow : Window
             }
         }
 
-        root.ContextMenu = BuildPaperContextMenu();
+        _paperChrome.ContextMenu = BuildPaperContextMenu();
     }
 }

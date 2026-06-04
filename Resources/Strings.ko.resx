@@ -16,7 +16,7 @@
     <value>시작에 실패했습니다: 데이터 파일을 불러올 수 없습니다. 파일이 사용 중이거나 손상되었을 수 있습니다.&#x0A;데이터가 빈 상태로 덮어쓰기 되지 않도록 프로그램을 안전하게 중지했습니다.&#x0A;&#x0A;오류: {0}</value>
   </data>
   <data name="ResourceTextVersion" xml:space="preserve">
-    <value>1.4</value>
+    <value>1.6</value>
   </data>
   <data name="AppStartupFailureTitle" xml:space="preserve">
     <value>PaperTodo - 오류</value>
@@ -65,6 +65,15 @@
   </data>
   <data name="MarkdownDefaultLinkLabel" xml:space="preserve">
     <value>링크</value>
+  </data>
+  <data name="MarkdownRenderBasic" xml:space="preserve">
+    <value>사용</value>
+  </data>
+  <data name="MarkdownRenderEnhanced" xml:space="preserve">
+    <value>강화</value>
+  </data>
+  <data name="MarkdownRenderOff" xml:space="preserve">
+    <value>사용 안 함</value>
   </data>
   <data name="MarkdownPreviewFailure" xml:space="preserve">
     <value>*미리 보기에 실패했습니다. 원문은 유지되었습니다. 오류: {0}*</value>
@@ -200,6 +209,9 @@
   </data>
   <data name="TrayHideAll" xml:space="preserve">
     <value>모든 종이 숨기기</value>
+  </data>
+  <data name="TrayMarkdownRenderMode" xml:space="preserve">
+    <value>MD 파싱</value>
   </data>
   <data name="TrayInlineConfirmDelete" xml:space="preserve">
     <value>⚠ 삭제</value>

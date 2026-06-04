@@ -187,30 +187,61 @@ jobs:
           $selfContained = "${{ steps.meta.outputs.self_contained_exe }}"
           $frameworkDependent = "${{ steps.meta.outputs.framework_dependent_exe }}"
           $identityPattern = "^https://github[.]com/$repo/[.]github/workflows/release[.]yml@refs/(heads/main|tags/v.*)$"
+          $changelogPath = Join-Path $env:GITHUB_WORKSPACE "CHANGELOG.md"
+          if (-not (Test-Path -LiteralPath $changelogPath -PathType Leaf)) {
+            throw "CHANGELOG.md not found."
+          }
 
-          @"
-          PaperTodo $tag
+          $lines = Get-Content -LiteralPath $changelogPath
+          $headingPattern = '^\s*###\s+' + [regex]::Escape($tag) + '(\s|$)'
+          $start = -1
+          for ($i = 0; $i -lt $lines.Count; $i++) {
+            if ($lines[$i] -match $headingPattern) {
+              $start = $i
+              break
+            }
+          }
 
-          What's new:
+          if ($start -lt 0) {
+            throw "CHANGELOG.md does not contain a release section for $tag."
+          }
 
-          - Markdown editing and browsing now share the AvalonEdit Markdown editor, keeping the lightweight Markdown view while reducing preview-state jumps and sync issues.
-          - Added capsule auto edge-align: collapsed capsules can arrange at the top-right edge, stay half-hidden, and slide out on hover.
-          - Tray paper deletion now keeps the tray menu open after confirmation.
+          $end = $lines.Count
+          for ($i = $start + 1; $i -lt $lines.Count; $i++) {
+            if ($lines[$i] -match '^\s*###\s+v') {
+              $end = $i
+              break
+            }
+          }
 
-          Windows x64 executables:
+          $changelogNotes = (($lines[($start + 1)..($end - 1)] -join "`n").Trim())
+          if ([string]::IsNullOrWhiteSpace($changelogNotes)) {
+            throw "CHANGELOG.md section for $tag is empty."
+          }
 
-          - ${selfContained}: self-contained single file, includes .NET Desktop Runtime, ReadyToRun enabled, single-file compression enabled.
-          - ${frameworkDependent}: no-runtime framework-dependent single file, ReadyToRun disabled, single-file compression disabled.
+          $notesLines = @(
+            "PaperTodo $tag",
+            "",
+            "更新内容:",
+            "",
+            $changelogNotes,
+            "",
+            "Windows x64 executables:",
+            "",
+            "- ${selfContained}: self-contained single file, includes .NET Desktop Runtime, ReadyToRun enabled, single-file compression enabled.",
+            "- ${frameworkDependent}: no-runtime framework-dependent single file, ReadyToRun disabled, single-file compression disabled.",
+            "",
+            "SHA256 hashes are included in SHA256SUMS.txt.",
+            "",
+            "Sigstore keyless signatures are included as .sig and .crt files. Verify them with:",
+            "",
+            '```powershell',
+            "cosign verify-blob --certificate .\$selfContained.crt --signature .\$selfContained.sig --certificate-identity-regexp `"$identityPattern`" --certificate-oidc-issuer `"https://token.actions.githubusercontent.com`" .\$selfContained",
+            "cosign verify-blob --certificate .\$frameworkDependent.crt --signature .\$frameworkDependent.sig --certificate-identity-regexp `"$identityPattern`" --certificate-oidc-issuer `"https://token.actions.githubusercontent.com`" .\$frameworkDependent",
+            '```'
+          )
 
-          SHA256 hashes are included in SHA256SUMS.txt.
-
-          Sigstore keyless signatures are included as .sig and .crt files. Verify them with:
-
-          ````powershell
-          cosign verify-blob --certificate .\$selfContained.crt --signature .\$selfContained.sig --certificate-identity-regexp "$identityPattern" --certificate-oidc-issuer "https://token.actions.githubusercontent.com" .\$selfContained
-          cosign verify-blob --certificate .\$frameworkDependent.crt --signature .\$frameworkDependent.sig --certificate-identity-regexp "$identityPattern" --certificate-oidc-issuer "https://token.actions.githubusercontent.com" .\$frameworkDependent
-          ````
-          "@.TrimStart() | Set-Content -LiteralPath (Join-Path $releaseDir "RELEASE_NOTES.md") -Encoding utf8
+          Set-Content -LiteralPath (Join-Path $releaseDir "RELEASE_NOTES.md") -Value ($notesLines -join "`n") -Encoding utf8
 
       - name: Publish GitHub Release
         if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'

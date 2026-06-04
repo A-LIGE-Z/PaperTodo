@@ -16,7 +16,7 @@
     <value>启动失败：无法加载数据文件（可能文件被占用或损坏）。&#x0A;为了防止您的数据被覆盖清空，程序已安全中止运行。&#x0A;&#x0A;错误信息：{0}</value>
   </data>
   <data name="ResourceTextVersion" xml:space="preserve">
-    <value>1.4</value>
+    <value>1.6</value>
   </data>
   <data name="AppStartupFailureTitle" xml:space="preserve">
     <value>PaperTodo - 错误</value>
@@ -65,6 +65,15 @@
   </data>
   <data name="MarkdownDefaultLinkLabel" xml:space="preserve">
     <value>链接</value>
+  </data>
+  <data name="MarkdownRenderBasic" xml:space="preserve">
+    <value>启用</value>
+  </data>
+  <data name="MarkdownRenderEnhanced" xml:space="preserve">
+    <value>增强</value>
+  </data>
+  <data name="MarkdownRenderOff" xml:space="preserve">
+    <value>不启用</value>
   </data>
   <data name="MarkdownPreviewFailure" xml:space="preserve">
     <value>*预览失败，已保留原文。错误信息: {0}*</value>
@@ -200,6 +209,9 @@
   </data>
   <data name="TrayHideAll" xml:space="preserve">
     <value>隐藏全部纸片</value>
+  </data>
+  <data name="TrayMarkdownRenderMode" xml:space="preserve">
+    <value>MD 解析</value>
   </data>
   <data name="TrayInlineConfirmDelete" xml:space="preserve">
     <value>⚠ 删除</value>
