@@ -156,6 +156,21 @@ public sealed class StateStore
             state.MarkdownRenderMode = MarkdownRenderModes.Enhanced;
         }
 
+        state.ExternalMarkdownExtension = ExternalMarkdownFileExtensions.Normalize(state.ExternalMarkdownExtension);
+
+        if (state.ShowTopBarNewPaperButtons is bool showTopBarNewPaperButtons)
+        {
+            state.ShowTopBarNewTodoButton = showTopBarNewPaperButtons;
+            state.ShowTopBarNewNoteButton = showTopBarNewPaperButtons;
+            state.ShowTopBarNewPaperButtons = null;
+        }
+
+        if (double.IsNaN(state.Zoom) || double.IsInfinity(state.Zoom) || state.Zoom <= 0)
+        {
+            state.Zoom = 1.0;
+        }
+        state.Zoom = Math.Clamp(state.Zoom, 0.5, 1.5);
+
         if (!state.UseCapsuleMode)
         {
             state.UseDeepCapsuleMode = false;
@@ -172,6 +187,12 @@ public sealed class StateStore
             {
                 paper.Type = PaperTypes.Todo;
             }
+            paper.Title = PaperTitles.CleanCustomTitle(paper.Title);
+            if (double.IsNaN(paper.TextZoom) || double.IsInfinity(paper.TextZoom) || paper.TextZoom <= 0)
+            {
+                paper.TextZoom = 1.0;
+            }
+            paper.TextZoom = Math.Clamp(Math.Round(paper.TextZoom, 1), 0.5, 1.5);
 
             if (paper.Width < PaperLayoutDefaults.MinWidth)
             {

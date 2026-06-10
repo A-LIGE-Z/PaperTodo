@@ -1,3 +1,6 @@
+using System.IO;
+using System.Text.Json.Serialization;
+
 namespace PaperTodo;
 
 public static class PaperTypes
@@ -33,13 +36,53 @@ public static class MarkdownRenderModes
     }
 }
 
+public static class ExternalMarkdownFileExtensions
+{
+    public const string Default = ".md";
+
+    public static string Normalize(string? extension)
+    {
+        var value = (extension ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return Default;
+        }
+
+        if (value.StartsWith("*.", StringComparison.Ordinal))
+        {
+            value = value[1..];
+        }
+        if (!value.StartsWith(".", StringComparison.Ordinal))
+        {
+            value = "." + value;
+        }
+
+        if (value.Length is < 2 or > 32 ||
+            value.Contains("..", StringComparison.Ordinal) ||
+            value.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
+        {
+            return Default;
+        }
+
+        return value.ToLowerInvariant();
+    }
+}
+
 public sealed class AppState
 {
     public List<PaperData> Papers { get; set; } = new();
     public string Theme { get; set; } = "system";
     public string MarkdownRenderMode { get; set; } = MarkdownRenderModes.Enhanced;
+    public string ExternalMarkdownExtension { get; set; } = ExternalMarkdownFileExtensions.Default;
+    public double Zoom { get; set; } = 1.0;
     public bool UseCapsuleMode { get; set; } = true;
     public bool UseDeepCapsuleMode { get; set; } = true;
+    public bool ShowTopBarNewTodoButton { get; set; } = true;
+    public bool ShowTopBarNewNoteButton { get; set; } = true;
+    public bool ShowTopBarExternalOpenButton { get; set; } = true;
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? ShowTopBarNewPaperButtons { get; set; }
 }
 
 public sealed class PaperData
@@ -56,6 +99,7 @@ public sealed class PaperData
     public bool IsVisible { get; set; } = true;
     public bool AlwaysOnTop { get; set; }
     public bool IsCollapsed { get; set; } = false;
+    public double TextZoom { get; set; } = 1.0;
 
     public List<PaperItem> Items { get; set; } = new();
     public string Content { get; set; } = "";

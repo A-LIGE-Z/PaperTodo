@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -17,6 +18,10 @@ public sealed class MarkdownTextBox : TextEditor
     private bool _acceptsReturn = true;
     private bool _acceptsTab = true;
     private bool _isPreviewMode;
+    private double _textZoom = 1.0;
+    private readonly MarkdownMarkerColorizer _markerColorizer;
+    private readonly MarkdownListBulletRenderer _listBulletRenderer;
+    private readonly MarkdownHorizontalRuleRenderer _horizontalRuleRenderer;
     private static readonly Brush LightPreviewSyntaxBrush = FrozenBrush(Color.FromArgb(72, 54, 43, 31));
     private static readonly Brush DarkPreviewSyntaxBrush = FrozenBrush(Color.FromArgb(78, 230, 223, 211));
 
@@ -46,9 +51,13 @@ public sealed class MarkdownTextBox : TextEditor
         Options.EnableHyperlinks = false;
         Options.EnableEmailHyperlinks = false;
 
+        _markerColorizer = new MarkdownMarkerColorizer(this);
+        _listBulletRenderer = new MarkdownListBulletRenderer(this);
+        _horizontalRuleRenderer = new MarkdownHorizontalRuleRenderer(this);
         TextArea.TextView.BackgroundRenderers.Add(new MarkdownBlockBackgroundRenderer(this));
-        TextArea.TextView.BackgroundRenderers.Add(new MarkdownListBulletRenderer(this));
-        TextArea.TextView.LineTransformers.Add(new MarkdownMarkerColorizer(this));
+        TextArea.TextView.BackgroundRenderers.Add(_listBulletRenderer);
+        TextArea.TextView.BackgroundRenderers.Add(_horizontalRuleRenderer);
+        TextArea.TextView.LineTransformers.Add(_markerColorizer);
         DataObject.AddPastingHandler(this, OnPaste);
         RefreshVisualStyle();
     }
@@ -87,6 +96,24 @@ public sealed class MarkdownTextBox : TextEditor
 
     public bool IsPreviewMode => _isPreviewMode;
 
+    private double ScaledFontSize(double baseFontSize)
+    {
+        return Math.Round(baseFontSize * _textZoom, 1);
+    }
+
+    public void SetTextZoom(double zoom)
+    {
+        var normalized = Math.Clamp(zoom, 0.5, 1.5);
+        if (Math.Abs(_textZoom - normalized) < 0.001 && Math.Abs(FontSize - ScaledFontSize(NoteTypography.FontSize)) < 0.001)
+        {
+            return;
+        }
+
+        _textZoom = normalized;
+        FontSize = ScaledFontSize(NoteTypography.FontSize);
+        RefreshVisualStyle();
+    }
+
     public string MarkdownRenderMode => _markdownRenderMode;
 
     private string _markdownRenderMode = MarkdownRenderModes.Enhanced;
@@ -121,11 +148,47 @@ public sealed class MarkdownTextBox : TextEditor
         Foreground = Theme.TextBrush;
         CaretBrush = _isPreviewMode ? Brushes.Transparent : Theme.TextBrush;
         TextArea.TextView.LinkTextForegroundBrush = Theme.LinkBrush;
-        TextArea.TextView.InvalidateLayer(KnownLayer.Background);
-        TextArea.TextView.InvalidateLayer(KnownLayer.Text);
-        TextArea.TextView.InvalidateLayer(KnownLayer.Caret);
-        TextArea.TextView.Redraw();
-        TextArea.TextView.InvalidateVisual();
+        TextArea.TextView.BackgroundRenderers.Remove(_listBulletRenderer);
+        TextArea.TextView.BackgroundRenderers.Remove(_horizontalRuleRenderer);
+        TextArea.TextView.BackgroundRenderers.Add(_listBulletRenderer);
+        TextArea.TextView.BackgroundRenderers.Add(_horizontalRuleRenderer);
+        TextArea.TextView.LineTransformers.Remove(_markerColorizer);
+        TextArea.TextView.LineTransformers.Add(_markerColorizer);
+        RefreshTextView();
+        Dispatcher.BeginInvoke(
+            (Action)RefreshTextView,
+            System.Windows.Threading.DispatcherPriority.Render);
+    }
+
+    private void RefreshTextView()
+    {
+        var textView = TextArea.TextView;
+        if (Document != null && Document.TextLength > 0)
+        {
+            textView.Redraw(0, Document.TextLength, System.Windows.Threading.DispatcherPriority.Render);
+        }
+        else
+        {
+            textView.Redraw(System.Windows.Threading.DispatcherPriority.Render);
+        }
+        textView.InvalidateMeasure();
+        textView.InvalidateArrange();
+
+        if (IsLoaded)
+        {
+            textView.UpdateLayout();
+            textView.EnsureVisualLines();
+        }
+
+        textView.InvalidateLayer(KnownLayer.Background);
+        textView.InvalidateLayer(KnownLayer.Text);
+        textView.InvalidateLayer(KnownLayer.Caret);
+        textView.InvalidateLayer(KnownLayer.Background, System.Windows.Threading.DispatcherPriority.Render);
+        textView.InvalidateLayer(KnownLayer.Text, System.Windows.Threading.DispatcherPriority.Render);
+        textView.InvalidateLayer(KnownLayer.Caret, System.Windows.Threading.DispatcherPriority.Render);
+        textView.InvalidateVisual();
+        TextArea.InvalidateVisual();
+        InvalidateVisual();
     }
 
     public void WrapSelection(string prefix, string suffix)
@@ -133,18 +196,76 @@ public sealed class MarkdownTextBox : TextEditor
         var start = SelectionStart;
         var length = SelectionLength;
         var selected = SelectedText ?? "";
+        var wrapEachLine =
+            length > 0 &&
+            HasLineBreak(selected) &&
+            IsSingleLineMarker(prefix) &&
+            IsSingleLineMarker(suffix);
+        var replacement = wrapEachLine
+            ? WrapEachSelectedLine(selected, prefix, suffix)
+            : prefix + selected + suffix;
 
-        SelectedText = prefix + selected + suffix;
+        SelectedText = replacement;
         Focus();
 
         if (length == 0)
         {
             Select(start + prefix.Length, 0);
         }
+        else if (wrapEachLine)
+        {
+            Select(start, replacement.Length);
+        }
         else
         {
             Select(start + prefix.Length, length);
         }
+    }
+
+    private static bool HasLineBreak(string text)
+    {
+        return text.IndexOfAny(['\r', '\n']) >= 0;
+    }
+
+    private static bool IsSingleLineMarker(string marker)
+    {
+        return marker.IndexOfAny(['\r', '\n']) < 0;
+    }
+
+    private static string WrapEachSelectedLine(string selected, string prefix, string suffix)
+    {
+        var builder = new StringBuilder(selected.Length + prefix.Length + suffix.Length);
+        var index = 0;
+
+        while (index < selected.Length)
+        {
+            var lineStart = index;
+            while (index < selected.Length && selected[index] != '\r' && selected[index] != '\n')
+            {
+                index++;
+            }
+
+            var line = selected[lineStart..index];
+            builder.Append(string.IsNullOrWhiteSpace(line) ? line : prefix + line + suffix);
+
+            if (index >= selected.Length)
+            {
+                break;
+            }
+
+            if (selected[index] == '\r' && index + 1 < selected.Length && selected[index + 1] == '\n')
+            {
+                builder.Append("\r\n");
+                index += 2;
+            }
+            else
+            {
+                builder.Append(selected[index]);
+                index++;
+            }
+        }
+
+        return builder.ToString();
     }
 
     public void InsertMarkdownLink()
@@ -415,6 +536,33 @@ public sealed class MarkdownTextBox : TextEditor
         return brush;
     }
 
+    private static bool TryGetLinePoint(TextView textView, DocumentLine line, int indexInLine, VisualYPosition yPosition, out Point point)
+    {
+        point = default;
+        try
+        {
+            var column = Math.Clamp(indexInLine, 0, line.Length) + 1;
+            point = textView.GetVisualPosition(new TextViewPosition(line.LineNumber, column), yPosition);
+            point.X -= textView.HorizontalOffset;
+            point.Y -= textView.VerticalOffset;
+            return IsFinite(point.X) && IsFinite(point.Y);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static bool IsFinite(double value)
+    {
+        return !double.IsNaN(value) && !double.IsInfinity(value);
+    }
+
+    private static double SnapStrokeY(double y)
+    {
+        return Math.Round(y) + 0.5;
+    }
+
     private bool TryGetMarkdownLinkAtOffset(int offset, out string url)
     {
         url = "";
@@ -451,7 +599,8 @@ public sealed class MarkdownTextBox : TextEditor
         UnorderedList,
         OrderedList,
         CodeFence,
-        CodeBlock
+        CodeBlock,
+        HorizontalRule
     }
 
     private readonly struct MarkdownRenderOptions
@@ -553,6 +702,11 @@ public sealed class MarkdownTextBox : TextEditor
         if (IsInFencedCodeBlockBeforeLine(document, line))
         {
             return new MarkdownLineStyle(MarkdownLineKind.CodeBlock, 0, 0);
+        }
+
+        if (IsHorizontalRuleLine(text, indent))
+        {
+            return new MarkdownLineStyle(MarkdownLineKind.HorizontalRule, text.Length, text.Length);
         }
 
         if (text[indent] == '#')
@@ -706,6 +860,32 @@ public sealed class MarkdownTextBox : TextEditor
 
         return (text[start] == '`' && CountRepeated(text, start, '`') >= 3) ||
                (text[start] == '~' && CountRepeated(text, start, '~') >= 3);
+    }
+
+    private static bool IsHorizontalRuleLine(string text, int start)
+    {
+        if (start >= text.Length || text[start] is not ('-' or '_' or '*'))
+        {
+            return false;
+        }
+
+        var marker = text[start];
+        var count = 0;
+        for (var i = start; i < text.Length; i++)
+        {
+            if (text[i] == marker)
+            {
+                count++;
+                continue;
+            }
+
+            if (!char.IsWhiteSpace(text[i]))
+            {
+                return false;
+            }
+        }
+
+        return count >= 3;
     }
 
     private static bool IsInFencedCodeBlockBeforeLine(IDocument document, DocumentLine line)
@@ -957,42 +1137,47 @@ public sealed class MarkdownTextBox : TextEditor
                         continue;
                     }
 
-                    var segment = new TextSegment
+                    if (!TryGetLinePoint(textView, line, markerStart, VisualYPosition.TextTop, out var markerTop) ||
+                        !TryGetLinePoint(textView, line, markerStart, VisualYPosition.TextMiddle, out var markerMiddle) ||
+                        !TryGetLinePoint(textView, line, markerStart + markerLength, VisualYPosition.TextBottom, out var markerBottom))
                     {
-                        StartOffset = line.Offset + markerStart,
-                        Length = markerLength
-                    };
+                        continue;
+                    }
 
-                    foreach (var rect in BackgroundGeometryBuilder.GetRectsForSegment(textView, segment, true))
+                    var markerLeft = markerTop.X;
+                    var markerRight = markerBottom.X;
+                    if (markerRight < markerLeft)
                     {
-                        if (rect.Width <= 0 || rect.Height <= 0)
-                        {
-                            continue;
-                        }
+                        (markerLeft, markerRight) = (markerRight, markerLeft);
+                    }
 
-                        var cover = new Rect(rect.X - 1, rect.Y, rect.Width + 2, rect.Height);
-                        drawingContext.DrawRectangle(Theme.PaperBrush, null, cover);
-                        if (style.Kind == MarkdownLineKind.UnorderedList)
-                        {
-                            var radius = Math.Max(2.1, Math.Min(3.0, NoteTypography.FontSize * 0.16));
-                            var center = new Point(rect.X + rect.Width / 2, rect.Y + rect.Height * 0.55);
-                            drawingContext.DrawEllipse(Theme.TextBrush, null, center, radius, radius);
-                        }
-                        else
-                        {
-                            var formatted = new FormattedText(
-                                text.Substring(markerStart, markerLength),
-                                CultureInfo.CurrentUICulture,
-                                FlowDirection.LeftToRight,
-                                ListMarkerTypeface,
-                                NoteTypography.FontSize,
-                                Theme.TextBrush,
-                                VisualTreeHelper.GetDpi(textView).PixelsPerDip);
+                    var markerWidth = Math.Max(1, markerRight - markerLeft);
+                    var markerHeight = Math.Max(1, markerBottom.Y - markerTop.Y);
+                    drawingContext.DrawRectangle(
+                        Theme.PaperBrush,
+                        null,
+                        new Rect(markerLeft - 1, markerTop.Y - 1, markerWidth + 2, markerHeight + 2));
 
-                            drawingContext.DrawText(
-                                formatted,
-                                new Point(rect.X, rect.Y + Math.Max(0, (rect.Height - formatted.Height) / 2)));
-                        }
+                    if (style.Kind == MarkdownLineKind.UnorderedList)
+                    {
+                        var radius = Math.Max(2.0, Math.Min(3.2, _owner.ScaledFontSize(NoteTypography.FontSize) * 0.16));
+                        var center = new Point(markerLeft + markerWidth / 2, markerMiddle.Y);
+                        drawingContext.DrawEllipse(Theme.TextBrush, null, center, radius, radius);
+                    }
+                    else
+                    {
+                        var formatted = new FormattedText(
+                            text.Substring(markerStart, markerLength),
+                            CultureInfo.CurrentUICulture,
+                            FlowDirection.LeftToRight,
+                            ListMarkerTypeface,
+                            _owner.ScaledFontSize(NoteTypography.FontSize),
+                            Theme.TextBrush,
+                            VisualTreeHelper.GetDpi(textView).PixelsPerDip);
+
+                        drawingContext.DrawText(
+                            formatted,
+                            new Point(markerLeft, markerMiddle.Y - formatted.Height / 2));
                     }
                 }
             }
@@ -1006,6 +1191,81 @@ public sealed class MarkdownTextBox : TextEditor
                 markerEnd--;
             }
             return markerEnd - markerStart;
+        }
+    }
+
+    private sealed class MarkdownHorizontalRuleRenderer : IBackgroundRenderer
+    {
+        private readonly MarkdownTextBox _owner;
+
+        public MarkdownHorizontalRuleRenderer(MarkdownTextBox owner)
+        {
+            _owner = owner;
+        }
+
+        public KnownLayer Layer => KnownLayer.Caret;
+
+        public void Draw(TextView textView, DrawingContext drawingContext)
+        {
+            var document = textView.Document;
+            var options = _owner.RenderOptions;
+            if (!options.RenderBlocks || !_owner.IsPreviewMode || document == null || !textView.VisualLinesValid)
+            {
+                return;
+            }
+
+            var width = textView.ActualWidth;
+            if (width <= 0)
+            {
+                return;
+            }
+
+            var pen = new Pen(Theme.PaperBorderBrush, 1);
+            foreach (var visualLine in textView.VisualLines)
+            {
+                for (var line = visualLine.FirstDocumentLine;
+                     line != null && line.LineNumber <= visualLine.LastDocumentLine.LineNumber;
+                     line = line.NextLine)
+                {
+                    var text = document.GetText(line);
+                    var style = AnalyzeLine(document, line, text);
+                    if (style.Kind != MarkdownLineKind.HorizontalRule)
+                    {
+                        continue;
+                    }
+
+                    var ruleStart = CountLeadingSpaces(text);
+                    var ruleEnd = text.Length;
+                    while (ruleEnd > ruleStart && char.IsWhiteSpace(text[ruleEnd - 1]))
+                    {
+                        ruleEnd--;
+                    }
+                    if (!TryGetLinePoint(textView, line, ruleStart, VisualYPosition.TextMiddle, out var ruleStartPoint) ||
+                        !TryGetLinePoint(textView, line, ruleEnd, VisualYPosition.TextMiddle, out var ruleEndPoint))
+                    {
+                        continue;
+                    }
+
+                    var top = textView.GetVisualTopByDocumentLine(line.LineNumber) - textView.VerticalOffset;
+                    var height = visualLine.Height;
+                    if (line.NextLine != null)
+                    {
+                        var nextTop = textView.GetVisualTopByDocumentLine(line.NextLine.LineNumber) - textView.VerticalOffset;
+                        height = Math.Max(textView.DefaultLineHeight, nextTop - top);
+                    }
+
+                    var y = SnapStrokeY(ruleStartPoint.Y);
+                    if (options.FadeSyntax)
+                    {
+                        drawingContext.DrawRectangle(Theme.PaperBrush, null, new Rect(0, top, width, Math.Max(1, height)));
+                    }
+                    var left = options.FadeSyntax
+                        ? ruleStartPoint.X
+                        : ruleEndPoint.X + 8;
+                    left = Math.Max(0, left);
+                    drawingContext.DrawLine(pen, new Point(left, y), new Point(Math.Max(left, width - 4), y));
+                }
+            }
         }
     }
 
@@ -1072,8 +1332,10 @@ public sealed class MarkdownTextBox : TextEditor
             var rawLink = options.FadeSyntax ? PreviewSyntaxBrush : weak;
 
             ApplyBlockStyle(line, text, style, symbol, weak);
+            HideEnhancedBlockMarker(line, text, style, options);
+            HideRenderedListMarker(line, text, style, options);
 
-            if (style.Kind == MarkdownLineKind.CodeFence)
+            if (style.Kind is MarkdownLineKind.CodeFence or MarkdownLineKind.HorizontalRule)
             {
                 return;
             }
@@ -1085,10 +1347,13 @@ public sealed class MarkdownTextBox : TextEditor
             }
 
             var ignoredSpans = MarkInlineCode(line, text, symbol, code, isPreviewMode);
+            AddListMarkerIgnoredSpan(text, style, ignoredSpans);
             ignoredSpans.AddRange(MarkLinks(line, text, symbol, rawLink, link, ignoredSpans, isPreviewMode));
             MarkInlineEmphasis(line, text, symbol, ignoredSpans);
             MarkCheckbox(line, text, style, Theme.ActiveBrush, code);
             MarkInlineMarkers(line, text, symbol, ignoredSpans, isPreviewMode);
+            HideEnhancedBlockMarker(line, text, style, options);
+            HideRenderedListMarker(line, text, style, options);
         }
 
         private void ApplyBlockStyle(DocumentLine line, string text, MarkdownLineStyle style, Brush symbol, Brush weak)
@@ -1099,16 +1364,16 @@ public sealed class MarkdownTextBox : TextEditor
                 switch (style.Kind)
                 {
                     case MarkdownLineKind.Heading1:
-                        MarkHeading(line, 0, markerLength, 18, symbol);
+                        MarkHeading(line, 0, markerLength, _owner.ScaledFontSize(17), symbol);
                         break;
                     case MarkdownLineKind.Heading2:
-                        MarkHeading(line, 0, markerLength, 16, symbol);
+                        MarkHeading(line, 0, markerLength, _owner.ScaledFontSize(15), symbol);
                         break;
                     case MarkdownLineKind.Heading3:
-                        MarkHeading(line, 0, markerLength, 15, symbol);
+                        MarkHeading(line, 0, markerLength, _owner.ScaledFontSize(14), symbol);
                         break;
                     case MarkdownLineKind.Heading:
-                        MarkHeading(line, 0, markerLength, NoteTypography.FontSize, symbol);
+                        MarkHeading(line, 0, markerLength, _owner.ScaledFontSize(NoteTypography.FontSize), symbol);
                         break;
                     case MarkdownLineKind.CodeFence:
                         MarkCode(line, 0, markerLength, symbol);
@@ -1128,20 +1393,68 @@ public sealed class MarkdownTextBox : TextEditor
             switch (style.Kind)
             {
                 case MarkdownLineKind.Heading1:
-                    MarkHeading(line, style.ContentStart, contentLength, 18, null);
+                    MarkHeading(line, style.ContentStart, contentLength, _owner.ScaledFontSize(17), null);
                     break;
                 case MarkdownLineKind.Heading2:
-                    MarkHeading(line, style.ContentStart, contentLength, 16, null);
+                    MarkHeading(line, style.ContentStart, contentLength, _owner.ScaledFontSize(15), null);
                     break;
                 case MarkdownLineKind.Heading3:
-                    MarkHeading(line, style.ContentStart, contentLength, 15, null);
+                    MarkHeading(line, style.ContentStart, contentLength, _owner.ScaledFontSize(14), null);
                     break;
                 case MarkdownLineKind.Heading:
-                    MarkHeading(line, style.ContentStart, contentLength, NoteTypography.FontSize, null);
+                    MarkHeading(line, style.ContentStart, contentLength, _owner.ScaledFontSize(NoteTypography.FontSize), null);
                     break;
                 case MarkdownLineKind.Quote:
                     MarkSymbol(line, style.ContentStart, contentLength, weak);
                     break;
+            }
+        }
+
+        private void HideRenderedListMarker(DocumentLine line, string text, MarkdownLineStyle style, MarkdownRenderOptions options)
+        {
+            if (!options.RenderListBullets ||
+                style.Kind is not (MarkdownLineKind.UnorderedList or MarkdownLineKind.OrderedList) ||
+                IsTaskList(style, text))
+            {
+                return;
+            }
+
+            var markerStart = CountLeadingSpaces(text);
+            var markerEnd = Math.Min(text.Length, style.MarkerLength);
+            if (markerEnd <= markerStart)
+            {
+                return;
+            }
+
+            MarkSymbol(line, markerStart, markerEnd - markerStart, Brushes.Transparent);
+        }
+
+        private void HideEnhancedBlockMarker(DocumentLine line, string text, MarkdownLineStyle style, MarkdownRenderOptions options)
+        {
+            if (!options.FadeSyntax || style.Kind != MarkdownLineKind.Quote)
+            {
+                return;
+            }
+
+            var markerLength = Math.Min(style.MarkerLength, text.Length);
+            if (markerLength > 0)
+            {
+                MarkSymbol(line, 0, markerLength, Brushes.Transparent);
+            }
+        }
+
+        private static void AddListMarkerIgnoredSpan(string text, MarkdownLineStyle style, List<InlineSpan> ignoredSpans)
+        {
+            if (style.Kind is not (MarkdownLineKind.UnorderedList or MarkdownLineKind.OrderedList))
+            {
+                return;
+            }
+
+            var markerStart = CountLeadingSpaces(text);
+            var markerEnd = Math.Min(text.Length, style.MarkerLength);
+            if (markerEnd > markerStart)
+            {
+                ignoredSpans.Add(new InlineSpan(markerStart, markerEnd));
             }
         }
 
@@ -1437,8 +1750,9 @@ public sealed class MarkdownTextBox : TextEditor
             Change(line, startInLine, length, element =>
             {
                 element.TextRunProperties.SetTypeface(NormalTypeface);
-                element.TextRunProperties.SetFontRenderingEmSize(NoteTypography.FontSize);
-                element.TextRunProperties.SetFontHintingEmSize(NoteTypography.FontSize);
+                var fontSize = _owner.ScaledFontSize(NoteTypography.FontSize);
+                element.TextRunProperties.SetFontRenderingEmSize(fontSize);
+                element.TextRunProperties.SetFontHintingEmSize(fontSize);
                 element.TextRunProperties.SetForegroundBrush(brush);
             });
         }
@@ -1462,8 +1776,9 @@ public sealed class MarkdownTextBox : TextEditor
             Change(line, startInLine, length, element =>
             {
                 element.TextRunProperties.SetTypeface(CodeTypeface);
-                element.TextRunProperties.SetFontRenderingEmSize(NoteTypography.CodeFontSize);
-                element.TextRunProperties.SetFontHintingEmSize(NoteTypography.CodeFontSize);
+                var fontSize = _owner.ScaledFontSize(NoteTypography.CodeFontSize);
+                element.TextRunProperties.SetFontRenderingEmSize(fontSize);
+                element.TextRunProperties.SetFontHintingEmSize(fontSize);
                 element.TextRunProperties.SetForegroundBrush(foreground);
             });
         }
@@ -1488,8 +1803,9 @@ public sealed class MarkdownTextBox : TextEditor
             Change(line, startInLine, length, element =>
             {
                 element.TextRunProperties.SetTypeface(typeface);
-                element.TextRunProperties.SetFontRenderingEmSize(NoteTypography.FontSize);
-                element.TextRunProperties.SetFontHintingEmSize(NoteTypography.FontSize);
+                var fontSize = _owner.ScaledFontSize(NoteTypography.FontSize);
+                element.TextRunProperties.SetFontRenderingEmSize(fontSize);
+                element.TextRunProperties.SetFontHintingEmSize(fontSize);
                 if (decorations != null)
                 {
                     element.TextRunProperties.SetTextDecorations(decorations);

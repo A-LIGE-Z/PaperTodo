@@ -16,7 +16,7 @@
     <value>启动失败：无法加载数据文件（可能文件被占用或损坏）。&#x0A;为了防止您的数据被覆盖清空，程序已安全中止运行。&#x0A;&#x0A;错误信息：{0}</value>
   </data>
   <data name="ResourceTextVersion" xml:space="preserve">
-    <value>1.6</value>
+    <value>1.7</value>
   </data>
   <data name="AppStartupFailureTitle" xml:space="preserve">
     <value>PaperTodo - 错误</value>
@@ -78,6 +78,12 @@
   <data name="MarkdownPreviewFailure" xml:space="preserve">
     <value>*预览失败，已保留原文。错误信息: {0}*</value>
   </data>
+  <data name="OpenMarkdownFailureMessage" xml:space="preserve">
+    <value>无法调用默认 {0} 编辑器：&#x0A;{1}</value>
+  </data>
+  <data name="OpenMarkdownFailureTitle" xml:space="preserve">
+    <value>打开 Markdown 失败</value>
+  </data>
   <data name="MenuBold" xml:space="preserve">
     <value>加粗</value>
   </data>
@@ -126,11 +132,26 @@
   <data name="MenuQuote" xml:space="preserve">
     <value>引用</value>
   </data>
+  <data name="MenuRenameTitle" xml:space="preserve">
+    <value>重命名标题</value>
+  </data>
   <data name="MenuRestoreWindow" xml:space="preserve">
     <value>恢复窗口</value>
   </data>
   <data name="MenuStrikethrough" xml:space="preserve">
     <value>删除线</value>
+  </data>
+  <data name="MenuCopy" xml:space="preserve">
+    <value>复制</value>
+  </data>
+  <data name="MenuPaste" xml:space="preserve">
+    <value>粘贴</value>
+  </data>
+  <data name="MenuSelectAll" xml:space="preserve">
+    <value>全选</value>
+  </data>
+  <data name="MenuText" xml:space="preserve">
+    <value>文本操作</value>
   </data>
   <data name="MenuThisPaper" xml:space="preserve">
     <value>这张纸</value>
@@ -192,6 +213,15 @@
   <data name="ToolTipHideThisPaper" xml:space="preserve">
     <value>隐藏这张纸</value>
   </data>
+  <data name="ToolTipEditTitle" xml:space="preserve">
+    <value>点击修改标题</value>
+  </data>
+  <data name="ToolTipOpenMarkdownEditor" xml:space="preserve">
+    <value>用默认 {0} 编辑器打开</value>
+  </data>
+  <data name="ToolTipResetTextZoom" xml:space="preserve">
+    <value>点击恢复文字缩放为 100%</value>
+  </data>
   <data name="ToolTipNewNotePaper" xml:space="preserve">
     <value>新建笔记纸</value>
   </data>
@@ -230,6 +260,42 @@
   </data>
   <data name="TrayShowAll" xml:space="preserve">
     <value>显示全部纸片</value>
+  </data>
+  <data name="TraySettings" xml:space="preserve">
+    <value>设置</value>
+  </data>
+  <data name="SettingsExternalMarkdownExtension" xml:space="preserve">
+    <value>外部打开后缀</value>
+  </data>
+  <data name="SettingsQuickActions" xml:space="preserve">
+    <value>快捷操作</value>
+  </data>
+  <data name="SettingsDisplay" xml:space="preserve">
+    <value>显示</value>
+  </data>
+  <data name="SettingsExternalOpen" xml:space="preserve">
+    <value>外部打开</value>
+  </data>
+  <data name="SettingsTopBarButtons" xml:space="preserve">
+    <value>顶栏按钮</value>
+  </data>
+  <data name="SettingsBehavior" xml:space="preserve">
+    <value>行为</value>
+  </data>
+  <data name="SettingsShowTopBarNewTodoButton" xml:space="preserve">
+    <value>显示顶栏新建待办</value>
+  </data>
+  <data name="SettingsShowTopBarNewNoteButton" xml:space="preserve">
+    <value>显示顶栏新建笔记</value>
+  </data>
+  <data name="SettingsShowTopBarExternalOpenButton" xml:space="preserve">
+    <value>显示顶栏外部打开</value>
+  </data>
+  <data name="SettingsResetNoteZoom" xml:space="preserve">
+    <value>重置笔记缩放</value>
+  </data>
+  <data name="SettingsRestoreAllCapsules" xml:space="preserve">
+    <value>展开所有胶囊</value>
   </data>
   <data name="TrayStartup" xml:space="preserve">
     <value>开机自启动</value>

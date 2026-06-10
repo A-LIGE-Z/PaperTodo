@@ -16,7 +16,7 @@
     <value>시작에 실패했습니다: 데이터 파일을 불러올 수 없습니다. 파일이 사용 중이거나 손상되었을 수 있습니다.&#x0A;데이터가 빈 상태로 덮어쓰기 되지 않도록 프로그램을 안전하게 중지했습니다.&#x0A;&#x0A;오류: {0}</value>
   </data>
   <data name="ResourceTextVersion" xml:space="preserve">
-    <value>1.6</value>
+    <value>1.7</value>
   </data>
   <data name="AppStartupFailureTitle" xml:space="preserve">
     <value>PaperTodo - 오류</value>
@@ -78,6 +78,12 @@
   <data name="MarkdownPreviewFailure" xml:space="preserve">
     <value>*미리 보기에 실패했습니다. 원문은 유지되었습니다. 오류: {0}*</value>
   </data>
+  <data name="OpenMarkdownFailureMessage" xml:space="preserve">
+    <value>기본 {0} 편집기를 열 수 없습니다:&#x0A;{1}</value>
+  </data>
+  <data name="OpenMarkdownFailureTitle" xml:space="preserve">
+    <value>Markdown 열기 실패</value>
+  </data>
   <data name="MenuBold" xml:space="preserve">
     <value>굵게</value>
   </data>
@@ -126,11 +132,26 @@
   <data name="MenuQuote" xml:space="preserve">
     <value>인용</value>
   </data>
+  <data name="MenuRenameTitle" xml:space="preserve">
+    <value>제목 이름 바꾸기</value>
+  </data>
   <data name="MenuRestoreWindow" xml:space="preserve">
     <value>창 복원</value>
   </data>
   <data name="MenuStrikethrough" xml:space="preserve">
     <value>취소선</value>
+  </data>
+  <data name="MenuCopy" xml:space="preserve">
+    <value>복사</value>
+  </data>
+  <data name="MenuPaste" xml:space="preserve">
+    <value>붙여넣기</value>
+  </data>
+  <data name="MenuSelectAll" xml:space="preserve">
+    <value>모두 선택</value>
+  </data>
+  <data name="MenuText" xml:space="preserve">
+    <value>텍스트</value>
   </data>
   <data name="MenuThisPaper" xml:space="preserve">
     <value>이 종이</value>
@@ -192,6 +213,15 @@
   <data name="ToolTipHideThisPaper" xml:space="preserve">
     <value>이 종이 숨기기</value>
   </data>
+  <data name="ToolTipEditTitle" xml:space="preserve">
+    <value>클릭하여 제목 편집</value>
+  </data>
+  <data name="ToolTipOpenMarkdownEditor" xml:space="preserve">
+    <value>기본 {0} 편집기로 열기</value>
+  </data>
+  <data name="ToolTipResetTextZoom" xml:space="preserve">
+    <value>클릭하여 글자 확대/축소를 100%로 복원</value>
+  </data>
   <data name="ToolTipNewNotePaper" xml:space="preserve">
     <value>새 메모 종이</value>
   </data>
@@ -230,6 +260,42 @@
   </data>
   <data name="TrayShowAll" xml:space="preserve">
     <value>모든 종이 보이기</value>
+  </data>
+  <data name="TraySettings" xml:space="preserve">
+    <value>설정</value>
+  </data>
+  <data name="SettingsExternalMarkdownExtension" xml:space="preserve">
+    <value>외부 열기 확장자</value>
+  </data>
+  <data name="SettingsQuickActions" xml:space="preserve">
+    <value>빠른 작업</value>
+  </data>
+  <data name="SettingsDisplay" xml:space="preserve">
+    <value>표시</value>
+  </data>
+  <data name="SettingsExternalOpen" xml:space="preserve">
+    <value>외부 열기</value>
+  </data>
+  <data name="SettingsTopBarButtons" xml:space="preserve">
+    <value>상단 바 버튼</value>
+  </data>
+  <data name="SettingsBehavior" xml:space="preserve">
+    <value>동작</value>
+  </data>
+  <data name="SettingsShowTopBarNewTodoButton" xml:space="preserve">
+    <value>상단 바 새 할 일 버튼 표시</value>
+  </data>
+  <data name="SettingsShowTopBarNewNoteButton" xml:space="preserve">
+    <value>상단 바 새 노트 버튼 표시</value>
+  </data>
+  <data name="SettingsShowTopBarExternalOpenButton" xml:space="preserve">
+    <value>상단 바 외부 열기 버튼 표시</value>
+  </data>
+  <data name="SettingsResetNoteZoom" xml:space="preserve">
+    <value>노트 확대/축소 재설정</value>
+  </data>
+  <data name="SettingsRestoreAllCapsules" xml:space="preserve">
+    <value>모든 캡슐 펼치기</value>
   </data>
   <data name="TrayStartup" xml:space="preserve">
     <value>Windows 시작 시 자동 실행</value>

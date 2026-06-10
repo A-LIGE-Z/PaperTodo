@@ -14,19 +14,20 @@
                 <Setter.Value>
                     <ControlTemplate TargetType="{x:Type Thumb}">
                         <Border x:Name="ThumbBorder"
-                                Width="6"
-                                Margin="1,4,1,4"
-                                CornerRadius="3"
+                                Width="5"
+                                Margin="0,4,0,4"
+                                HorizontalAlignment="Right"
+                                CornerRadius="2.5"
                                 Background="{StaticResource PaperScrollThumbBrush}"
-                                Opacity="0.48" />
+                                Opacity="0.34" />
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
                                 <Setter TargetName="ThumbBorder" Property="Background" Value="{StaticResource PaperScrollThumbHoverBrush}" />
-                                <Setter TargetName="ThumbBorder" Property="Opacity" Value="0.78" />
+                                <Setter TargetName="ThumbBorder" Property="Opacity" Value="0.54" />
                             </Trigger>
                             <Trigger Property="IsDragging" Value="True">
                                 <Setter TargetName="ThumbBorder" Property="Background" Value="{StaticResource PaperScrollThumbHoverBrush}" />
-                                <Setter TargetName="ThumbBorder" Property="Opacity" Value="0.9" />
+                                <Setter TargetName="ThumbBorder" Property="Opacity" Value="0.64" />
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -35,8 +36,8 @@
         </Style>
 
         <Style TargetType="{x:Type ScrollBar}">
-            <Setter Property="Width" Value="8" />
-            <Setter Property="MinWidth" Value="8" />
+            <Setter Property="Width" Value="12" />
+            <Setter Property="MinWidth" Value="12" />
             <Setter Property="Background" Value="{StaticResource PaperScrollTrackBrush}" />
             <Setter Property="Template">
                 <Setter.Value>
@@ -65,12 +66,46 @@
             </Setter>
             <Style.Triggers>
                 <Trigger Property="Orientation" Value="Horizontal">
-                    <Setter Property="Height" Value="8" />
-                    <Setter Property="MinHeight" Value="8" />
+                    <Setter Property="Height" Value="6" />
+                    <Setter Property="MinHeight" Value="6" />
                     <Setter Property="Width" Value="Auto" />
                     <Setter Property="MinWidth" Value="0" />
                 </Trigger>
             </Style.Triggers>
+        </Style>
+
+        <Style TargetType="{x:Type ScrollViewer}">
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type ScrollViewer}">
+                        <Grid Background="{TemplateBinding Background}"
+                              ClipToBounds="False">
+                            <ScrollContentPresenter x:Name="PART_ScrollContentPresenter"
+                                                    CanContentScroll="{TemplateBinding CanContentScroll}"
+                                                    Content="{TemplateBinding Content}"
+                                                    ContentStringFormat="{TemplateBinding ContentStringFormat}"
+                                                    ContentTemplate="{TemplateBinding ContentTemplate}"
+                                                    SnapsToDevicePixels="{TemplateBinding SnapsToDevicePixels}" />
+                            <ScrollBar x:Name="PART_VerticalScrollBar"
+                                       HorizontalAlignment="Right"
+                                       VerticalAlignment="Stretch"
+                                       Margin="0,0,-2,0"
+                                       Maximum="{TemplateBinding ScrollableHeight}"
+                                       ViewportSize="{TemplateBinding ViewportHeight}"
+                                       Value="{Binding VerticalOffset, Mode=OneWay, RelativeSource={RelativeSource TemplatedParent}}"
+                                       Visibility="{TemplateBinding ComputedVerticalScrollBarVisibility}" />
+                            <ScrollBar x:Name="PART_HorizontalScrollBar"
+                                       Orientation="Horizontal"
+                                       HorizontalAlignment="Stretch"
+                                       VerticalAlignment="Bottom"
+                                       Maximum="{TemplateBinding ScrollableWidth}"
+                                       ViewportSize="{TemplateBinding ViewportWidth}"
+                                       Value="{Binding HorizontalOffset, Mode=OneWay, RelativeSource={RelativeSource TemplatedParent}}"
+                                       Visibility="{TemplateBinding ComputedHorizontalScrollBarVisibility}" />
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
         </Style>
     </Application.Resources>
 </Application>

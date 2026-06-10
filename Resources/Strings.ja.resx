@@ -16,7 +16,7 @@
     <value>起動に失敗しました: データファイルを読み込めません。ファイルが使用中、または破損している可能性があります。&#x0A;データが空の状態で上書きされないよう、アプリは安全に停止しました。&#x0A;&#x0A;エラー: {0}</value>
   </data>
   <data name="ResourceTextVersion" xml:space="preserve">
-    <value>1.6</value>
+    <value>1.7</value>
   </data>
   <data name="AppStartupFailureTitle" xml:space="preserve">
     <value>PaperTodo - エラー</value>
@@ -78,6 +78,12 @@
   <data name="MarkdownPreviewFailure" xml:space="preserve">
     <value>*プレビューに失敗しました。原文は保持されました。エラー: {0}*</value>
   </data>
+  <data name="OpenMarkdownFailureMessage" xml:space="preserve">
+    <value>既定の {0} エディターを起動できませんでした:&#x0A;{1}</value>
+  </data>
+  <data name="OpenMarkdownFailureTitle" xml:space="preserve">
+    <value>Markdown を開けません</value>
+  </data>
   <data name="MenuBold" xml:space="preserve">
     <value>太字</value>
   </data>
@@ -126,11 +132,26 @@
   <data name="MenuQuote" xml:space="preserve">
     <value>引用</value>
   </data>
+  <data name="MenuRenameTitle" xml:space="preserve">
+    <value>タイトルを変更</value>
+  </data>
   <data name="MenuRestoreWindow" xml:space="preserve">
     <value>ウィンドウを復元</value>
   </data>
   <data name="MenuStrikethrough" xml:space="preserve">
     <value>取り消し線</value>
+  </data>
+  <data name="MenuCopy" xml:space="preserve">
+    <value>コピー</value>
+  </data>
+  <data name="MenuPaste" xml:space="preserve">
+    <value>貼り付け</value>
+  </data>
+  <data name="MenuSelectAll" xml:space="preserve">
+    <value>すべて選択</value>
+  </data>
+  <data name="MenuText" xml:space="preserve">
+    <value>テキスト</value>
   </data>
   <data name="MenuThisPaper" xml:space="preserve">
     <value>この紙片</value>
@@ -192,6 +213,15 @@
   <data name="ToolTipHideThisPaper" xml:space="preserve">
     <value>この紙片を隠す</value>
   </data>
+  <data name="ToolTipEditTitle" xml:space="preserve">
+    <value>クリックしてタイトルを編集</value>
+  </data>
+  <data name="ToolTipOpenMarkdownEditor" xml:space="preserve">
+    <value>既定の {0} エディターで開く</value>
+  </data>
+  <data name="ToolTipResetTextZoom" xml:space="preserve">
+    <value>クリックして文字ズームを 100% に戻す</value>
+  </data>
   <data name="ToolTipNewNotePaper" xml:space="preserve">
     <value>メモ紙を新規作成</value>
   </data>
@@ -230,6 +260,42 @@
   </data>
   <data name="TrayShowAll" xml:space="preserve">
     <value>すべての紙片を表示</value>
+  </data>
+  <data name="TraySettings" xml:space="preserve">
+    <value>設定</value>
+  </data>
+  <data name="SettingsExternalMarkdownExtension" xml:space="preserve">
+    <value>外部で開く拡張子</value>
+  </data>
+  <data name="SettingsQuickActions" xml:space="preserve">
+    <value>クイック操作</value>
+  </data>
+  <data name="SettingsDisplay" xml:space="preserve">
+    <value>表示</value>
+  </data>
+  <data name="SettingsExternalOpen" xml:space="preserve">
+    <value>外部で開く</value>
+  </data>
+  <data name="SettingsTopBarButtons" xml:space="preserve">
+    <value>上部バーのボタン</value>
+  </data>
+  <data name="SettingsBehavior" xml:space="preserve">
+    <value>動作</value>
+  </data>
+  <data name="SettingsShowTopBarNewTodoButton" xml:space="preserve">
+    <value>上部バーの新規 ToDo ボタンを表示</value>
+  </data>
+  <data name="SettingsShowTopBarNewNoteButton" xml:space="preserve">
+    <value>上部バーの新規メモボタンを表示</value>
+  </data>
+  <data name="SettingsShowTopBarExternalOpenButton" xml:space="preserve">
+    <value>上部バーの外部で開くボタンを表示</value>
+  </data>
+  <data name="SettingsResetNoteZoom" xml:space="preserve">
+    <value>ノートのズームをリセット</value>
+  </data>
+  <data name="SettingsRestoreAllCapsules" xml:space="preserve">
+    <value>すべてのカプセルを展開</value>
   </data>
   <data name="TrayStartup" xml:space="preserve">
     <value>Windows 起動時に開始</value>

@@ -1,4 +1,6 @@
 using System.Diagnostics;
+using System.Globalization;
+using System.IO;
 using System.Windows;
 using System.Text.RegularExpressions;
 using System.Windows.Controls;
@@ -49,10 +51,18 @@ public sealed partial class PaperWindow : Window
     private Border _paperChrome = null!;
     private readonly Grid _containerGrid = new();
     private readonly Grid _shell = new();
-    private readonly ScaleTransform _chromeScale = new(1.0, 1.0);
+    private readonly ScaleTransform _shellScale = new(1.0, 1.0);
     private Canvas? _dragLayer;
     private StackPanel? _todoPanel;
     private Button? _paperIconButton;
+    private Button? _newTodoButton;
+    private Button? _newNoteButton;
+    private Button? _openMarkdownButton;
+    private TextBlock? _titleText;
+    private TextBox? _titleEditBox;
+    private TextBlock? _textZoomIndicator;
+    private UIElement? _noteBodyElement;
+    private Border? _capsuleLeftArea;
     private Border? _activeDropRow;
     private Border? _dropIndicatorLine;
     private Border? _appendArea;
@@ -85,20 +95,25 @@ public sealed partial class PaperWindow : Window
     private double _transitionBaseWidth;
     private double _transitionBaseHeight;
     private bool _isTransitionVisualsActive;
-    private const double DeepCapsuleVisibleWidth = PaperLayoutDefaults.CapsuleWidth / 2 + 10;
+    private bool _isEditingTitle;
+    private bool _isCoercingTitleEditText;
     private const double DeepCapsuleHoverOutsideOffset = 8;
     private const double DeepCapsuleTopMargin = 8;
+    private const double DeepCapsuleStartTopMargin = 48;
     private const double DeepCapsuleGap = 4;
     private const double WindowChromeMargin = 8;
     private const double WindowChromeInset = WindowChromeMargin * 2;
+    private const double TitleBarHeight = 23.5;
     private const int CollapseShellFadeMilliseconds = 70;
     private const int CollapseResizeMilliseconds = 150;
     private const int ExpandAnimationMilliseconds = 220;
     private const double ExpandedChromeCornerRadius = 14;
     private const double CapsuleChromeCornerRadius = 18;
+    private static readonly object NoteRenderTraceLock = new();
 
     public bool IsDeepCapsulePlaced => _isDeepCapsulePlaced;
     public bool SuppressGeometrySave => _suppressGeometrySave || _isDeepCapsulePlaced;
+    public double DesiredCapsuleWindowWidth => CapsuleWindowWidth();
 
     private sealed class TodoDragState
     {
@@ -282,7 +297,7 @@ public sealed partial class PaperWindow : Window
 
         var border = new FrameworkElementFactory(typeof(Border));
         border.Name = "Bd";
-        border.SetValue(Border.CornerRadiusProperty, new CornerRadius(6));
+        border.SetValue(Border.CornerRadiusProperty, new CornerRadius(8));
         border.SetValue(Border.BackgroundProperty, new TemplateBindingExtension(Control.BackgroundProperty));
         border.SetValue(Border.PaddingProperty, new TemplateBindingExtension(Control.PaddingProperty));
 
@@ -406,6 +421,7 @@ public sealed partial class PaperWindow : Window
         LocationChanged += (_, _) => SaveGeometryIfAllowed();
         SizeChanged += (_, _) => SaveGeometryIfAllowed();
         PreviewMouseMove += OnWindowPreviewMouseMove;
+        PreviewMouseWheel += OnWindowPreviewMouseWheel;
         PreviewMouseLeftButtonUp += OnWindowPreviewMouseLeftButtonUp;
         LostMouseCapture += OnLostMouseCapture;
         PreviewKeyDown += OnWindowPreviewKeyDown;
@@ -443,7 +459,7 @@ public sealed partial class PaperWindow : Window
     private void ConfigureWindow()
     {
         InitializeThemeResources();
-        Title = "PaperTodo";
+        Title = _controller.PaperTitleText(_paper);
         ShowInTaskbar = false;
         WindowStartupLocation = WindowStartupLocation.Manual;
 
@@ -452,9 +468,9 @@ public sealed partial class PaperWindow : Window
 
         if (_paper.IsCollapsed && _controller.State.UseCapsuleMode)
         {
-            Width = PaperLayoutDefaults.CapsuleWidth;
+            Width = CapsuleWindowWidth();
             Height = PaperLayoutDefaults.CapsuleHeight;
-            MinWidth = PaperLayoutDefaults.CapsuleWidth;
+            MinWidth = CapsuleWindowWidth();
             MinHeight = PaperLayoutDefaults.CapsuleHeight;
             ResizeMode = ResizeMode.NoResize;
         }
@@ -500,7 +516,9 @@ public sealed partial class PaperWindow : Window
     {
         InitializeThemeResources();
 
+        RefreshPaperTitle();
         RefreshPaperIconButton();
+        UpdateTextZoom();
 
         if (_paper.Type == PaperTypes.Note)
         {
@@ -520,8 +538,106 @@ public sealed partial class PaperWindow : Window
     {
         if (_paper.Type == PaperTypes.Note && _noteBox != null)
         {
-            _noteBox.SetMarkdownRenderMode(_controller.State.MarkdownRenderMode);
+            var mode = _controller.State.MarkdownRenderMode;
+            TraceNoteRender($"UpdateMarkdownRenderMode rebuild mode={mode}");
+            RebuildNoteBodyForMarkdownMode();
         }
+    }
+
+    private void TraceNoteRender(string message)
+    {
+#if DEBUG
+        try
+        {
+            var path = System.IO.Path.Combine(AppContext.BaseDirectory, "md-render-trace.log");
+            var line = $"{DateTime.Now:HH:mm:ss.fff} paper={_paper.Id[..Math.Min(6, _paper.Id.Length)]} {message}{Environment.NewLine}";
+            lock (NoteRenderTraceLock)
+            {
+                System.IO.File.AppendAllText(path, line);
+            }
+        }
+        catch
+        {
+            // Test-only diagnostics must never affect note interaction.
+        }
+#endif
+    }
+
+    private void RebuildNoteBodyForMarkdownMode()
+    {
+        if (_paper.Type != PaperTypes.Note)
+        {
+            return;
+        }
+
+        var oldBox = _noteBox;
+        var text = oldBox?.Text ?? _paper.Content ?? "";
+        var caret = oldBox?.CaretIndex ?? 0;
+        var verticalOffset = oldBox?.VerticalOffset ?? 0;
+        var horizontalOffset = oldBox?.HorizontalOffset ?? 0;
+        _paper.Content = text;
+
+        TraceNoteRender($"RebuildNoteBody start textLength={text.Length} caret={caret} v={verticalOffset:F1} h={horizontalOffset:F1}");
+
+        var oldBodies = new List<UIElement>();
+        if (_noteBodyElement != null)
+        {
+            oldBodies.Add(_noteBodyElement);
+        }
+        else
+        {
+            var zoomHost = _textZoomIndicator?.Parent as UIElement;
+            foreach (UIElement child in _shell.Children)
+            {
+                if (Grid.GetRow(child) == 1 && !ReferenceEquals(child, zoomHost))
+                {
+                    oldBodies.Add(child);
+                }
+            }
+        }
+
+        _noteBox = null;
+        _showNotePreview = null;
+
+        var body = BuildNoteBody();
+        body.Opacity = 0;
+        body.IsHitTestVisible = false;
+        Grid.SetRow(body, 1);
+        Panel.SetZIndex(body, 1);
+        _noteBodyElement = body;
+        _shell.Children.Add(body);
+
+        if (_noteBox == null)
+        {
+            TraceNoteRender("RebuildNoteBody end: no note box");
+            return;
+        }
+
+        _noteBox.CaretIndex = Math.Clamp(caret, 0, _noteBox.Text.Length);
+        _showNotePreview?.Invoke();
+        body.UpdateLayout();
+
+        Dispatcher.BeginInvoke(
+            (Action)(() =>
+            {
+                if (_noteBox == null)
+                {
+                    return;
+                }
+
+                foreach (var oldBody in oldBodies)
+                {
+                    _shell.Children.Remove(oldBody);
+                }
+
+                body.Opacity = 1;
+                body.IsHitTestVisible = true;
+                _noteBox.ScrollToHorizontalOffset(horizontalOffset);
+                _noteBox.ScrollToVerticalOffset(verticalOffset);
+                _showNotePreview?.Invoke();
+                TraceNoteRender($"RebuildNoteBody restored caret={_noteBox.CaretIndex} v={verticalOffset:F1} h={horizontalOffset:F1}");
+            }),
+            System.Windows.Threading.DispatcherPriority.Render);
     }
 
     private void ExitNoteEditor()
@@ -554,8 +670,6 @@ public sealed partial class PaperWindow : Window
             Margin = new Thickness(WindowChromeMargin),
             CornerRadius = PaperChromeCornerRadiusForState(_paper.IsCollapsed && _controller.State.UseCapsuleMode),
             BorderThickness = new Thickness(1),
-            RenderTransform = _chromeScale,
-            RenderTransformOrigin = new Point(0, 0),
             SnapsToDevicePixels = true,
             Effect = new DropShadowEffect
             {
@@ -571,6 +685,8 @@ public sealed partial class PaperWindow : Window
 
         _containerGrid.Background = Brushes.Transparent;
         _containerGrid.ClipToBounds = false;
+        _containerGrid.RenderTransform = _shellScale;
+        _containerGrid.RenderTransformOrigin = new Point(0, 0);
         _paperChrome.Child = _containerGrid;
 
         _shell.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
@@ -605,6 +721,7 @@ public sealed partial class PaperWindow : Window
         }
 
         _paperChrome.ContextMenu = BuildPaperContextMenu();
+        UpdateTextZoom();
     }
 
     private void BuildDragLayer()
@@ -625,8 +742,8 @@ public sealed partial class PaperWindow : Window
     {
         var top = new Grid
         {
-            Height = 34,
-            Margin = new Thickness(10, 4, 8, 0),
+            Height = TitleBarHeight,
+            Margin = new Thickness(3, 3, 6, 0),
             Background = Brushes.Transparent
         };
 
@@ -642,15 +759,114 @@ public sealed partial class PaperWindow : Window
             }
         };
 
+        var titleArea = new Grid
+        {
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            VerticalAlignment = VerticalAlignment.Stretch
+        };
+        titleArea.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        titleArea.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
         _paperIconButton = IconButton(_paper.Type == PaperTypes.Note ? "✎" : "☑", _paper.AlwaysOnTop ? Strings.Get("Unpin") : Strings.Get("Pin"));
+        _paperIconButton.Width = 23;
+        _paperIconButton.FontSize = _paper.Type == PaperTypes.Note ? 15 : 13;
         _paperIconButton.HorizontalAlignment = HorizontalAlignment.Left;
+        _paperIconButton.VerticalAlignment = VerticalAlignment.Center;
         _paperIconButton.Click += (_, _) => ToggleTopmost();
         _paperIconButton.MouseEnter += (_, _) => _paperIconButton.Opacity = 1.0;
         _paperIconButton.MouseLeave += (_, _) => RefreshPaperIconButton();
         RefreshPaperIconButton();
 
         Grid.SetColumn(_paperIconButton, 0);
-        top.Children.Add(_paperIconButton);
+        titleArea.Children.Add(_paperIconButton);
+
+        var titleHost = new Border
+        {
+            Margin = new Thickness(0, 0, 8, 0),
+            Padding = new Thickness(4, 1, 5, 1),
+            CornerRadius = new CornerRadius(8),
+            BorderThickness = new Thickness(0, 0, 0, 1),
+            Background = Brushes.Transparent,
+            Cursor = Cursors.IBeam,
+            HorizontalAlignment = HorizontalAlignment.Left,
+            VerticalAlignment = VerticalAlignment.Center,
+            MinWidth = 38,
+            MaxWidth = 86,
+            ToolTip = Strings.Get("ToolTipEditTitle")
+        };
+        titleHost.SetResourceReference(Border.BorderBrushProperty, "TitleBarDividerBrushKey");
+
+        var titleEditLayer = new Grid
+        {
+            MinWidth = 30,
+            MaxWidth = 76
+        };
+
+        _titleText = new TextBlock
+        {
+            Foreground = TextBrush,
+            FontSize = 11,
+            FontWeight = FontWeights.SemiBold,
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            VerticalAlignment = VerticalAlignment.Center,
+            Cursor = Cursors.IBeam
+        };
+
+        _titleEditBox = new TextBox
+        {
+            Visibility = Visibility.Collapsed,
+            BorderThickness = new Thickness(0),
+            Background = Brushes.Transparent,
+            Foreground = TextBrush,
+            CaretBrush = TextBrush,
+            FontSize = 11,
+            FontWeight = FontWeights.SemiBold,
+            MaxLength = PaperTitles.MaxTitleLength,
+            Padding = new Thickness(0),
+            VerticalContentAlignment = VerticalAlignment.Center,
+            FocusVisualStyle = null
+        };
+        _titleEditBox.PreviewMouseLeftButtonDown += (_, e) => e.Handled = false;
+        _titleEditBox.TextChanged += (_, _) => CoerceTitleEditText();
+        _titleEditBox.PreviewKeyDown += (_, e) =>
+        {
+            if (e.Key == Key.Enter)
+            {
+                CommitTitleEdit();
+                e.Handled = true;
+            }
+            else if (e.Key == Key.Escape)
+            {
+                EndTitleEdit(commit: false);
+                e.Handled = true;
+            }
+        };
+        _titleEditBox.LostKeyboardFocus += (_, _) =>
+        {
+            if (_isEditingTitle)
+            {
+                CommitTitleEdit();
+            }
+        };
+
+        titleEditLayer.Children.Add(_titleText);
+        titleEditLayer.Children.Add(_titleEditBox);
+        titleHost.Child = titleEditLayer;
+        titleHost.MouseEnter += (_, _) => titleHost.Background = HoverBrush;
+        titleHost.MouseLeave += (_, _) => titleHost.Background = Brushes.Transparent;
+        titleHost.MouseLeftButtonDown += (_, e) =>
+        {
+            BeginTitleEdit();
+            e.Handled = true;
+        };
+
+        Grid.SetColumn(titleHost, 1);
+        titleArea.Children.Add(titleHost);
+
+        RefreshPaperTitle();
+
+        Grid.SetColumn(titleArea, 0);
+        top.Children.Add(titleArea);
 
         var buttons = new StackPanel
         {
@@ -659,11 +875,19 @@ public sealed partial class PaperWindow : Window
             VerticalAlignment = VerticalAlignment.Center
         };
 
-        var addTodo = IconButton("＋✓", Strings.Get("ToolTipNewTodoPaper"));
-        addTodo.Click += (_, _) => _controller.CreatePaper(PaperTypes.Todo, show: true, _paper);
+        _newTodoButton = IconButton("＋✓", Strings.Get("ToolTipNewTodoPaper"));
+        _newTodoButton.Click += (_, _) => _controller.CreatePaper(PaperTypes.Todo, show: true, _paper);
 
-        var addNote = IconButton("＋✎", Strings.Get("ToolTipNewNotePaper"));
-        addNote.Click += (_, _) => _controller.CreatePaper(PaperTypes.Note, show: true, _paper);
+        _newNoteButton = IconButton("＋✎", Strings.Get("ToolTipNewNotePaper"));
+        _newNoteButton.Click += (_, _) => _controller.CreatePaper(PaperTypes.Note, show: true, _paper);
+
+        if (_paper.Type == PaperTypes.Note)
+        {
+            _openMarkdownButton = IconButton("MD", OpenMarkdownEditorToolTip());
+            _openMarkdownButton.FontSize = 10.5;
+            _openMarkdownButton.Click += (_, _) => OpenMarkdownInDefaultEditor();
+            buttons.Children.Add(_openMarkdownButton);
+        }
 
         _closeButton = IconButton("×", Strings.Get("ToolTipHideThisPaper"));
         _closeButton.FontSize = 16;
@@ -680,16 +904,17 @@ public sealed partial class PaperWindow : Window
         };
         RefreshCloseButton();
 
-        buttons.Children.Add(addTodo);
-        buttons.Children.Add(addNote);
+        buttons.Children.Add(_newTodoButton);
+        buttons.Children.Add(_newNoteButton);
         buttons.Children.Add(_closeButton);
+        UpdateTopBarNewPaperButtons();
 
         Grid.SetColumn(buttons, 1);
         top.Children.Add(buttons);
 
         var topHost = new Border
         {
-            Margin = new Thickness(0, 0, 0, 2),
+            Margin = new Thickness(0, 0, 0, 1.5),
             BorderThickness = new Thickness(0, 0, 0, 1),
             CornerRadius = new CornerRadius(14, 14, 0, 0),
             Child = top
@@ -705,7 +930,64 @@ public sealed partial class PaperWindow : Window
     {
         UIElement body = _paper.Type == PaperTypes.Note ? BuildNoteBody() : BuildTodoBody();
         Grid.SetRow(body, 1);
+        if (_paper.Type == PaperTypes.Note)
+        {
+            _noteBodyElement = body;
+        }
         _shell.Children.Add(body);
+
+        if (_paper.Type == PaperTypes.Note)
+        {
+            BuildTextZoomOverlay();
+        }
+    }
+
+    private void BuildTextZoomOverlay()
+    {
+        var zoomHost = new Border
+        {
+            HorizontalAlignment = HorizontalAlignment.Right,
+            VerticalAlignment = VerticalAlignment.Bottom,
+            Margin = new Thickness(0, 0, 12, 7),
+            Padding = new Thickness(6, 1, 6, 1),
+            CornerRadius = new CornerRadius(6),
+            Background = Brushes.Transparent,
+            Cursor = Cursors.Hand,
+            ToolTip = Strings.Get("ToolTipResetTextZoom"),
+            Visibility = Visibility.Collapsed
+        };
+
+        _textZoomIndicator = new TextBlock
+        {
+            Foreground = WeakTextBrush,
+            FontSize = 10.5,
+            FontWeight = FontWeights.SemiBold,
+            Opacity = 0.55,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+
+        zoomHost.Child = _textZoomIndicator;
+        zoomHost.MouseEnter += (_, _) =>
+        {
+            zoomHost.Background = HoverBrush;
+            _textZoomIndicator.Foreground = TextBrush;
+            _textZoomIndicator.Opacity = 1.0;
+        };
+        zoomHost.MouseLeave += (_, _) =>
+        {
+            zoomHost.Background = Brushes.Transparent;
+            _textZoomIndicator.Foreground = WeakTextBrush;
+            _textZoomIndicator.Opacity = 0.55;
+        };
+        zoomHost.MouseLeftButtonUp += (_, e) =>
+        {
+            _controller.SetPaperTextZoom(_paper, 1.0);
+            e.Handled = true;
+        };
+
+        Grid.SetRow(zoomHost, 1);
+        Panel.SetZIndex(zoomHost, 20);
+        _shell.Children.Add(zoomHost);
     }
 
     private UIElement BuildTodoBody()
@@ -717,7 +999,7 @@ public sealed partial class PaperWindow : Window
 
         _todoPanel = new StackPanel
         {
-            Margin = new Thickness(12, 4, 10, 4)
+            Margin = new Thickness(8, 4, 7, 4)
         };
 
         RebuildTodoRows();
@@ -759,6 +1041,7 @@ public sealed partial class PaperWindow : Window
         NoteTypography.ApplyTextRendering(_noteBox);
         var box = _noteBox;
         box.SetMarkdownRenderMode(_controller.State.MarkdownRenderMode);
+        box.SetTextZoom(CurrentTextZoom());
 
         host.Children.Add(box);
         var editorMenu = CreateContextMenu();
@@ -772,30 +1055,30 @@ public sealed partial class PaperWindow : Window
         editorMenu.Items.Add(MenuItem(Strings.Get("MenuCodeBlock"), (_, _) => box.WrapSelection("```\n", "\n```")));
         editorMenu.Items.Add(MenuItem(Strings.Get("MenuInsertLink"), (_, _) => box.InsertMarkdownLink()));
         editorMenu.Items.Add(MenuSeparator());
-        editorMenu.Items.Add(MenuHeader(Strings.Get("MenuThisPaper")));
-        editorMenu.Items.Add(MenuItem(Strings.Get("MenuHide"), (_, _) => _controller.HidePaper(_paper)));
-        editorMenu.Items.Add(MenuItem(Strings.Get("MenuDelete"), (_, _) => ConfirmAndDeletePaper()));
+        editorMenu.Items.Add(MenuHeader(Strings.Get("MenuText")));
+        editorMenu.Items.Add(MenuItem(Strings.Get("MenuCopy"), (_, _) => box.Copy()));
+        editorMenu.Items.Add(MenuItem(Strings.Get("MenuPaste"), (_, _) => box.Paste()));
+        editorMenu.Items.Add(MenuItem(Strings.Get("MenuSelectAll"), (_, _) => box.SelectAll()));
 
         var previewMenu = BuildPaperContextMenu();
         var isPreviewing = false;
+        var isEnteringEditorFromPreview = false;
 
         void ShowPreview()
         {
-            if (isPreviewing)
-            {
-                return;
-            }
-
+            TraceNoteRender($"ShowPreview before isPreviewing={isPreviewing} boxPreview={box.IsPreviewMode}");
             box.SelectionLength = 0;
             box.SetPreviewMode(true);
             box.ContextMenu = previewMenu;
             isPreviewing = true;
+            TraceNoteRender($"ShowPreview after isPreviewing={isPreviewing} boxPreview={box.IsPreviewMode}");
         }
 
         _showNotePreview = ShowPreview;
 
         void ShowEditor(bool focus = true)
         {
+            TraceNoteRender($"ShowEditor before focus={focus} isPreviewing={isPreviewing} boxPreview={box.IsPreviewMode}");
             box.SetPreviewMode(false);
             box.ContextMenu = editorMenu;
             isPreviewing = false;
@@ -804,12 +1087,15 @@ public sealed partial class PaperWindow : Window
             {
                 box.Focus();
             }
+            TraceNoteRender($"ShowEditor after focus={focus} isPreviewing={isPreviewing} boxPreview={box.IsPreviewMode} focused={box.IsKeyboardFocusWithin}");
         }
 
         void ShowEditorAtPreviewPoint(Point previewPoint)
         {
+            TraceNoteRender($"ShowEditorAtPreviewPoint x={previewPoint.X:F1} y={previewPoint.Y:F1}");
             var hasPreviewCaret = box.TryGetCharacterIndexFromPoint(previewPoint, out var caretIndex);
 
+            isEnteringEditorFromPreview = true;
             ShowEditor(focus: false);
 
             if (!box.IsKeyboardFocusWithin)
@@ -822,6 +1108,14 @@ public sealed partial class PaperWindow : Window
                 box.CaretIndex = Math.Clamp(caretIndex, 0, box.Text.Length);
                 box.SelectionLength = 0;
             }
+            TraceNoteRender($"ShowEditorAtPreviewPoint after hasCaret={hasPreviewCaret} caret={box.CaretIndex}");
+            Dispatcher.BeginInvoke(
+                (Action)(() =>
+                {
+                    isEnteringEditorFromPreview = false;
+                    TraceNoteRender($"ShowEditorAtPreviewPoint release focused={box.IsKeyboardFocusWithin} isPreviewing={isPreviewing} boxPreview={box.IsPreviewMode}");
+                }),
+                System.Windows.Threading.DispatcherPriority.ContextIdle);
         }
 
         static void OpenMarkdownLink(string url)
@@ -869,20 +1163,37 @@ public sealed partial class PaperWindow : Window
             }
         };
 
-        box.GotKeyboardFocus += (_, _) => ShowEditor();
+        box.GotKeyboardFocus += (_, _) =>
+        {
+            TraceNoteRender($"GotKeyboardFocus isPreviewing={isPreviewing} boxPreview={box.IsPreviewMode}");
+        };
 
         box.LostKeyboardFocus += (_, _) =>
         {
             if (box.ContextMenu != null && box.ContextMenu.IsOpen)
             {
+                TraceNoteRender("LostKeyboardFocus ignored: context menu open");
                 return;
             }
+            if (isEnteringEditorFromPreview)
+            {
+                TraceNoteRender($"LostKeyboardFocus ignored: entering editor isPreviewing={isPreviewing} boxPreview={box.IsPreviewMode}");
+                return;
+            }
+            TraceNoteRender($"LostKeyboardFocus isPreviewing={isPreviewing} boxPreview={box.IsPreviewMode}");
             ShowPreview();
         };
 
-        box.PreviewMouseLeftButtonDown += (_, e) =>
+        MouseButtonEventHandler noteMouseDown = (_, e) =>
         {
+            if (IsScrollBarInteractionSource(e.OriginalSource as DependencyObject, box))
+            {
+                TraceNoteRender($"PreviewMouseLeftButtonDown ignored: scrollbar isPreviewing={isPreviewing} boxPreview={box.IsPreviewMode}");
+                return;
+            }
+
             var textViewPoint = e.GetPosition(box.TextArea.TextView);
+            TraceNoteRender($"PreviewMouseLeftButtonDown isPreviewing={isPreviewing} boxPreview={box.IsPreviewMode} handled={e.Handled}");
             if (!isPreviewing)
             {
                 if ((Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control &&
@@ -905,6 +1216,7 @@ public sealed partial class PaperWindow : Window
             ShowEditorAtPreviewPoint(point);
             e.Handled = true;
         };
+        box.AddHandler(UIElement.PreviewMouseLeftButtonDownEvent, noteMouseDown, true);
 
         box.MouseMove += (sender, e) =>
         {
@@ -1016,7 +1328,7 @@ public sealed partial class PaperWindow : Window
             Text = "＋",
             Foreground = WeakTextBrush,
             Opacity = 0.42,
-            FontSize = 15,
+            FontSize = 14,
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center
         };
@@ -1072,7 +1384,7 @@ public sealed partial class PaperWindow : Window
                 text.Text = "🗑";
                 text.Foreground = TrashTextBrush;
                 text.Opacity = hovered ? 1.0 : 0.65;
-                text.FontSize = 14;
+                text.FontSize = 13;
             }
         }
         else
@@ -1086,7 +1398,7 @@ public sealed partial class PaperWindow : Window
                 text.Text = "＋";
                 text.Foreground = WeakTextBrush;
                 text.Opacity = 0.42;
-                text.FontSize = 15;
+                text.FontSize = 14;
             }
         }
     }
@@ -1154,7 +1466,7 @@ public sealed partial class PaperWindow : Window
             Background = Brushes.Transparent,
             Foreground = item.Done ? WeakTextBrush : TextBrush,
             CaretBrush = TextBrush,
-            FontSize = 14,
+            FontSize = 13,
             Padding = new Thickness(2, 3, 2, 3),
             VerticalContentAlignment = VerticalAlignment.Center,
             TextWrapping = TextWrapping.Wrap,
@@ -1241,7 +1553,7 @@ public sealed partial class PaperWindow : Window
             Text = "≡",
             Foreground = WeakTextBrush,
             Opacity = 0.48,
-            FontSize = 15,
+            FontSize = 14,
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center
         };
@@ -1371,6 +1683,7 @@ public sealed partial class PaperWindow : Window
 
         menu.Items.Add(MenuSeparator());
         menu.Items.Add(MenuHeader(Strings.Get("MenuThisPaper")));
+        menu.Items.Add(MenuHeader(_controller.PaperCapsuleTitle(_paper)));
 
         if (_controller.State.UseCapsuleMode)
         {
@@ -1398,9 +1711,10 @@ public sealed partial class PaperWindow : Window
         _controller.MarkDirty();
     }
 
-    private void RefreshEffectiveTopmost()
+    internal void RefreshEffectiveTopmost()
     {
-        Topmost = _paper.AlwaysOnTop || (_controller.State.UseCapsuleMode && _paper.IsCollapsed);
+        var shouldBeTopmost = _paper.AlwaysOnTop || (_controller.State.UseCapsuleMode && _paper.IsCollapsed);
+        Topmost = shouldBeTopmost && !_controller.SuppressTopmostForFullscreenForeground;
     }
 
     private void RefreshPaperIconButton()
@@ -1414,6 +1728,230 @@ public sealed partial class PaperWindow : Window
         _paperIconButton.Opacity = _paper.AlwaysOnTop ? 1.0 : 0.58;
         _paperIconButton.Foreground = _paper.AlwaysOnTop ? TextBrush : WeakTextBrush;
         _paperIconButton.FontWeight = _paper.AlwaysOnTop ? FontWeights.SemiBold : FontWeights.Normal;
+    }
+
+    public void RefreshPaperTitle()
+    {
+        var title = _controller.PaperTitleText(_paper);
+        Title = title;
+
+        if (_titleText != null)
+        {
+            _titleText.Text = title;
+            _titleText.ToolTip = Strings.Get("ToolTipEditTitle");
+            _titleText.Foreground = TextBrush;
+        }
+
+        if (_titleEditBox != null)
+        {
+            _titleEditBox.Foreground = TextBrush;
+            _titleEditBox.CaretBrush = TextBrush;
+        }
+
+        RefreshCapsuleLabel();
+        if (_capsuleLeftArea != null)
+        {
+            _capsuleLeftArea.ContextMenu = BuildPaperContextMenu();
+        }
+        if (_paperChrome != null)
+        {
+            _paperChrome.ContextMenu = BuildPaperContextMenu();
+        }
+    }
+
+    private void RequestTitleEdit()
+    {
+        if (_paper.IsCollapsed && _controller.State.UseCapsuleMode)
+        {
+            SetCollapsedState(false);
+        }
+
+        Dispatcher.BeginInvoke((Action)BeginTitleEdit, System.Windows.Threading.DispatcherPriority.Input);
+    }
+
+    private void BeginTitleEdit()
+    {
+        if (_titleText == null || _titleEditBox == null)
+        {
+            return;
+        }
+
+        ExitNoteEditor();
+        _isEditingTitle = true;
+        _titleEditBox.Text = _controller.PaperTitleText(_paper);
+        _titleText.Visibility = Visibility.Collapsed;
+        _titleEditBox.Visibility = Visibility.Visible;
+        _titleEditBox.Focus();
+        _titleEditBox.SelectAll();
+    }
+
+    private void CommitTitleEdit()
+    {
+        EndTitleEdit(commit: true);
+    }
+
+    private void EndTitleEdit(bool commit)
+    {
+        if (_titleText == null || _titleEditBox == null)
+        {
+            return;
+        }
+
+        if (commit)
+        {
+            _controller.UpdatePaperTitle(_paper, _titleEditBox.Text);
+        }
+
+        _isEditingTitle = false;
+        _titleEditBox.Visibility = Visibility.Collapsed;
+        _titleText.Visibility = Visibility.Visible;
+        RefreshPaperTitle();
+    }
+
+    private void CoerceTitleEditText()
+    {
+        if (_titleEditBox == null || _isCoercingTitleEditText)
+        {
+            return;
+        }
+
+        var cleaned = PaperTitles.CleanCustomTitle(_titleEditBox.Text);
+        if (_titleEditBox.Text == cleaned)
+        {
+            return;
+        }
+
+        _isCoercingTitleEditText = true;
+        var caret = Math.Min(cleaned.Length, _titleEditBox.CaretIndex);
+        _titleEditBox.Text = cleaned;
+        _titleEditBox.CaretIndex = caret;
+        _isCoercingTitleEditText = false;
+    }
+
+    public void UpdateTextZoom()
+    {
+        if (_paper.Type != PaperTypes.Note)
+        {
+            return;
+        }
+
+        var zoom = CurrentTextZoom();
+        if (_noteBox != null)
+        {
+            var expectedFontSize = Math.Round(NoteTypography.FontSize * zoom, 1);
+            if (IsLoaded && Math.Abs(_noteBox.FontSize - expectedFontSize) > 0.001)
+            {
+                RebuildNoteBodyForMarkdownMode();
+            }
+            else
+            {
+                _noteBox.SetTextZoom(zoom);
+            }
+        }
+
+        if (_textZoomIndicator != null)
+        {
+            _textZoomIndicator.Text = $"{(int)Math.Round(zoom * 100)}%";
+            _textZoomIndicator.Foreground = WeakTextBrush;
+            _textZoomIndicator.Opacity = 0.55;
+            if (_textZoomIndicator.Parent is UIElement host)
+            {
+                host.Visibility = Math.Abs(zoom - 1.0) < 0.001 ? Visibility.Collapsed : Visibility.Visible;
+            }
+        }
+    }
+
+    private double CurrentTextZoom()
+    {
+        return Math.Clamp(_paper.TextZoom, 0.5, 1.5);
+    }
+
+    private void OnWindowPreviewMouseWheel(object sender, MouseWheelEventArgs e)
+    {
+        if (_paper.Type != PaperTypes.Note)
+        {
+            return;
+        }
+
+        if ((Keyboard.Modifiers & ModifierKeys.Control) != ModifierKeys.Control)
+        {
+            return;
+        }
+
+        var step = e.Delta > 0 ? 0.1 : -0.1;
+        _controller.SetPaperTextZoom(_paper, _paper.TextZoom + step);
+        e.Handled = true;
+    }
+
+    private void OpenMarkdownInDefaultEditor()
+    {
+        if (_paper.Type != PaperTypes.Note)
+        {
+            return;
+        }
+
+        try
+        {
+            var path = WriteExternalMarkdownFile();
+            Process.Start(new ProcessStartInfo(path)
+            {
+                UseShellExecute = true
+            });
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(
+                Strings.Format("OpenMarkdownFailureMessage", CurrentExternalMarkdownExtension(), ex.Message),
+                Strings.Get("OpenMarkdownFailureTitle"),
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+        }
+    }
+
+    public void UpdateExternalMarkdownExtension()
+    {
+        if (_openMarkdownButton != null)
+        {
+            _openMarkdownButton.ToolTip = OpenMarkdownEditorToolTip();
+            _openMarkdownButton.Visibility = _controller.State.ShowTopBarExternalOpenButton ? Visibility.Visible : Visibility.Collapsed;
+        }
+    }
+
+    public void UpdateTopBarNewPaperButtons()
+    {
+        if (_newTodoButton != null)
+        {
+            _newTodoButton.Visibility = _controller.State.ShowTopBarNewTodoButton ? Visibility.Visible : Visibility.Collapsed;
+        }
+        if (_newNoteButton != null)
+        {
+            _newNoteButton.Visibility = _controller.State.ShowTopBarNewNoteButton ? Visibility.Visible : Visibility.Collapsed;
+        }
+        if (_openMarkdownButton != null)
+        {
+            _openMarkdownButton.Visibility = _controller.State.ShowTopBarExternalOpenButton ? Visibility.Visible : Visibility.Collapsed;
+        }
+    }
+
+    private string OpenMarkdownEditorToolTip()
+    {
+        return Strings.Format("ToolTipOpenMarkdownEditor", CurrentExternalMarkdownExtension());
+    }
+
+    private string CurrentExternalMarkdownExtension()
+    {
+        return ExternalMarkdownFileExtensions.Normalize(_controller.State.ExternalMarkdownExtension);
+    }
+
+    private string WriteExternalMarkdownFile()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "PaperTodo");
+        Directory.CreateDirectory(directory);
+
+        var path = Path.Combine(directory, $"paper-{_paper.Id}{CurrentExternalMarkdownExtension()}");
+        var text = _noteBox?.Text ?? _paper.Content ?? "";
+        File.WriteAllText(path, text, new System.Text.UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+        return path;
     }
 
     private void ConfirmAndDeletePaper()
@@ -2241,8 +2779,8 @@ public sealed partial class PaperWindow : Window
         {
             Content = text,
             ToolTip = tooltip,
-            Width = 30,
-            Height = 26,
+            Width = 28,
+            Height = 24,
             Margin = new Thickness(1, 0, 1, 0),
             Style = SharedIconButtonStyle
         };
@@ -2496,34 +3034,38 @@ public sealed partial class PaperWindow : Window
 
         var visualWidth = _startTransitionWidth + (_targetTransitionWidth - _startTransitionWidth) * currentProgress;
         var visualHeight = _startTransitionHeight + (_targetTransitionHeight - _startTransitionHeight) * currentProgress;
+        var visualChromeWidth = Math.Max(1.0, visualWidth - WindowChromeInset);
+        var visualChromeHeight = Math.Max(1.0, visualHeight - WindowChromeInset);
         var baseChromeWidth = Math.Max(1.0, _transitionBaseWidth - WindowChromeInset);
         var baseChromeHeight = Math.Max(1.0, _transitionBaseHeight - WindowChromeInset);
-        var chromeScaleX = Math.Max(0.01, (visualWidth - WindowChromeInset) / baseChromeWidth);
-        var chromeScaleY = Math.Max(0.01, (visualHeight - WindowChromeInset) / baseChromeHeight);
 
-        _chromeScale.ScaleX = chromeScaleX;
-        _chromeScale.ScaleY = chromeScaleY;
-        UpdateTransitionCornerRadius(visualWidth, visualHeight, baseChromeWidth, baseChromeHeight, chromeScaleX, chromeScaleY);
+        _paperChrome.HorizontalAlignment = HorizontalAlignment.Left;
+        _paperChrome.VerticalAlignment = VerticalAlignment.Top;
+        _paperChrome.Width = visualChromeWidth;
+        _paperChrome.Height = visualChromeHeight;
+        _shellScale.ScaleX = Math.Max(0.01, visualChromeWidth / baseChromeWidth);
+        _shellScale.ScaleY = Math.Max(0.01, visualChromeHeight / baseChromeHeight);
+        UpdateTransitionCornerRadius(visualChromeWidth, visualChromeHeight, baseChromeWidth, baseChromeHeight);
     }
 
     private void ResetTransitionVisuals()
     {
         _isTransitionVisualsActive = false;
-        _chromeScale.ScaleX = 1.0;
-        _chromeScale.ScaleY = 1.0;
+        _paperChrome.Width = double.NaN;
+        _paperChrome.Height = double.NaN;
+        _paperChrome.HorizontalAlignment = HorizontalAlignment.Stretch;
+        _paperChrome.VerticalAlignment = VerticalAlignment.Stretch;
+        _shellScale.ScaleX = 1.0;
+        _shellScale.ScaleY = 1.0;
         _paperChrome.CornerRadius = PaperChromeCornerRadiusForState(_paper.IsCollapsed && _controller.State.UseCapsuleMode);
     }
 
     private void UpdateTransitionCornerRadius(
-        double visualWidth,
-        double visualHeight,
+        double visualChromeWidth,
+        double visualChromeHeight,
         double baseChromeWidth,
-        double baseChromeHeight,
-        double chromeScaleX,
-        double chromeScaleY)
+        double baseChromeHeight)
     {
-        var visualChromeWidth = Math.Max(1.0, visualWidth - WindowChromeInset);
-        var visualChromeHeight = Math.Max(1.0, visualHeight - WindowChromeInset);
         var visualChromeMin = Math.Min(visualChromeWidth, visualChromeHeight);
         var expandedChromeMin = Math.Max(1.0, Math.Min(baseChromeWidth, baseChromeHeight));
         var capsuleChromeMin = Math.Max(
@@ -2535,16 +3077,73 @@ public sealed partial class PaperWindow : Window
         var compactness = Math.Clamp((expandedChromeMin - visualChromeMin) / compactRange, 0.0, 1.0);
         var compactVisualRadius = Math.Min(CapsuleChromeCornerRadius, visualChromeMin / 2.0);
         var desiredVisualRadius = ExpandedChromeCornerRadius + (compactVisualRadius - ExpandedChromeCornerRadius) * compactness;
-        var minScale = Math.Max(0.01, Math.Min(chromeScaleX, chromeScaleY));
-        var maxLayoutRadius = Math.Max(ExpandedChromeCornerRadius, Math.Min(baseChromeWidth, baseChromeHeight) / 2.0);
-        var layoutRadius = Math.Clamp(desiredVisualRadius / minScale, ExpandedChromeCornerRadius, maxLayoutRadius);
 
-        _paperChrome.CornerRadius = new CornerRadius(layoutRadius);
+        _paperChrome.CornerRadius = new CornerRadius(desiredVisualRadius);
     }
 
     private static CornerRadius PaperChromeCornerRadiusForState(bool collapsed)
     {
         return new CornerRadius(collapsed ? CapsuleChromeCornerRadius : ExpandedChromeCornerRadius);
+    }
+
+    private double CapsuleWindowWidth()
+    {
+        return Math.Max(PaperLayoutDefaults.CapsuleWidth, CapsuleShellWidth() + WindowChromeInset);
+    }
+
+    private double CapsuleShellWidth()
+    {
+        const double iconWidth = 14;
+        const double iconGap = 6;
+        const double leftPadding = 10;
+        const double closeWidth = 26;
+        const double rightPadding = 4;
+
+        return Math.Ceiling(leftPadding + iconWidth + iconGap + MeasureCapsuleTitleWidth() + closeWidth + rightPadding);
+    }
+
+    private double MeasureCapsuleTitleWidth()
+    {
+        var text = _controller.PaperCapsuleTitle(_paper);
+        if (string.IsNullOrEmpty(text))
+        {
+            return 0;
+        }
+
+        try
+        {
+            var formatted = new FormattedText(
+                text,
+                CultureInfo.CurrentUICulture,
+                FlowDirection.LeftToRight,
+                new Typeface(NoteTypography.FontFamily, FontStyles.Normal, FontWeights.Normal, FontStretches.Normal),
+                11,
+                WeakTextBrush,
+                VisualTreeHelper.GetDpi(this).PixelsPerDip);
+            return formatted.WidthIncludingTrailingWhitespace;
+        }
+        catch
+        {
+            return text.Length * 12;
+        }
+    }
+
+    private int CapsuleTitleLength()
+    {
+        var text = _controller.PaperCapsuleTitle(_paper);
+        if (string.IsNullOrEmpty(text))
+        {
+            return 0;
+        }
+
+        try
+        {
+            return StringInfo.ParseCombiningCharacters(text).Length;
+        }
+        catch
+        {
+            return text.Length;
+        }
     }
 
     private double RoundToDevicePixelX(double value)
@@ -2605,7 +3204,7 @@ public sealed partial class PaperWindow : Window
     private double DeepCapsuleTopForIndex(int index)
     {
         var area = DeepCapsuleWorkArea();
-        var desiredTop = area.Top + DeepCapsuleTopMargin + Math.Max(0, index) * (PaperLayoutDefaults.CapsuleHeight + DeepCapsuleGap);
+        var desiredTop = area.Top + DeepCapsuleStartTopMargin + Math.Max(0, index) * (PaperLayoutDefaults.CapsuleHeight + DeepCapsuleGap);
         var maxTop = Math.Max(area.Top + DeepCapsuleTopMargin, area.Bottom - PaperLayoutDefaults.CapsuleHeight - DeepCapsuleTopMargin);
         return Math.Min(desiredTop, maxTop);
     }
@@ -2618,15 +3217,17 @@ public sealed partial class PaperWindow : Window
         }
 
         var area = DeepCapsuleWorkArea();
+        var capsuleWidth = CapsuleWindowWidth();
+        var deepCapsuleVisibleWidth = Math.Clamp(42 + CapsuleTitleLength() * 8, 52, capsuleWidth - 12);
         var targetLeft = RoundToDevicePixelX(_isDeepCapsuleHovering
-            ? area.Right - PaperLayoutDefaults.CapsuleWidth + DeepCapsuleHoverOutsideOffset
-            : area.Right - DeepCapsuleVisibleWidth);
+            ? area.Right - capsuleWidth + DeepCapsuleHoverOutsideOffset
+            : area.Right - deepCapsuleVisibleWidth);
         var targetTop = RoundToDevicePixelY(DeepCapsuleTopForIndex(_deepCapsuleIndex));
 
         MoveWindowWithoutGeometrySave(() =>
         {
             Top = targetTop;
-            Width = PaperLayoutDefaults.CapsuleWidth;
+            Width = capsuleWidth;
             Height = PaperLayoutDefaults.CapsuleHeight;
         });
 
@@ -2713,7 +3314,7 @@ public sealed partial class PaperWindow : Window
             {
                 Left = RoundToDevicePixelX(_paper.X);
                 Top = RoundToDevicePixelY(_paper.Y);
-                Width = PaperLayoutDefaults.CapsuleWidth;
+                Width = CapsuleWindowWidth();
                 Height = PaperLayoutDefaults.CapsuleHeight;
             });
         }
@@ -2778,6 +3379,26 @@ public sealed partial class PaperWindow : Window
         return false;
     }
 
+    private static bool IsScrollBarInteractionSource(DependencyObject? current, DependencyObject scope)
+    {
+        while (current != null)
+        {
+            if (current is ScrollBar or Thumb or Track or RepeatButton)
+            {
+                return true;
+            }
+
+            if (ReferenceEquals(current, scope))
+            {
+                return false;
+            }
+
+            current = GetSafeParent(current);
+        }
+
+        return false;
+    }
+
     private void RefreshCloseButton()
     {
         if (_closeButton == null)
@@ -2814,6 +3435,7 @@ public sealed partial class PaperWindow : Window
         }
 
         _paperChrome.ContextMenu = BuildPaperContextMenu();
+        UpdateTextZoom();
     }
 
     private void RefreshCapsuleLabel()
@@ -2823,25 +3445,19 @@ public sealed partial class PaperWindow : Window
             return;
         }
 
-        string labelStr = "";
-        if (_paper.Type == PaperTypes.Todo)
+        _capsuleLabelText.Text = _controller.PaperCapsuleTitle(_paper);
+        _capsuleLabelText.ToolTip = _controller.PaperTitleText(_paper);
+        if (_capsuleShell != null)
         {
-            int activeCount = _paper.Items.Count(i => !i.Done && !string.IsNullOrWhiteSpace(i.Text));
-            labelStr = activeCount > 0 ? Strings.Format("CapsuleTodoCount", activeCount) : Strings.Get("CapsuleTodo");
+            _capsuleShell.Width = CapsuleShellWidth();
         }
-        else
-        {
-            labelStr = Strings.Get("CapsuleNote");
-        }
-
-        _capsuleLabelText.Text = labelStr;
     }
 
     private void BuildCapsuleShell()
     {
         _capsuleShell = new Grid
         {
-            Width = 92,
+            Width = CapsuleShellWidth(),
             Height = 30,
             Background = Brushes.Transparent
         };
@@ -2950,6 +3566,7 @@ public sealed partial class PaperWindow : Window
         };
 
         leftArea.ContextMenu = BuildPaperContextMenu();
+        _capsuleLeftArea = leftArea;
 
         Grid.SetColumn(leftArea, 0);
         _capsuleShell.Children.Add(leftArea);
@@ -3035,7 +3652,8 @@ public sealed partial class PaperWindow : Window
 
         _isApplyingCollapsedState = true;
 
-        double targetWidth = collapsed ? PaperLayoutDefaults.CapsuleWidth : _paper.Width;
+        var capsuleWidth = CapsuleWindowWidth();
+        double targetWidth = collapsed ? capsuleWidth : _paper.Width;
         double targetHeight = collapsed ? PaperLayoutDefaults.CapsuleHeight : _paper.Height;
         double finalTargetWidth = RoundToDevicePixelX(targetWidth);
         double finalTargetHeight = RoundToDevicePixelY(targetHeight);
@@ -3089,7 +3707,7 @@ public sealed partial class PaperWindow : Window
             var expandedHeight = collapsed ? RoundToDevicePixelY(Height) : finalTargetHeight;
             _transitionBaseWidth = expandedWidth;
             _transitionBaseHeight = expandedHeight;
-            _startTransitionWidth = collapsed ? expandedWidth : PaperLayoutDefaults.CapsuleWidth;
+            _startTransitionWidth = collapsed ? expandedWidth : capsuleWidth;
             _startTransitionHeight = collapsed ? expandedHeight : PaperLayoutDefaults.CapsuleHeight;
             _targetTransitionWidth = collapsed ? finalTargetWidth : expandedWidth;
             _targetTransitionHeight = collapsed ? finalTargetHeight : expandedHeight;
@@ -3188,7 +3806,7 @@ public sealed partial class PaperWindow : Window
 
                 if (collapsed)
                 {
-                    MinWidth = PaperLayoutDefaults.CapsuleWidth;
+                    MinWidth = capsuleWidth;
                     MinHeight = PaperLayoutDefaults.CapsuleHeight;
                     ResizeMode = ResizeMode.NoResize;
                 }
@@ -3243,7 +3861,7 @@ public sealed partial class PaperWindow : Window
                 _capsuleShell.Visibility = Visibility.Visible;
                 _capsuleShell.Opacity = 1;
 
-                MinWidth = PaperLayoutDefaults.CapsuleWidth;
+                MinWidth = capsuleWidth;
                 MinHeight = PaperLayoutDefaults.CapsuleHeight;
                 ResizeMode = ResizeMode.NoResize;
             }

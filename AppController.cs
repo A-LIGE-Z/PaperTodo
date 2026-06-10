@@ -1,6 +1,5 @@
 using System.IO;
 using System.Reflection;
-using System.Text.RegularExpressions;
 using System.Threading;
 using System.Windows;
 using System.Windows.Controls;
@@ -23,15 +22,19 @@ public sealed partial class AppController : IDisposable
     private readonly StateStore _store = new();
     private readonly Dictionary<string, PaperWindow> _windows = new();
     private readonly DispatcherTimer _saveTimer;
+    private readonly DispatcherTimer _topmostRefreshTimer;
 
     private TaskbarIcon? _trayIcon;
     private ContextMenu? _trayMenu;
+    private Window? _settingsWindow;
+    private TextBox? _settingsExternalMarkdownTextBox;
     private bool _isExiting;
     private bool _suppressDirty;
     private bool _hasShownSaveFailure;
     private bool _ignoreSaveFailures;
     private int _trayRefreshSuppressionDepth;
     private long _saveVersion;
+    private bool _suppressTopmostForFullscreenForeground;
 
     private static Brush TrayPaperBrush => Theme.PaperBrush;
     private static Brush TrayBorderBrush => Theme.PaperBorderBrush;
@@ -40,18 +43,7 @@ public sealed partial class AppController : IDisposable
     private static Brush TrayHoverBrush => Theme.HoverBrush;
 
     public AppState State { get; private set; }
-
-    [GeneratedRegex(@"\[(.*?)\]\((.*?)\)")]
-    private static partial Regex LinkRegex();
-
-    [GeneratedRegex(@"^\s*#{1,6}\s*")]
-    private static partial Regex HeaderRegex();
-
-    [GeneratedRegex(@"^\s*[-*+]\s+")]
-    private static partial Regex BulletRegex();
-
-    [GeneratedRegex(@"^\s*>\s*")]
-    private static partial Regex QuoteRegex();
+    public bool SuppressTopmostForFullscreenForeground => _suppressTopmostForFullscreenForeground;
 
     public AppController()
     {
@@ -68,12 +60,20 @@ public sealed partial class AppController : IDisposable
             SaveNow();
         };
 
+        _topmostRefreshTimer = new DispatcherTimer
+        {
+            Interval = TimeSpan.FromMilliseconds(800)
+        };
+        _topmostRefreshTimer.Tick += (_, _) => RefreshTopmostForForegroundWindow();
+
         SystemEvents.UserPreferenceChanged += OnUserPreferenceChanged;
     }
 
     public void Start(bool createDefaultPaper = true)
     {
         CreateTrayIcon();
+        RefreshTopmostForForegroundWindow();
+        _topmostRefreshTimer.Start();
 
         if (State.Papers.Count == 0)
         {
@@ -133,9 +133,11 @@ public sealed partial class AppController : IDisposable
             newY += 30;
         }
 
+        var paperType = type == PaperTypes.Note ? PaperTypes.Note : PaperTypes.Todo;
         var paper = new PaperData
         {
-            Type = type == PaperTypes.Note ? PaperTypes.Note : PaperTypes.Todo,
+            Type = paperType,
+            Title = PaperTitles.DefaultTitle(paperType, NextTitleNumber(paperType)),
             X = newX,
             Y = newY,
             Width = type == PaperTypes.Note ? PaperLayoutDefaults.NoteDefaultWidth : PaperLayoutDefaults.TodoDefaultWidth,
@@ -178,6 +180,102 @@ public sealed partial class AppController : IDisposable
         RefreshTrayMenu();
         MarkDirty();
         return paper;
+    }
+
+    private int NextTitleNumber(string paperType)
+    {
+        var normalizedType = paperType == PaperTypes.Note ? PaperTypes.Note : PaperTypes.Todo;
+        var prefix = normalizedType == PaperTypes.Note ? "笔记" : "待办";
+        var usedNumbers = new HashSet<int>();
+
+        foreach (var paper in State.Papers.Where(p => p.Type == normalizedType))
+        {
+            var title = PaperTitles.CleanCustomTitle(paper.Title);
+            if (title.StartsWith(prefix, StringComparison.Ordinal) &&
+                int.TryParse(title[prefix.Length..], out var number) &&
+                number > 0)
+            {
+                usedNumbers.Add(number);
+            }
+        }
+
+        var next = 1;
+        while (usedNumbers.Contains(next))
+        {
+            next++;
+        }
+
+        return next;
+    }
+
+    public int TitleNumberFor(PaperData paper)
+    {
+        var normalizedType = paper.Type == PaperTypes.Note ? PaperTypes.Note : PaperTypes.Todo;
+        var number = 1;
+        foreach (var existing in State.Papers)
+        {
+            if (existing.Type != normalizedType)
+            {
+                continue;
+            }
+
+            if (existing.Id == paper.Id)
+            {
+                return number;
+            }
+
+            number++;
+        }
+
+        return Math.Max(1, number);
+    }
+
+    public string PaperTitleText(PaperData paper)
+    {
+        return PaperTitles.EffectiveTitle(paper, TitleNumberFor(paper));
+    }
+
+    public string PaperCapsuleTitle(PaperData paper)
+    {
+        return PaperTitles.CapsuleText(paper, TitleNumberFor(paper));
+    }
+
+    public void UpdatePaperTitle(PaperData paper, string title)
+    {
+        var cleaned = PaperTitles.CleanCustomTitle(title);
+        if (paper.Title == cleaned)
+        {
+            return;
+        }
+
+        paper.Title = cleaned;
+        if (_windows.TryGetValue(paper.Id, out var window))
+        {
+            window.RefreshPaperTitle();
+        }
+        RefreshTrayMenu();
+        MarkDirty();
+    }
+
+    public void SetPaperTextZoom(PaperData paper, double zoom)
+    {
+        if (paper.Type != PaperTypes.Note)
+        {
+            return;
+        }
+
+        var normalized = Math.Round(Math.Clamp(zoom, 0.5, 1.5), 1);
+        if (Math.Abs(paper.TextZoom - normalized) < 0.001)
+        {
+            return;
+        }
+
+        paper.TextZoom = normalized;
+        if (_windows.TryGetValue(paper.Id, out var window))
+        {
+            window.UpdateTextZoom();
+        }
+        MarkDirty();
     }
 
     public void TogglePaperVisibility(PaperData paper)
@@ -226,6 +324,7 @@ public sealed partial class AppController : IDisposable
 
     public void ShowPaper(PaperData paper)
     {
+        RefreshTopmostForForegroundWindow();
         paper.IsVisible = true;
         RescuePaperIfOffScreen(paper, State.Papers.IndexOf(paper));
 
@@ -241,7 +340,7 @@ public sealed partial class AppController : IDisposable
             window.Top = paper.Y;
             if (paper.IsCollapsed && State.UseCapsuleMode)
             {
-                window.Width = PaperLayoutDefaults.CapsuleWidth;
+                window.Width = window.DesiredCapsuleWindowWidth;
                 window.Height = PaperLayoutDefaults.CapsuleHeight;
             }
             else
@@ -261,7 +360,10 @@ public sealed partial class AppController : IDisposable
             }, System.Windows.Threading.DispatcherPriority.Render);
         }
 
-        window.Activate();
+        if (!_suppressTopmostForFullscreenForeground)
+        {
+            window.Activate();
+        }
         if (State.UseCapsuleMode && State.UseDeepCapsuleMode && paper.IsCollapsed)
         {
             ArrangeDeepCapsules();
@@ -272,6 +374,11 @@ public sealed partial class AppController : IDisposable
 
     private static void ForceWindowToFront(Window window)
     {
+        if (FullscreenForegroundWindowDetector.IsForegroundFullscreen())
+        {
+            return;
+        }
+
         var restoreTopmost = window.Topmost;
         window.Topmost = true;
         window.Activate();
@@ -279,6 +386,21 @@ public sealed partial class AppController : IDisposable
         window.Dispatcher.BeginInvoke(
             () => window.Topmost = restoreTopmost,
             DispatcherPriority.ApplicationIdle);
+    }
+
+    private void RefreshTopmostForForegroundWindow()
+    {
+        var shouldSuppress = FullscreenForegroundWindowDetector.IsForegroundFullscreen();
+        if (shouldSuppress == _suppressTopmostForFullscreenForeground)
+        {
+            return;
+        }
+
+        _suppressTopmostForFullscreenForeground = shouldSuppress;
+        foreach (var window in _windows.Values)
+        {
+            window.RefreshEffectiveTopmost();
+        }
     }
 
     public void HidePaper(PaperData paper)
@@ -775,11 +897,29 @@ public sealed partial class AppController : IDisposable
 
     private static ControlTemplate BuildTrayMenuItemTemplate()
     {
+        var root = new FrameworkElementFactory(typeof(Grid));
+
         var border = new FrameworkElementFactory(typeof(Border));
         border.Name = "Bd";
         border.SetValue(Border.CornerRadiusProperty, new CornerRadius(8));
         border.SetValue(Border.BackgroundProperty, new TemplateBindingExtension(Control.BackgroundProperty));
         border.SetValue(Border.PaddingProperty, new TemplateBindingExtension(Control.PaddingProperty));
+
+        var contentPanel = new FrameworkElementFactory(typeof(DockPanel));
+        contentPanel.SetValue(FrameworkElement.MinWidthProperty, 0.0);
+        contentPanel.SetValue(DockPanel.LastChildFillProperty, true);
+
+        var arrow = new FrameworkElementFactory(typeof(TextBlock));
+        arrow.Name = "SubmenuArrow";
+        arrow.SetValue(TextBlock.TextProperty, "›");
+        arrow.SetValue(TextBlock.MarginProperty, new Thickness(10, 0, 0, 0));
+        arrow.SetValue(TextBlock.ForegroundProperty, new DynamicResourceExtension("TrayWeakTextBrushKey"));
+        arrow.SetValue(TextBlock.FontSizeProperty, 13.0);
+        arrow.SetValue(TextBlock.FontWeightProperty, FontWeights.SemiBold);
+        arrow.SetValue(UIElement.VisibilityProperty, Visibility.Collapsed);
+        arrow.SetValue(FrameworkElement.VerticalAlignmentProperty, VerticalAlignment.Center);
+        arrow.SetValue(DockPanel.DockProperty, Dock.Right);
+        contentPanel.AppendChild(arrow);
 
         var content = new FrameworkElementFactory(typeof(TextBlock));
         content.SetBinding(TextBlock.TextProperty, new Binding("Header") { RelativeSource = new RelativeSource(RelativeSourceMode.TemplatedParent) });
@@ -787,11 +927,37 @@ public sealed partial class AppController : IDisposable
         content.SetValue(FrameworkElement.MaxWidthProperty, 170.0);
         content.SetValue(FrameworkElement.HorizontalAlignmentProperty, HorizontalAlignment.Left);
         content.SetValue(FrameworkElement.VerticalAlignmentProperty, VerticalAlignment.Center);
-        border.AppendChild(content);
+        contentPanel.AppendChild(content);
+
+        border.AppendChild(contentPanel);
+        root.AppendChild(border);
+
+        var popup = new FrameworkElementFactory(typeof(Popup));
+        popup.Name = "PART_Popup";
+        popup.SetValue(Popup.AllowsTransparencyProperty, true);
+        popup.SetValue(Popup.FocusableProperty, false);
+        popup.SetValue(Popup.PlacementProperty, PlacementMode.Right);
+        popup.SetValue(Popup.PopupAnimationProperty, PopupAnimation.Fade);
+        popup.SetBinding(Popup.IsOpenProperty, new Binding("IsSubmenuOpen") { RelativeSource = new RelativeSource(RelativeSourceMode.TemplatedParent) });
+        popup.SetBinding(Popup.PlacementTargetProperty, new Binding { RelativeSource = new RelativeSource(RelativeSourceMode.TemplatedParent) });
+
+        var popupBorder = new FrameworkElementFactory(typeof(Border));
+        popupBorder.SetValue(Border.BackgroundProperty, new DynamicResourceExtension("TrayPaperBrushKey"));
+        popupBorder.SetValue(Border.BorderBrushProperty, new DynamicResourceExtension("TrayBorderBrushKey"));
+        popupBorder.SetValue(Border.BorderThicknessProperty, new Thickness(1));
+        popupBorder.SetValue(Border.CornerRadiusProperty, new CornerRadius(10));
+        popupBorder.SetValue(Border.PaddingProperty, new Thickness(4));
+        popupBorder.SetValue(FrameworkElement.MinWidthProperty, 190.0);
+
+        var popupItems = new FrameworkElementFactory(typeof(ItemsPresenter));
+        popupItems.SetValue(KeyboardNavigation.DirectionalNavigationProperty, KeyboardNavigationMode.Cycle);
+        popupBorder.AppendChild(popupItems);
+        popup.AppendChild(popupBorder);
+        root.AppendChild(popup);
 
         var template = new ControlTemplate(typeof(MenuItem))
         {
-            VisualTree = border
+            VisualTree = root
         };
 
         var hover = new Trigger
@@ -808,8 +974,16 @@ public sealed partial class AppController : IDisposable
         };
         disabled.Setters.Add(new Setter(UIElement.OpacityProperty, 0.72));
 
+        var hasItems = new Trigger
+        {
+            Property = ItemsControl.HasItemsProperty,
+            Value = true
+        };
+        hasItems.Setters.Add(new Setter(UIElement.VisibilityProperty, Visibility.Visible, "SubmenuArrow"));
+
         template.Triggers.Add(hover);
         template.Triggers.Add(disabled);
+        template.Triggers.Add(hasItems);
 
         return template;
     }
@@ -932,37 +1106,7 @@ public sealed partial class AppController : IDisposable
         _trayMenu.Items.Add(TrayItem(Strings.Get("TrayNewNote"), () => CreatePaper(PaperTypes.Note, show: true)));
         _trayMenu.Items.Add(TraySeparator());
 
-        _trayMenu.Items.Add(TrayHeader(Strings.Get("TrayThemeMode")));
-
-        var themeMenuItem = new MenuItem
-        {
-            Header = CreateThemeSegmentSelector(),
-            Template = SharedSegmentMenuItemTemplate,
-            HorizontalContentAlignment = HorizontalAlignment.Stretch,
-            Focusable = false,
-            IsTabStop = false
-        };
-        _trayMenu.Items.Add(themeMenuItem);
-
-        _trayMenu.Items.Add(TrayHeader(Strings.Get("TrayMarkdownRenderMode")));
-
-        var markdownMenuItem = new MenuItem
-        {
-            Header = CreateMarkdownRenderSegmentSelector(),
-            Template = SharedSegmentMenuItemTemplate,
-            HorizontalContentAlignment = HorizontalAlignment.Stretch,
-            Focusable = false,
-            IsTabStop = false
-        };
-        _trayMenu.Items.Add(markdownMenuItem);
-
-        var startupPrefix = SystemSettingsHelper.IsStartupEnabled() ? "☑ " : "☐ ";
-        _trayMenu.Items.Add(TrayItem(startupPrefix + Strings.Get("TrayStartup"), ToggleStartup));
-
-        var capsulePrefix = State.UseCapsuleMode ? "☑ " : "☐ ";
-        _trayMenu.Items.Add(TrayItem(capsulePrefix + Strings.Get("TrayCapsuleMode"), ToggleCapsuleMode));
-        var deepCapsulePrefix = State.UseDeepCapsuleMode ? "☑ " : "☐ ";
-        _trayMenu.Items.Add(TrayItem(deepCapsulePrefix + Strings.Get("TrayDeepCapsuleMode"), ToggleDeepCapsuleMode));
+        _trayMenu.Items.Add(TrayItem(Strings.Get("TraySettings"), ShowSettingsWindow));
         _trayMenu.Items.Add(TraySeparator());
 
         _trayMenu.Items.Add(TrayItem(Strings.Get("TrayShowAll"), ShowAllPapers));
@@ -976,7 +1120,7 @@ public sealed partial class AppController : IDisposable
             for (var index = 0; index < State.Papers.Count; index++)
             {
                 var paper = State.Papers[index];
-                _trayMenu.Items.Add(TrayPaperItem(paper, index + 1));
+                _trayMenu.Items.Add(TrayPaperItem(paper));
             }
         }
 
@@ -995,6 +1139,7 @@ public sealed partial class AppController : IDisposable
         }
 
         RebuildTrayMenu();
+        RefreshSettingsWindowContent();
     }
 
     private UIElement CreateThemeSegmentSelector()
@@ -1025,6 +1170,7 @@ public sealed partial class AppController : IDisposable
         }
 
         RebuildTrayMenu();
+        RefreshSettingsWindowContent();
     }
 
     private UIElement CreateMarkdownRenderSegmentSelector()
@@ -1039,6 +1185,84 @@ public sealed partial class AppController : IDisposable
         return CreateSegmentSelector(segments, State.MarkdownRenderMode, SetMarkdownRenderMode);
     }
 
+    private UIElement CreateExternalMarkdownExtensionEditor()
+    {
+        var textBox = new TextBox
+        {
+            Text = ExternalMarkdownFileExtensions.Normalize(State.ExternalMarkdownExtension),
+            Foreground = TrayTextBrush,
+            CaretBrush = TrayTextBrush,
+            Background = Brushes.Transparent,
+            BorderBrush = TrayBorderBrush,
+            BorderThickness = new Thickness(1),
+            Padding = new Thickness(8, 4, 8, 4),
+            Margin = new Thickness(0, 4, 0, 8),
+            FontSize = 13,
+            Height = 28,
+            HorizontalContentAlignment = HorizontalAlignment.Stretch,
+            VerticalContentAlignment = VerticalAlignment.Center,
+            Style = BuildSettingsTextBoxStyle()
+        };
+
+        _settingsExternalMarkdownTextBox = textBox;
+        textBox.GotKeyboardFocus += (_, _) => textBox.SelectAll();
+        textBox.PreviewKeyDown += (_, e) =>
+        {
+            if (e.Key == Key.Enter)
+            {
+                CommitExternalMarkdownExtension(textBox);
+                Keyboard.ClearFocus();
+                e.Handled = true;
+            }
+            else if (e.Key == Key.Escape)
+            {
+                textBox.Text = ExternalMarkdownFileExtensions.Normalize(State.ExternalMarkdownExtension);
+                Keyboard.ClearFocus();
+                e.Handled = true;
+            }
+        };
+        textBox.LostKeyboardFocus += (_, _) => CommitExternalMarkdownExtension(textBox);
+
+        return textBox;
+    }
+
+    private void CommitSettingsExternalMarkdownEditor()
+    {
+        if (_settingsExternalMarkdownTextBox != null)
+        {
+            CommitExternalMarkdownExtension(_settingsExternalMarkdownTextBox);
+        }
+    }
+
+    private void CommitExternalMarkdownExtension(TextBox textBox)
+    {
+        var normalized = ExternalMarkdownFileExtensions.Normalize(textBox.Text);
+        if (textBox.Text != normalized)
+        {
+            textBox.Text = normalized;
+            textBox.CaretIndex = textBox.Text.Length;
+        }
+
+        SetExternalMarkdownExtension(normalized);
+    }
+
+    private void SetExternalMarkdownExtension(string extension)
+    {
+        var normalized = ExternalMarkdownFileExtensions.Normalize(extension);
+        if (State.ExternalMarkdownExtension == normalized)
+        {
+            return;
+        }
+
+        State.ExternalMarkdownExtension = normalized;
+        SaveNow();
+
+        foreach (var window in _windows.Values)
+        {
+            window.UpdateExternalMarkdownExtension();
+        }
+    }
+
     private UIElement CreateSegmentSelector((string Key, string Label)[] segments, string activeKey, Action<string> onSelect)
     {
         var container = new Border
@@ -1047,8 +1271,8 @@ public sealed partial class AppController : IDisposable
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(6),
             Background = Brushes.Transparent,
-            Margin = new Thickness(10, 2, 10, 4),
-            Height = 24,
+            Margin = new Thickness(0, 4, 0, 10),
+            Height = 26,
             HorizontalAlignment = HorizontalAlignment.Stretch
         };
 
@@ -1099,10 +1323,11 @@ public sealed partial class AppController : IDisposable
 
             segmentBorder.MouseLeftButtonDown += (_, _) =>
             {
-                if (_trayMenu != null)
+                if (activeKey == key)
                 {
-                    _trayMenu.IsOpen = false;
+                    return;
                 }
+
                 onSelect(key);
             };
 
@@ -1112,6 +1337,376 @@ public sealed partial class AppController : IDisposable
 
         container.Child = grid;
         return container;
+    }
+
+    private void ShowSettingsWindow()
+    {
+        if (_trayMenu != null)
+        {
+            _trayMenu.IsOpen = false;
+        }
+
+        if (_settingsWindow != null)
+        {
+            RefreshSettingsWindowContent();
+            _settingsWindow.Show();
+            _settingsWindow.Activate();
+            return;
+        }
+
+        var window = new Window
+        {
+            Title = Strings.Get("TraySettings"),
+            Width = 320,
+            SizeToContent = SizeToContent.Height,
+            WindowStyle = WindowStyle.None,
+            ResizeMode = ResizeMode.NoResize,
+            AllowsTransparency = true,
+            Background = Brushes.Transparent,
+            ShowInTaskbar = false,
+            Topmost = true,
+            WindowStartupLocation = WindowStartupLocation.CenterScreen,
+            FontFamily = new FontFamily("Segoe UI"),
+            SnapsToDevicePixels = true,
+            UseLayoutRounding = true
+        };
+
+        window.PreviewMouseDown += (_, e) =>
+        {
+            if (_settingsExternalMarkdownTextBox is not { IsKeyboardFocusWithin: true } textBox ||
+                IsWithinElement(e.OriginalSource as DependencyObject, textBox))
+            {
+                return;
+            }
+
+            CommitExternalMarkdownExtension(textBox);
+            Keyboard.ClearFocus();
+        };
+        window.Deactivated += (_, _) => CommitSettingsExternalMarkdownEditor();
+        window.Closed += (_, _) =>
+        {
+            CommitSettingsExternalMarkdownEditor();
+            _settingsExternalMarkdownTextBox = null;
+            _settingsWindow = null;
+        };
+        _settingsWindow = window;
+        RefreshSettingsWindowContent();
+        window.Show();
+        CenterSettingsWindow(window);
+        window.Activate();
+        window.Dispatcher.BeginInvoke(() => CenterSettingsWindow(window), DispatcherPriority.Loaded);
+    }
+
+    private void RefreshSettingsWindowContent()
+    {
+        if (_settingsWindow == null)
+        {
+            return;
+        }
+
+        _settingsWindow.Content = BuildSettingsWindowContent(_settingsWindow);
+    }
+
+    private UIElement BuildSettingsWindowContent(Window window)
+    {
+        var panel = new StackPanel
+        {
+            Width = 288
+        };
+
+        var titleRow = new Grid
+        {
+            Margin = new Thickness(0, 0, 0, 10),
+            Background = Brushes.Transparent,
+            Cursor = System.Windows.Input.Cursors.SizeAll
+        };
+        titleRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        titleRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        titleRow.MouseLeftButtonDown += (_, e) =>
+        {
+            if (e.ChangedButton == MouseButton.Left)
+            {
+                try { window.DragMove(); } catch { }
+            }
+        };
+
+        var title = new TextBlock
+        {
+            Text = Strings.Get("TraySettings"),
+            Foreground = TrayTextBrush,
+            FontSize = 15,
+            FontWeight = FontWeights.SemiBold,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        Grid.SetColumn(title, 0);
+        titleRow.Children.Add(title);
+
+        var closeButton = new Button
+        {
+            Content = "×",
+            Width = 28,
+            Height = 24,
+            Padding = new Thickness(0),
+            BorderThickness = new Thickness(0),
+            Background = Brushes.Transparent,
+            Foreground = TrayWeakTextBrush,
+            FontSize = 16,
+            Cursor = System.Windows.Input.Cursors.Hand,
+            Focusable = false
+        };
+        closeButton.Click += (_, _) => window.Close();
+        Grid.SetColumn(closeButton, 1);
+        titleRow.Children.Add(closeButton);
+
+        panel.Children.Add(titleRow);
+
+        panel.Children.Add(SettingsSectionLabel(Strings.Get("SettingsDisplay")));
+        panel.Children.Add(SettingsFieldLabel(Strings.Get("TrayThemeMode")));
+        panel.Children.Add(CreateThemeSegmentSelector());
+        panel.Children.Add(SettingsFieldLabel(Strings.Get("TrayMarkdownRenderMode")));
+        panel.Children.Add(CreateMarkdownRenderSegmentSelector());
+
+        panel.Children.Add(SettingsSectionLabel(Strings.Get("SettingsExternalOpen")));
+        panel.Children.Add(SettingsFieldLabel(Strings.Get("SettingsExternalMarkdownExtension")));
+        panel.Children.Add(CreateExternalMarkdownExtensionEditor());
+        panel.Children.Add(SettingsToggle(Strings.Get("SettingsShowTopBarExternalOpenButton"), State.ShowTopBarExternalOpenButton, ToggleTopBarExternalOpenButton));
+
+        panel.Children.Add(SettingsSectionLabel(Strings.Get("SettingsTopBarButtons")));
+        panel.Children.Add(SettingsToggle(Strings.Get("SettingsShowTopBarNewTodoButton"), State.ShowTopBarNewTodoButton, ToggleTopBarNewTodoButton));
+        panel.Children.Add(SettingsToggle(Strings.Get("SettingsShowTopBarNewNoteButton"), State.ShowTopBarNewNoteButton, ToggleTopBarNewNoteButton));
+
+        panel.Children.Add(SettingsSectionLabel(Strings.Get("SettingsBehavior")));
+        panel.Children.Add(SettingsToggle(Strings.Get("TrayStartup"), SystemSettingsHelper.IsStartupEnabled(), ToggleStartup));
+        panel.Children.Add(SettingsToggle(Strings.Get("TrayCapsuleMode"), State.UseCapsuleMode, ToggleCapsuleMode));
+        panel.Children.Add(SettingsToggle(Strings.Get("TrayDeepCapsuleMode"), State.UseDeepCapsuleMode, ToggleDeepCapsuleMode));
+
+        return new Border
+        {
+            Background = TrayPaperBrush,
+            BorderBrush = TrayBorderBrush,
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(12),
+            Padding = new Thickness(14, 12, 14, 14),
+            Child = panel
+        };
+    }
+
+    private static TextBlock SettingsSectionLabel(string text)
+    {
+        return new TextBlock
+        {
+            Text = text,
+            Foreground = TrayWeakTextBrush,
+            FontSize = 12,
+            FontWeight = FontWeights.SemiBold,
+            Margin = new Thickness(0, 12, 0, 3)
+        };
+    }
+
+    private static TextBlock SettingsFieldLabel(string text)
+    {
+        return new TextBlock
+        {
+            Text = text,
+            Foreground = TrayWeakTextBrush,
+            FontSize = 11,
+            FontWeight = FontWeights.Medium,
+            Margin = new Thickness(0, 0, 0, 0)
+        };
+    }
+
+    private CheckBox SettingsToggle(string text, bool isChecked, Action onToggle)
+    {
+        var checkBox = new CheckBox
+        {
+            Content = text,
+            IsChecked = isChecked,
+            Foreground = TrayTextBrush,
+            FontSize = 13,
+            Margin = new Thickness(0, 4, 0, 0),
+            Cursor = System.Windows.Input.Cursors.Hand,
+            Focusable = false,
+            Style = BuildSettingsCheckBoxStyle()
+        };
+
+        checkBox.Click += (_, _) => onToggle();
+        return checkBox;
+    }
+
+    private Style BuildSettingsTextBoxStyle()
+    {
+        var style = new Style(typeof(TextBox));
+        style.Setters.Add(new Setter(Control.ForegroundProperty, TrayTextBrush));
+        style.Setters.Add(new Setter(Control.BackgroundProperty, Brushes.Transparent));
+        style.Setters.Add(new Setter(Control.BorderBrushProperty, TrayBorderBrush));
+        style.Setters.Add(new Setter(Control.BorderThicknessProperty, new Thickness(1)));
+        style.Setters.Add(new Setter(Control.PaddingProperty, new Thickness(8, 4, 8, 4)));
+        style.Setters.Add(new Setter(Control.FocusVisualStyleProperty, null));
+        style.Setters.Add(new Setter(UIElement.SnapsToDevicePixelsProperty, true));
+        style.Setters.Add(new Setter(FrameworkElement.UseLayoutRoundingProperty, true));
+
+        var border = new FrameworkElementFactory(typeof(Border));
+        border.Name = "Bd";
+        border.SetValue(Border.BackgroundProperty, new TemplateBindingExtension(Control.BackgroundProperty));
+        border.SetValue(Border.BorderBrushProperty, new TemplateBindingExtension(Control.BorderBrushProperty));
+        border.SetValue(Border.BorderThicknessProperty, new TemplateBindingExtension(Control.BorderThicknessProperty));
+        border.SetValue(Border.CornerRadiusProperty, new CornerRadius(6));
+        border.SetValue(Border.PaddingProperty, new TemplateBindingExtension(Control.PaddingProperty));
+        border.SetValue(UIElement.SnapsToDevicePixelsProperty, true);
+
+        var contentHost = new FrameworkElementFactory(typeof(ScrollViewer), "PART_ContentHost");
+        contentHost.SetValue(FrameworkElement.VerticalAlignmentProperty, new TemplateBindingExtension(Control.VerticalContentAlignmentProperty));
+        contentHost.SetValue(FrameworkElement.HorizontalAlignmentProperty, HorizontalAlignment.Stretch);
+        border.AppendChild(contentHost);
+
+        var template = new ControlTemplate(typeof(TextBox))
+        {
+            VisualTree = border
+        };
+
+        var hoverTrigger = new Trigger { Property = UIElement.IsMouseOverProperty, Value = true };
+        hoverTrigger.Setters.Add(new Setter(Border.BorderBrushProperty, TrayWeakTextBrush, "Bd"));
+
+        var focusTrigger = new Trigger { Property = UIElement.IsKeyboardFocusWithinProperty, Value = true };
+        focusTrigger.Setters.Add(new Setter(Border.BorderBrushProperty, Theme.ActiveBrush, "Bd"));
+
+        var disabledTrigger = new Trigger { Property = UIElement.IsEnabledProperty, Value = false };
+        disabledTrigger.Setters.Add(new Setter(UIElement.OpacityProperty, 0.55));
+
+        template.Triggers.Add(hoverTrigger);
+        template.Triggers.Add(focusTrigger);
+        template.Triggers.Add(disabledTrigger);
+
+        style.Setters.Add(new Setter(Control.TemplateProperty, template));
+        return style;
+    }
+
+    private static bool IsWithinElement(DependencyObject? current, DependencyObject ancestor)
+    {
+        while (current != null)
+        {
+            if (ReferenceEquals(current, ancestor))
+            {
+                return true;
+            }
+
+            current = GetElementParent(current);
+        }
+
+        return false;
+    }
+
+    private static DependencyObject? GetElementParent(DependencyObject current)
+    {
+        if (current is FrameworkElement fe && fe.Parent is DependencyObject parent)
+        {
+            return parent;
+        }
+
+        if (current is FrameworkContentElement fce && fce.Parent is DependencyObject contentParent)
+        {
+            return contentParent;
+        }
+
+        try
+        {
+            return VisualTreeHelper.GetParent(current);
+        }
+        catch (InvalidOperationException)
+        {
+            return null;
+        }
+    }
+
+    private Style BuildSettingsCheckBoxStyle()
+    {
+        var style = new Style(typeof(CheckBox));
+        style.Setters.Add(new Setter(Control.ForegroundProperty, TrayTextBrush));
+        style.Setters.Add(new Setter(Control.BackgroundProperty, Brushes.Transparent));
+        style.Setters.Add(new Setter(Control.CursorProperty, System.Windows.Input.Cursors.Hand));
+        style.Setters.Add(new Setter(Control.FocusVisualStyleProperty, null));
+        style.Setters.Add(new Setter(UIElement.FocusableProperty, false));
+        style.Setters.Add(new Setter(UIElement.SnapsToDevicePixelsProperty, true));
+        style.Setters.Add(new Setter(FrameworkElement.UseLayoutRoundingProperty, true));
+
+        var root = new FrameworkElementFactory(typeof(StackPanel));
+        root.SetValue(StackPanel.OrientationProperty, Orientation.Horizontal);
+        root.SetValue(FrameworkElement.VerticalAlignmentProperty, VerticalAlignment.Center);
+
+        var markHost = new FrameworkElementFactory(typeof(Grid));
+        markHost.SetValue(FrameworkElement.WidthProperty, 16.0);
+        markHost.SetValue(FrameworkElement.HeightProperty, 16.0);
+        markHost.SetValue(FrameworkElement.MarginProperty, new Thickness(0, 0, 8, 0));
+        markHost.SetValue(FrameworkElement.VerticalAlignmentProperty, VerticalAlignment.Center);
+
+        var border = new FrameworkElementFactory(typeof(Border));
+        border.Name = "CheckBorder";
+        border.SetValue(FrameworkElement.WidthProperty, 16.0);
+        border.SetValue(FrameworkElement.HeightProperty, 16.0);
+        border.SetValue(Border.BorderThicknessProperty, new Thickness(1.5));
+        border.SetValue(Border.CornerRadiusProperty, new CornerRadius(4));
+        border.SetValue(Border.BorderBrushProperty, TrayBorderBrush);
+        border.SetValue(Border.BackgroundProperty, Brushes.Transparent);
+        markHost.AppendChild(border);
+
+        var path = new FrameworkElementFactory(typeof(System.Windows.Shapes.Path));
+        path.Name = "CheckMark";
+        path.SetValue(System.Windows.Shapes.Path.DataProperty, Geometry.Parse("M 4,8.1 L 7,11 L 12,5"));
+        path.SetValue(System.Windows.Shapes.Path.StrokeProperty, TrayPaperBrush);
+        path.SetValue(System.Windows.Shapes.Path.StrokeThicknessProperty, 2.0);
+        path.SetValue(System.Windows.Shapes.Path.StrokeStartLineCapProperty, PenLineCap.Round);
+        path.SetValue(System.Windows.Shapes.Path.StrokeEndLineCapProperty, PenLineCap.Round);
+        path.SetValue(System.Windows.Shapes.Path.StrokeLineJoinProperty, PenLineJoin.Round);
+        path.SetValue(UIElement.VisibilityProperty, Visibility.Collapsed);
+        path.SetValue(FrameworkElement.HorizontalAlignmentProperty, HorizontalAlignment.Center);
+        path.SetValue(FrameworkElement.VerticalAlignmentProperty, VerticalAlignment.Center);
+        markHost.AppendChild(path);
+
+        root.AppendChild(markHost);
+
+        var content = new FrameworkElementFactory(typeof(ContentPresenter));
+        content.SetValue(ContentPresenter.ContentProperty, new TemplateBindingExtension(ContentControl.ContentProperty));
+        content.SetValue(ContentPresenter.RecognizesAccessKeyProperty, true);
+        content.SetValue(FrameworkElement.VerticalAlignmentProperty, VerticalAlignment.Center);
+        content.SetValue(System.Windows.Documents.TextElement.ForegroundProperty, new TemplateBindingExtension(Control.ForegroundProperty));
+        root.AppendChild(content);
+
+        var template = new ControlTemplate(typeof(CheckBox))
+        {
+            VisualTree = root
+        };
+
+        var checkedTrigger = new Trigger { Property = ToggleButton.IsCheckedProperty, Value = true };
+        checkedTrigger.Setters.Add(new Setter(Border.BackgroundProperty, Theme.ActiveBrush, "CheckBorder"));
+        checkedTrigger.Setters.Add(new Setter(Border.BorderBrushProperty, Brushes.Transparent, "CheckBorder"));
+        checkedTrigger.Setters.Add(new Setter(UIElement.VisibilityProperty, Visibility.Visible, "CheckMark"));
+
+        var hoverTrigger = new Trigger { Property = UIElement.IsMouseOverProperty, Value = true };
+        hoverTrigger.Setters.Add(new Setter(Border.BackgroundProperty, TrayHoverBrush, "CheckBorder"));
+
+        var disabledTrigger = new Trigger { Property = UIElement.IsEnabledProperty, Value = false };
+        disabledTrigger.Setters.Add(new Setter(UIElement.OpacityProperty, 0.55));
+
+        template.Triggers.Add(hoverTrigger);
+        template.Triggers.Add(checkedTrigger);
+        template.Triggers.Add(disabledTrigger);
+
+        style.Setters.Add(new Setter(Control.TemplateProperty, template));
+        return style;
+    }
+
+    private static void CenterSettingsWindow(Window? window)
+    {
+        if (window == null)
+        {
+            return;
+        }
+
+        var area = SystemParameters.WorkArea;
+        var width = window.ActualWidth > 1 ? window.ActualWidth : window.Width;
+        var height = window.ActualHeight > 1 ? window.ActualHeight : 280;
+        window.Left = area.Left + Math.Max(16, (area.Width - width) / 2);
+        window.Top = area.Top + Math.Max(16, (area.Height - height) / 2);
     }
 
     private void RefreshTrayMenu()
@@ -1139,7 +1734,7 @@ public sealed partial class AppController : IDisposable
         return item;
     }
 
-    private MenuItem TrayPaperItem(PaperData paper, int index)
+    private MenuItem TrayPaperItem(PaperData paper)
     {
         var item = new MenuItem
         {
@@ -1156,7 +1751,7 @@ public sealed partial class AppController : IDisposable
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
         var prefix = IsPaperShown(paper) ? "☑ " : "☐ ";
-        var normalLabelText = prefix + PaperLabel(paper, index);
+        var normalLabelText = prefix + PaperTypeIcon(paper) + " " + PaperLabel(paper);
         var label = new TextBlock
         {
             Text = normalLabelText,
@@ -1344,70 +1939,14 @@ public sealed partial class AppController : IDisposable
         };
     }
 
-    private string PaperLabel(PaperData paper, int index)
+    private string PaperLabel(PaperData paper)
     {
-        var kind = paper.Type == PaperTypes.Note ? Strings.Get("PaperKindNote") : Strings.Get("PaperKindTodo");
-        var preview = paper.Type == PaperTypes.Note
-            ? FirstMeaningfulLine(paper.Content)
-            : FirstTodoPreview(paper);
-
-        if (string.IsNullOrWhiteSpace(preview))
-        {
-            preview = paper.Type == PaperTypes.Note ? Strings.Get("EmptyNotePaper") : Strings.Get("EmptyTodoPaper");
-        }
-
-        preview = CleanPreview(preview);
-        if (preview.Length > 24)
-        {
-            preview = preview[..24] + "…";
-        }
-
-        return Strings.Format("PaperLabelFormat", kind, index, preview);
+        return PaperCapsuleTitle(paper);
     }
 
-    private static string FirstTodoPreview(PaperData paper)
+    private static string PaperTypeIcon(PaperData paper)
     {
-        var ordered = paper.Items.OrderBy(i => i.Order).ToList();
-
-        var firstOpen = ordered.FirstOrDefault(i => !i.Done && !string.IsNullOrWhiteSpace(i.Text));
-        if (firstOpen != null)
-        {
-            return firstOpen.Text;
-        }
-
-        return ordered.FirstOrDefault(i => !string.IsNullOrWhiteSpace(i.Text))?.Text ?? "";
-    }
-
-    private static string FirstMeaningfulLine(string? text)
-    {
-        if (string.IsNullOrWhiteSpace(text))
-        {
-            return "";
-        }
-
-        return text
-            .Replace("\r\n", "\n")
-            .Replace('\r', '\n')
-            .Split('\n')
-            .Select(line => line.Trim())
-            .FirstOrDefault(line => !string.IsNullOrWhiteSpace(line)) ?? "";
-    }
-
-    private static string CleanPreview(string text)
-    {
-        text = LinkRegex().Replace(text, "$1");
-        text = HeaderRegex().Replace(text, "");
-        text = BulletRegex().Replace(text, "");
-        text = QuoteRegex().Replace(text, "");
-
-        return text
-            .Replace("**", "")
-            .Replace("__", "")
-            .Replace("~~", "")
-            .Replace("`", "")
-            .Replace("- [ ]", "")
-            .Replace("- [x]", "")
-            .Trim();
+        return paper.Type == PaperTypes.Note ? "✎" : "✓";
     }
 
     private static SolidColorBrush FrozenBrush(Color color)
@@ -1425,6 +1964,8 @@ public sealed partial class AppController : IDisposable
         {
             _trayMenu.IsOpen = false;
         }
+        _settingsWindow?.Close();
+        _settingsWindow = null;
         SaveNow(sync: true);
 
         _trayIcon?.Dispose();
@@ -1453,6 +1994,7 @@ public sealed partial class AppController : IDisposable
                         window.UpdateTheme();
                     }
                     RebuildTrayMenu();
+                    RefreshSettingsWindowContent();
                 }));
             }
         }
@@ -1469,6 +2011,7 @@ public sealed partial class AppController : IDisposable
                 BalloonIcon.Warning);
         }
         RebuildTrayMenu();
+        RefreshSettingsWindowContent();
     }
 
     private void ToggleCapsuleMode()
@@ -1492,6 +2035,36 @@ public sealed partial class AppController : IDisposable
         ArrangeDeepCapsules();
         SaveNow();
         RebuildTrayMenu();
+        RefreshSettingsWindowContent();
+    }
+
+    private void ToggleTopBarNewTodoButton()
+    {
+        State.ShowTopBarNewTodoButton = !State.ShowTopBarNewTodoButton;
+        RefreshTopBarNewPaperButtonsSetting();
+    }
+
+    private void ToggleTopBarNewNoteButton()
+    {
+        State.ShowTopBarNewNoteButton = !State.ShowTopBarNewNoteButton;
+        RefreshTopBarNewPaperButtonsSetting();
+    }
+
+    private void ToggleTopBarExternalOpenButton()
+    {
+        State.ShowTopBarExternalOpenButton = !State.ShowTopBarExternalOpenButton;
+        RefreshTopBarNewPaperButtonsSetting();
+    }
+
+    private void RefreshTopBarNewPaperButtonsSetting()
+    {
+        foreach (var window in _windows.Values)
+        {
+            window.UpdateTopBarNewPaperButtons();
+        }
+
+        SaveNow();
+        RefreshSettingsWindowContent();
     }
 
     private void ToggleDeepCapsuleMode()
@@ -1515,16 +2088,20 @@ public sealed partial class AppController : IDisposable
         ArrangeDeepCapsules();
         SaveNow();
         RebuildTrayMenu();
+        RefreshSettingsWindowContent();
     }
 
     public void Dispose()
     {
         SystemEvents.UserPreferenceChanged -= OnUserPreferenceChanged;
         _saveTimer.Stop();
+        _topmostRefreshTimer.Stop();
         if (_trayMenu != null)
         {
             _trayMenu.IsOpen = false;
         }
+        _settingsWindow?.Close();
+        _settingsWindow = null;
         _trayIcon?.Dispose();
         _trayIcon = null;
         _trayMenu = null;

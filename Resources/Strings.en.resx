@@ -16,7 +16,7 @@
     <value>Startup failed: unable to load the data file. It may be in use or corrupted.&#x0A;To prevent your data from being overwritten with an empty state, the app has stopped safely.&#x0A;&#x0A;Error: {0}</value>
   </data>
   <data name="ResourceTextVersion" xml:space="preserve">
-    <value>1.6</value>
+    <value>1.7</value>
   </data>
   <data name="AppStartupFailureTitle" xml:space="preserve">
     <value>PaperTodo - Error</value>
@@ -78,6 +78,12 @@
   <data name="MarkdownPreviewFailure" xml:space="preserve">
     <value>*Preview failed. The original text was kept. Error: {0}*</value>
   </data>
+  <data name="OpenMarkdownFailureMessage" xml:space="preserve">
+    <value>Could not open the default {0} editor:&#x0A;{1}</value>
+  </data>
+  <data name="OpenMarkdownFailureTitle" xml:space="preserve">
+    <value>Markdown Open Failed</value>
+  </data>
   <data name="MenuBold" xml:space="preserve">
     <value>Bold</value>
   </data>
@@ -126,11 +132,26 @@
   <data name="MenuQuote" xml:space="preserve">
     <value>Quote</value>
   </data>
+  <data name="MenuRenameTitle" xml:space="preserve">
+    <value>Rename title</value>
+  </data>
   <data name="MenuRestoreWindow" xml:space="preserve">
     <value>Restore window</value>
   </data>
   <data name="MenuStrikethrough" xml:space="preserve">
     <value>Strikethrough</value>
+  </data>
+  <data name="MenuCopy" xml:space="preserve">
+    <value>Copy</value>
+  </data>
+  <data name="MenuPaste" xml:space="preserve">
+    <value>Paste</value>
+  </data>
+  <data name="MenuSelectAll" xml:space="preserve">
+    <value>Select all</value>
+  </data>
+  <data name="MenuText" xml:space="preserve">
+    <value>Text</value>
   </data>
   <data name="MenuThisPaper" xml:space="preserve">
     <value>This paper</value>
@@ -192,6 +213,15 @@
   <data name="ToolTipHideThisPaper" xml:space="preserve">
     <value>Hide this paper</value>
   </data>
+  <data name="ToolTipEditTitle" xml:space="preserve">
+    <value>Click to edit title</value>
+  </data>
+  <data name="ToolTipOpenMarkdownEditor" xml:space="preserve">
+    <value>Open in default {0} editor</value>
+  </data>
+  <data name="ToolTipResetTextZoom" xml:space="preserve">
+    <value>Click to reset text zoom to 100%</value>
+  </data>
   <data name="ToolTipNewNotePaper" xml:space="preserve">
     <value>New note paper</value>
   </data>
@@ -230,6 +260,42 @@
   </data>
   <data name="TrayShowAll" xml:space="preserve">
     <value>Show all papers</value>
+  </data>
+  <data name="TraySettings" xml:space="preserve">
+    <value>Settings</value>
+  </data>
+  <data name="SettingsExternalMarkdownExtension" xml:space="preserve">
+    <value>External open extension</value>
+  </data>
+  <data name="SettingsQuickActions" xml:space="preserve">
+    <value>Quick actions</value>
+  </data>
+  <data name="SettingsDisplay" xml:space="preserve">
+    <value>Display</value>
+  </data>
+  <data name="SettingsExternalOpen" xml:space="preserve">
+    <value>External open</value>
+  </data>
+  <data name="SettingsTopBarButtons" xml:space="preserve">
+    <value>Top-bar buttons</value>
+  </data>
+  <data name="SettingsBehavior" xml:space="preserve">
+    <value>Behavior</value>
+  </data>
+  <data name="SettingsShowTopBarNewTodoButton" xml:space="preserve">
+    <value>Show top-bar new todo button</value>
+  </data>
+  <data name="SettingsShowTopBarNewNoteButton" xml:space="preserve">
+    <value>Show top-bar new note button</value>
+  </data>
+  <data name="SettingsShowTopBarExternalOpenButton" xml:space="preserve">
+    <value>Show top-bar external open button</value>
+  </data>
+  <data name="SettingsResetNoteZoom" xml:space="preserve">
+    <value>Reset note zoom</value>
+  </data>
+  <data name="SettingsRestoreAllCapsules" xml:space="preserve">
+    <value>Expand all capsules</value>
   </data>
   <data name="TrayStartup" xml:space="preserve">
     <value>Start with Windows</value>
