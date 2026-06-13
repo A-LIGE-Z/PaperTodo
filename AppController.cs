@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.IO;
 using System.Reflection;
 using System.Threading;
@@ -28,6 +29,9 @@ public sealed partial class AppController : IDisposable
     private ContextMenu? _trayMenu;
     private Window? _settingsWindow;
     private TextBox? _settingsExternalMarkdownTextBox;
+    private CheckBox? _settingsCapsuleModeCheckBox;
+    private CheckBox? _settingsDeepCapsuleModeCheckBox;
+    private CheckBox? _settingsCapsuleCollapseAllCheckBox;
     private bool _isExiting;
     private bool _suppressDirty;
     private bool _hasShownSaveFailure;
@@ -35,6 +39,10 @@ public sealed partial class AppController : IDisposable
     private int _trayRefreshSuppressionDepth;
     private long _saveVersion;
     private bool _suppressTopmostForFullscreenForeground;
+    private PaperWindow? _noteLinkTargetWindow;
+    private string? _noteLinkTargetItemId;
+    private MasterCapsuleWindow? _masterCapsule;
+    private readonly Dictionary<string, DeepCapsuleSlotWindow> _deepCapsuleSlots = new();
 
     private static Brush TrayPaperBrush => Theme.PaperBrush;
     private static Brush TrayBorderBrush => Theme.PaperBorderBrush;
@@ -49,6 +57,7 @@ public sealed partial class AppController : IDisposable
     {
         Current = this;
         State = _store.Load();
+        ToolTipPreferences.Register(() => State.EnableToolTips);
 
         _saveTimer = new DispatcherTimer
         {
@@ -242,7 +251,7 @@ public sealed partial class AppController : IDisposable
 
     public void UpdatePaperTitle(PaperData paper, string title)
     {
-        var cleaned = PaperTitles.CleanCustomTitle(title);
+        var cleaned = PaperTitles.CleanCustomTitle(title, State.MaxTitleLength);
         if (paper.Title == cleaned)
         {
             return;
@@ -252,6 +261,10 @@ public sealed partial class AppController : IDisposable
         if (_windows.TryGetValue(paper.Id, out var window))
         {
             window.RefreshPaperTitle();
+        }
+        if (_deepCapsuleSlots.TryGetValue(paper.Id, out var slot))
+        {
+            slot.UpdateTitle();
         }
         RefreshTrayMenu();
         MarkDirty();
@@ -288,6 +301,181 @@ public sealed partial class AppController : IDisposable
         {
             ShowPaper(paper);
         }
+    }
+
+    public bool IsExistingNote(string? noteId)
+    {
+        return FindNote(noteId) != null;
+    }
+
+    public bool TryGetLinkedNoteTitle(string? noteId, out string title)
+    {
+        var note = FindNote(noteId);
+        if (note == null)
+        {
+            title = "";
+            return false;
+        }
+
+        title = PaperTitleText(note);
+        return true;
+    }
+
+    public void OpenLinkedNote(string? noteId, Window? anchorWindow = null)
+    {
+        var note = FindNote(noteId);
+        if (note == null)
+        {
+            return;
+        }
+
+        if (_windows.TryGetValue(note.Id, out var window) && window.IsVisible)
+        {
+            if (note.IsCollapsed)
+            {
+                window.SetCollapsedState(false);
+            }
+            PlaceLinkedNoteBesideAnchor(note, window, anchorWindow);
+            ForceWindowToFront(window);
+            return;
+        }
+
+        note.IsCollapsed = false;
+        PlaceLinkedNoteBesideAnchor(note, null, anchorWindow);
+        ShowPaper(note);
+        if (_windows.TryGetValue(note.Id, out window))
+        {
+            ForceWindowToFront(window);
+        }
+    }
+
+    public void BeginNoteLinkDrag(PaperData sourceNote)
+    {
+        if (!State.EnableTodoNoteLinks || sourceNote.Type != PaperTypes.Note)
+        {
+            return;
+        }
+
+        ClearNoteLinkDropTarget();
+    }
+
+    public void UpdateNoteLinkDrag(PaperData sourceNote, Point screenPoint)
+    {
+        if (!State.EnableTodoNoteLinks || sourceNote.Type != PaperTypes.Note)
+        {
+            ClearNoteLinkDropTarget();
+            return;
+        }
+
+        PaperWindow? targetWindow = null;
+        string? targetItemId = null;
+
+        foreach (var window in _windows.Values)
+        {
+            if (window.TryHitTodoRow(screenPoint, out var itemId))
+            {
+                targetWindow = window;
+                targetItemId = itemId;
+            }
+        }
+
+        if (ReferenceEquals(_noteLinkTargetWindow, targetWindow) &&
+            string.Equals(_noteLinkTargetItemId, targetItemId, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        ClearNoteLinkDropTarget();
+
+        if (targetWindow != null && !string.IsNullOrWhiteSpace(targetItemId))
+        {
+            _noteLinkTargetWindow = targetWindow;
+            _noteLinkTargetItemId = targetItemId;
+            targetWindow.SetNoteLinkDropTarget(targetItemId);
+        }
+    }
+
+    public void EndNoteLinkDrag(PaperData sourceNote, bool commit)
+    {
+        if (State.EnableTodoNoteLinks &&
+            sourceNote.Type == PaperTypes.Note &&
+            commit &&
+            _noteLinkTargetWindow != null &&
+            !string.IsNullOrWhiteSpace(_noteLinkTargetItemId))
+        {
+            _noteLinkTargetWindow.LinkNoteToTodo(_noteLinkTargetItemId, sourceNote.Id);
+        }
+
+        ClearNoteLinkDropTarget();
+    }
+
+    private static void PlaceLinkedNoteBesideAnchor(PaperData note, Window? noteWindow, Window? anchorWindow)
+    {
+        if (anchorWindow == null || double.IsNaN(anchorWindow.Left) || double.IsNaN(anchorWindow.Top))
+        {
+            return;
+        }
+
+        const double gap = 10;
+        const double margin = 8;
+        var area = SystemParameters.WorkArea;
+
+        var noteWidth = Math.Max(
+            Math.Max(noteWindow is { ActualWidth: > 1 } ? noteWindow.ActualWidth : 0, note.Width),
+            PaperLayoutDefaults.MinWidth);
+        var noteHeight = Math.Max(
+            Math.Max(noteWindow is { ActualHeight: > 1 } ? noteWindow.ActualHeight : 0, note.Height),
+            PaperLayoutDefaults.MinHeight);
+
+        noteWidth = Math.Min(noteWidth, Math.Max(PaperLayoutDefaults.MinWidth, area.Width - (margin * 2)));
+        noteHeight = Math.Min(noteHeight, Math.Max(PaperLayoutDefaults.MinHeight, area.Height - (margin * 2)));
+
+        var anchorWidth = anchorWindow.ActualWidth > 1 ? anchorWindow.ActualWidth : anchorWindow.Width;
+        if (double.IsNaN(anchorWidth) || double.IsInfinity(anchorWidth) || anchorWidth <= 1)
+        {
+            anchorWidth = PaperLayoutDefaults.TodoDefaultWidth;
+        }
+
+        var rightX = anchorWindow.Left + anchorWidth + gap;
+        var leftX = anchorWindow.Left - noteWidth - gap;
+        var minX = area.Left + margin;
+        var maxX = Math.Max(minX, area.Right - noteWidth - margin);
+
+        var targetX = rightX <= maxX
+            ? rightX
+            : leftX >= minX
+                ? leftX
+                : Math.Clamp(rightX, minX, maxX);
+
+        var minY = area.Top + margin;
+        var maxY = Math.Max(minY, area.Bottom - noteHeight - margin);
+        var targetY = Math.Clamp(anchorWindow.Top, minY, maxY);
+
+        note.X = Math.Round(targetX);
+        note.Y = Math.Round(targetY);
+
+        if (noteWindow != null)
+        {
+            noteWindow.Left = note.X;
+            noteWindow.Top = note.Y;
+        }
+    }
+
+    private void ClearNoteLinkDropTarget()
+    {
+        _noteLinkTargetWindow?.SetNoteLinkDropTarget(null);
+        _noteLinkTargetWindow = null;
+        _noteLinkTargetItemId = null;
+    }
+
+    private PaperData? FindNote(string? noteId)
+    {
+        if (string.IsNullOrWhiteSpace(noteId))
+        {
+            return null;
+        }
+
+        return State.Papers.FirstOrDefault(p => p.Id == noteId && p.Type == PaperTypes.Note);
     }
 
     public void ExecuteStartupCommand(StartupCommand command)
@@ -356,7 +544,26 @@ public sealed partial class AppController : IDisposable
 
             window.Dispatcher.InvokeAsync(() =>
             {
-                window.Opacity = originalOpacity;
+                // A retracted collapse-all capsule must stay at Opacity 0; restoring it here
+                // would un-hide it behind the master pill on restart.
+                if (window.IsCollapseAllRetracted)
+                {
+                    return;
+                }
+
+                // 显示动画：淡入
+                if (State.EnableAnimations && originalOpacity > 0)
+                {
+                    var fadeIn = new System.Windows.Media.Animation.DoubleAnimation(0, originalOpacity, TimeSpan.FromMilliseconds(200))
+                    {
+                        EasingFunction = AnimationHelper.QuickEase
+                    };
+                    window.BeginAnimation(Window.OpacityProperty, fadeIn);
+                }
+                else
+                {
+                    window.Opacity = originalOpacity;
+                }
             }, System.Windows.Threading.DispatcherPriority.Render);
         }
 
@@ -388,6 +595,30 @@ public sealed partial class AppController : IDisposable
             DispatcherPriority.ApplicationIdle);
     }
 
+    private static void ForceWindowToFrontWithEmphasis(Window window, AppState state)
+    {
+        ForceWindowToFront(window);
+
+        // 强调动画：轻微弹跳
+        if (state.EnableAnimations && window.IsVisible)
+        {
+            window.Dispatcher.InvokeAsync(() =>
+            {
+                AnimationHelper.QuickBounce(window, 1.03, 100);
+            }, DispatcherPriority.Render);
+        }
+    }
+
+    public void BringPaperToFront(PaperData paper)
+    {
+        if (!_windows.TryGetValue(paper.Id, out var window) || !window.IsVisible)
+        {
+            return;
+        }
+
+        ForceWindowToFrontWithEmphasis(window, State);
+    }
+
     private void RefreshTopmostForForegroundWindow()
     {
         var shouldSuppress = FullscreenForegroundWindowDetector.IsForegroundFullscreen();
@@ -401,6 +632,11 @@ public sealed partial class AppController : IDisposable
         {
             window.RefreshEffectiveTopmost();
         }
+        _masterCapsule?.RefreshEffectiveTopmost();
+        foreach (var slot in _deepCapsuleSlots.Values)
+        {
+            slot.RefreshEffectiveTopmost();
+        }
     }
 
     public void HidePaper(PaperData paper)
@@ -410,10 +646,42 @@ public sealed partial class AppController : IDisposable
         if (_windows.TryGetValue(paper.Id, out var window))
         {
             var saveGeometry = !window.IsDeepCapsulePlaced;
-            window.Hide();
-            if (paper.IsCollapsed)
+            window.ClearDeepCapsuleSlotReservation();
+            DestroyDeepCapsuleSlot(paper.Id);
+
+            // 隐藏动画：淡出
+            if (State.EnableAnimations && window.IsVisible)
             {
-                window.SetCollapsedState(false, animate: false, saveGeometry: saveGeometry);
+                var fadeOut = new System.Windows.Media.Animation.DoubleAnimation(window.Opacity, 0, TimeSpan.FromMilliseconds(150))
+                {
+                    EasingFunction = AnimationHelper.QuickEase
+                };
+                fadeOut.Completed += (s, e) =>
+                {
+                    window.BeginAnimation(Window.OpacityProperty, null);
+                    window.Opacity = 1;
+                    if (paper.IsVisible)
+                    {
+                        return;
+                    }
+
+                    window.Hide();
+                    if (paper.IsCollapsed)
+                    {
+                        window.SetCollapsedState(false, animate: false, saveGeometry: saveGeometry);
+                    }
+                };
+                window.BeginAnimation(Window.OpacityProperty, fadeOut);
+            }
+            else
+            {
+                window.BeginAnimation(Window.OpacityProperty, null);
+                window.Opacity = 1;
+                window.Hide();
+                if (paper.IsCollapsed)
+                {
+                    window.SetCollapsedState(false, animate: false, saveGeometry: saveGeometry);
+                }
             }
         }
         else
@@ -459,9 +727,12 @@ public sealed partial class AppController : IDisposable
 
         foreach (var window in _windows.Values)
         {
+            window.ClearDeepCapsuleSlotReservation();
             window.Hide();
             window.SetCollapsedState(false, animate: false, saveGeometry: !window.IsDeepCapsulePlaced);
         }
+
+        DestroyAllDeepCapsuleSlots();
 
         foreach (var paper in State.Papers)
         {
@@ -474,13 +745,21 @@ public sealed partial class AppController : IDisposable
 
     public void DeletePaper(PaperData paper)
     {
+        var deletedNoteId = paper.Type == PaperTypes.Note ? paper.Id : null;
+
         if (_windows.TryGetValue(paper.Id, out var window))
         {
+            DestroyDeepCapsuleSlot(paper.Id);
             window.CloseForReal();
             _windows.Remove(paper.Id);
         }
 
         State.Papers.RemoveAll(p => p.Id == paper.Id);
+
+        if (!string.IsNullOrWhiteSpace(deletedNoteId))
+        {
+            ClearTodoLinksToNote(deletedNoteId);
+        }
 
         if (State.Papers.Count == 0)
         {
@@ -496,6 +775,118 @@ public sealed partial class AppController : IDisposable
         }
 
         ArrangeDeepCapsules();
+        RefreshTrayMenu();
+        MarkDirty();
+    }
+
+    private void ClearTodoLinksToNote(string noteId)
+    {
+        var affectedPaperIds = new HashSet<string>();
+
+        foreach (var paper in State.Papers.Where(p => p.Type == PaperTypes.Todo))
+        {
+            foreach (var item in paper.Items)
+            {
+                if (!string.Equals(item.LinkedNoteId, noteId, StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                item.LinkedNoteId = null;
+                affectedPaperIds.Add(paper.Id);
+            }
+        }
+
+        foreach (var paperId in affectedPaperIds)
+        {
+            if (_windows.TryGetValue(paperId, out var todoWindow))
+            {
+                todoWindow.RefreshTodoRowsForExternalChange();
+            }
+        }
+    }
+
+    public bool IsPaperEmpty(PaperData paper)
+    {
+        if (paper.Type == PaperTypes.Note)
+        {
+            return string.IsNullOrWhiteSpace(paper.Content);
+        }
+
+        return !paper.Items.Any(item =>
+            !string.IsNullOrWhiteSpace(item.Text) ||
+            IsExistingNote(item.LinkedNoteId));
+    }
+
+    public int VisibleDeepCapsuleCount()
+    {
+        return DeepCapsulePapersInOrder().Count;
+    }
+
+    public double VisibleDeepCapsuleRestingWidth()
+    {
+        if (!State.UseCapsuleMode || !State.UseDeepCapsuleMode)
+        {
+            return 0;
+        }
+
+        double width = 0;
+        foreach (var paper in DeepCapsulePapersInOrder())
+        {
+            if (_windows.TryGetValue(paper.Id, out var window))
+            {
+                width = Math.Max(width, window.DeepCapsuleRestingVisibleWidth);
+            }
+        }
+
+        return width;
+    }
+
+    public void ReorderDeepCapsule(PaperData paper, int targetIndex)
+    {
+        if (!State.UseCapsuleMode || !State.UseDeepCapsuleMode)
+        {
+            return;
+        }
+
+        var capsulePapers = DeepCapsulePapersInOrder();
+        var currentIndex = capsulePapers.FindIndex(p => p.Id == paper.Id);
+        if (currentIndex < 0 || capsulePapers.Count == 0)
+        {
+            return;
+        }
+
+        targetIndex = Math.Clamp(targetIndex, 0, capsulePapers.Count - 1);
+        if (targetIndex == currentIndex)
+        {
+            ArrangeDeepCapsules(animate: true);
+            return;
+        }
+
+        var draggedPaper = capsulePapers[currentIndex];
+        capsulePapers.RemoveAt(currentIndex);
+        targetIndex = Math.Clamp(targetIndex, 0, capsulePapers.Count);
+        capsulePapers.Insert(targetIndex, draggedPaper);
+
+        var reorderedCapsuleIds = new HashSet<string>(capsulePapers.Select(p => p.Id));
+        var reorderedPapers = new List<PaperData>(State.Papers.Count);
+        var capsuleCursor = 0;
+
+        foreach (var existing in State.Papers)
+        {
+            if (reorderedCapsuleIds.Contains(existing.Id))
+            {
+                reorderedPapers.Add(capsulePapers[capsuleCursor]);
+                capsuleCursor++;
+            }
+            else
+            {
+                reorderedPapers.Add(existing);
+            }
+        }
+
+        State.Papers = reorderedPapers;
+        ArrangeDeepCapsules(animate: true);
         RefreshTrayMenu();
         MarkDirty();
     }
@@ -523,7 +914,7 @@ public sealed partial class AppController : IDisposable
         MarkDirty();
     }
 
-    public void ArrangeDeepCapsules()
+    public void ArrangeDeepCapsules(bool animate = false)
     {
         if (!State.UseCapsuleMode || !State.UseDeepCapsuleMode)
         {
@@ -531,8 +922,17 @@ public sealed partial class AppController : IDisposable
             {
                 window.ClearDeepCapsulePlacement();
             }
+            DestroyAllDeepCapsuleSlots();
+            DestroyMasterCapsule();
             return;
         }
+
+        var capsulePapers = DeepCapsulePapersInOrder();
+        var showMaster = State.UseCapsuleCollapseAll && capsulePapers.Count > 0;
+
+        // The master pill, when shown, permanently occupies slot 0; real capsules shift to 1..N.
+        var visualOffset = showMaster ? 1 : 0;
+        var retracted = showMaster && State.CapsuleCollapseAllActive;
 
         var capsuleIndex = 0;
         foreach (var paper in State.Papers)
@@ -542,16 +942,186 @@ public sealed partial class AppController : IDisposable
                 continue;
             }
 
-            if (paper.IsVisible && paper.IsCollapsed && window.IsVisible)
+            if (paper.IsVisible && window.OccupiesDeepCapsuleSlot)
             {
-                window.ApplyDeepCapsulePlacement(capsuleIndex);
+                if (paper.IsCollapsed && retracted)
+                {
+                    window.RetractIntoMaster(DeepCapsuleLayout.TopForIndex(0), animate);
+                }
+                else if (paper.IsCollapsed)
+                {
+                    DestroyDeepCapsuleSlot(paper.Id);
+                    window.ApplyDeepCapsulePlacement(capsuleIndex, animate, visualOffset);
+                }
+                else
+                {
+                    window.ClearDeepCapsulePlacement(restoreCollapsedPosition: false);
+                    UpsertDeepCapsuleSlot(paper, capsuleIndex, visualOffset, animate);
+                }
                 capsuleIndex++;
             }
             else
             {
                 window.ClearDeepCapsulePlacement();
+                DestroyDeepCapsuleSlot(paper.Id);
             }
         }
+
+        if (showMaster)
+        {
+            var firstShow = _masterCapsule == null;
+            EnsureMasterCapsule();
+            if (firstShow)
+            {
+                // First appearance: position then fade in, so it never flashes at the
+                // top-left nor slides in from the wrong edge.
+                _masterCapsule!.ShowPlaced(capsulePapers.Count, retracted);
+            }
+            else
+            {
+                _masterCapsule!.UpdateState(capsulePapers.Count, retracted, animate);
+            }
+        }
+        else
+        {
+            DestroyMasterCapsule();
+        }
+    }
+
+    private void EnsureMasterCapsule()
+    {
+        if (_masterCapsule != null)
+        {
+            return;
+        }
+
+        // Created hidden (Opacity 0, ShowActivated false); ShowPlaced() reveals it once positioned.
+        _masterCapsule = new MasterCapsuleWindow(this);
+    }
+
+    private void DestroyMasterCapsule()
+    {
+        if (_masterCapsule == null)
+        {
+            return;
+        }
+
+        // Collapsing the master must never strand retracted capsules off-screen at Opacity 0.
+        if (State.CapsuleCollapseAllActive)
+        {
+            State.CapsuleCollapseAllActive = false;
+        }
+
+        _masterCapsule.CloseForReal();
+        _masterCapsule = null;
+    }
+
+    private void UpsertDeepCapsuleSlot(PaperData paper, int index, int visualOffset, bool animate)
+    {
+        if (!_windows.TryGetValue(paper.Id, out var window) || !window.IsVisible || paper.IsCollapsed || !window.OccupiesDeepCapsuleSlot)
+        {
+            DestroyDeepCapsuleSlot(paper.Id);
+            return;
+        }
+
+        if (!_deepCapsuleSlots.TryGetValue(paper.Id, out var slot))
+        {
+            slot = new DeepCapsuleSlotWindow(this, paper);
+            _deepCapsuleSlots[paper.Id] = slot;
+            slot.ShowPlaced(index, visualOffset);
+            return;
+        }
+
+        slot.UpdatePlacement(index, visualOffset, animate);
+    }
+
+    private void DestroyDeepCapsuleSlot(string paperId)
+    {
+        if (!_deepCapsuleSlots.Remove(paperId, out var slot))
+        {
+            return;
+        }
+
+        slot.CloseForReal();
+    }
+
+    private void DestroyAllDeepCapsuleSlots()
+    {
+        foreach (var slot in _deepCapsuleSlots.Values)
+        {
+            slot.CloseForReal();
+        }
+
+        _deepCapsuleSlots.Clear();
+    }
+
+    // Toggle whether the real capsules are retracted behind the master pill.
+    public void ToggleCapsuleCollapseAllActive()
+    {
+        if (!State.UseCapsuleMode || !State.UseDeepCapsuleMode || !State.UseCapsuleCollapseAll)
+        {
+            return;
+        }
+
+        State.CapsuleCollapseAllActive = !State.CapsuleCollapseAllActive;
+        ArrangeDeepCapsules(animate: true);
+        SaveNow();
+    }
+
+    private void ToggleCapsuleCollapseAll()
+    {
+        State.UseCapsuleCollapseAll = !State.UseCapsuleCollapseAll;
+
+        if (!State.UseCapsuleCollapseAll)
+        {
+            State.CapsuleCollapseAllActive = false;
+        }
+
+        // Collapse-all rides on top of edge-aligned capsules; enabling it implies both prerequisites.
+        if (State.UseCapsuleCollapseAll && (!State.UseCapsuleMode || !State.UseDeepCapsuleMode))
+        {
+            State.UseCapsuleMode = true;
+            State.UseDeepCapsuleMode = true;
+            foreach (var window in _windows.Values)
+            {
+                window.UpdateCapsuleMode();
+                window.UpdateDeepCapsuleMode();
+            }
+        }
+
+        ArrangeDeepCapsules(animate: true);
+        SaveNow();
+        RebuildTrayMenu();
+        RefreshSettingsCapsuleToggleStates();
+    }
+
+    private List<PaperData> DeepCapsulePapersInOrder()
+    {
+        var papers = new List<PaperData>();
+        if (!State.UseCapsuleMode || !State.UseDeepCapsuleMode)
+        {
+            return papers;
+        }
+
+        foreach (var paper in State.Papers)
+        {
+            if (!paper.IsVisible)
+            {
+                continue;
+            }
+
+            if (!_windows.TryGetValue(paper.Id, out var window) || !window.IsVisible)
+            {
+                continue;
+            }
+
+            if (window.OccupiesDeepCapsuleSlot)
+            {
+                papers.Add(paper);
+            }
+        }
+
+        return papers;
     }
 
     public void MarkDirty()
@@ -1131,11 +1701,17 @@ public sealed partial class AppController : IDisposable
     private void SetTheme(string theme)
     {
         State.Theme = theme;
+        Theme.Invalidate();
         SaveNow();
 
         foreach (var window in _windows.Values)
         {
             window.UpdateTheme();
+        }
+        _masterCapsule?.UpdateTheme();
+        foreach (var slot in _deepCapsuleSlots.Values)
+        {
+            slot.UpdateTheme();
         }
 
         RebuildTrayMenu();
@@ -1152,6 +1728,44 @@ public sealed partial class AppController : IDisposable
         };
 
         return CreateSegmentSelector(segments, State.Theme, SetTheme);
+    }
+
+    private void SetColorScheme(string scheme)
+    {
+        if (!ColorSchemes.IsValid(scheme))
+        {
+            return;
+        }
+
+        State.ColorScheme = scheme;
+        Theme.Invalidate();
+        SaveNow();
+
+        foreach (var window in _windows.Values)
+        {
+            window.UpdateTheme();
+        }
+        _masterCapsule?.UpdateTheme();
+        foreach (var slot in _deepCapsuleSlots.Values)
+        {
+            slot.UpdateTheme();
+        }
+
+        RebuildTrayMenu();
+        RefreshSettingsWindowContent();
+    }
+
+    private UIElement CreateColorSchemeSegmentSelector()
+    {
+        var segments = new[]
+        {
+            (ColorSchemes.Warm, Strings.Get("ColorSchemeWarm")),
+            (ColorSchemes.Ink, Strings.Get("ColorSchemeInk")),
+            (ColorSchemes.Forest, Strings.Get("ColorSchemeForest")),
+            (ColorSchemes.Rose, Strings.Get("ColorSchemeRose"))
+        };
+
+        return CreateSegmentSelector(segments, ColorSchemes.Normalize(State.ColorScheme), SetColorScheme);
     }
 
     private void SetMarkdownRenderMode(string mode)
@@ -1339,6 +1953,99 @@ public sealed partial class AppController : IDisposable
         return container;
     }
 
+    private UIElement CreateMaxTitleLengthStepper()
+    {
+        var container = new Border
+        {
+            BorderBrush = TrayBorderBrush,
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(6),
+            Background = Brushes.Transparent,
+            Margin = new Thickness(0, 4, 0, 10),
+            Height = 28,
+            HorizontalAlignment = HorizontalAlignment.Stretch
+        };
+
+        var grid = new Grid();
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var valueText = new TextBlock
+        {
+            Text = State.MaxTitleLength.ToString(CultureInfo.InvariantCulture),
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+            FontSize = 13,
+            FontWeight = FontWeights.SemiBold,
+            Foreground = TrayTextBrush
+        };
+        Grid.SetColumn(valueText, 1);
+
+        Border StepButton(string glyph, int column, Action onClick)
+        {
+            var glyphText = new TextBlock
+            {
+                Text = glyph,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+                FontSize = 15,
+                Foreground = TrayTextBrush
+            };
+            var button = new Border
+            {
+                Width = 34,
+                Background = Brushes.Transparent,
+                Cursor = System.Windows.Input.Cursors.Hand,
+                Child = glyphText
+            };
+            button.MouseEnter += (_, _) => button.Background = TrayHoverBrush;
+            button.MouseLeave += (_, _) => button.Background = Brushes.Transparent;
+            button.MouseLeftButtonDown += (_, e) =>
+            {
+                onClick();
+                valueText.Text = State.MaxTitleLength.ToString(CultureInfo.InvariantCulture);
+                e.Handled = true;
+            };
+            Grid.SetColumn(button, column);
+            return button;
+        }
+
+        grid.Children.Add(StepButton("−", 0, () => SetMaxTitleLength(State.MaxTitleLength - 1)));
+        grid.Children.Add(valueText);
+        grid.Children.Add(StepButton("＋", 2, () => SetMaxTitleLength(State.MaxTitleLength + 1)));
+
+        container.Child = grid;
+        return container;
+    }
+
+    private void SetMaxTitleLength(int value)
+    {
+        var normalized = PaperTitles.NormalizeMaxTitleLength(value);
+        if (State.MaxTitleLength == normalized)
+        {
+            return;
+        }
+
+        State.MaxTitleLength = normalized;
+
+        // Re-clamp existing custom titles to the new limit and refresh everything that shows them.
+        foreach (var paper in State.Papers)
+        {
+            paper.Title = PaperTitles.CleanCustomTitle(paper.Title, normalized);
+        }
+
+        foreach (var window in _windows.Values)
+        {
+            window.RefreshPaperTitle();
+        }
+
+        ArrangeDeepCapsules(animate: true);
+        SaveNow();
+        RebuildTrayMenu();
+        RefreshSettingsWindowContent();
+    }
+
     private void ShowSettingsWindow()
     {
         if (_trayMenu != null)
@@ -1387,6 +2094,9 @@ public sealed partial class AppController : IDisposable
         {
             CommitSettingsExternalMarkdownEditor();
             _settingsExternalMarkdownTextBox = null;
+            _settingsCapsuleModeCheckBox = null;
+            _settingsDeepCapsuleModeCheckBox = null;
+            _settingsCapsuleCollapseAllCheckBox = null;
             _settingsWindow = null;
         };
         _settingsWindow = window;
@@ -1405,6 +2115,7 @@ public sealed partial class AppController : IDisposable
         }
 
         _settingsWindow.Content = BuildSettingsWindowContent(_settingsWindow);
+        ApplyToolTipSetting(_settingsWindow);
     }
 
     private UIElement BuildSettingsWindowContent(Window window)
@@ -1460,25 +2171,47 @@ public sealed partial class AppController : IDisposable
 
         panel.Children.Add(titleRow);
 
+        // 外观
         panel.Children.Add(SettingsSectionLabel(Strings.Get("SettingsDisplay")));
-        panel.Children.Add(SettingsFieldLabel(Strings.Get("TrayThemeMode")));
+        panel.Children.Add(WrapWithHint(SettingsFieldLabel(Strings.Get("TrayThemeMode")), "TipThemeMode"));
         panel.Children.Add(CreateThemeSegmentSelector());
-        panel.Children.Add(SettingsFieldLabel(Strings.Get("TrayMarkdownRenderMode")));
+        panel.Children.Add(WrapWithHint(SettingsFieldLabel(Strings.Get("SettingsColorScheme")), "TipColorScheme"));
+        panel.Children.Add(CreateColorSchemeSegmentSelector());
+        panel.Children.Add(WrapWithHint(SettingsFieldLabel(Strings.Get("TrayMarkdownRenderMode")), "TipMarkdownRender"));
         panel.Children.Add(CreateMarkdownRenderSegmentSelector());
 
-        panel.Children.Add(SettingsSectionLabel(Strings.Get("SettingsExternalOpen")));
-        panel.Children.Add(SettingsFieldLabel(Strings.Get("SettingsExternalMarkdownExtension")));
-        panel.Children.Add(CreateExternalMarkdownExtensionEditor());
-        panel.Children.Add(SettingsToggle(Strings.Get("SettingsShowTopBarExternalOpenButton"), State.ShowTopBarExternalOpenButton, ToggleTopBarExternalOpenButton));
+        // 待办与笔记：两个关联笔记选项归到一起（原先分散在「显示」和「行为」）。
+        panel.Children.Add(SettingsSectionLabel(Strings.Get("SettingsTodoNote")));
+        panel.Children.Add(WrapWithHint(SettingsToggle(Strings.Get("SettingsEnableTodoNoteLinks"), State.EnableTodoNoteLinks, ToggleTodoNoteLinks), "TipEnableTodoNoteLinks"));
+        panel.Children.Add(WrapWithHint(SettingsToggle(Strings.Get("SettingsShowLinkedNoteName"), State.ShowLinkedNoteName, ToggleLinkedNoteNameDisplay), "TipShowLinkedNoteName"));
 
+        // 顶栏按钮：三个「显示某按钮」开关放在一组（外部打开按钮原先错放在「外部打开」组）。
         panel.Children.Add(SettingsSectionLabel(Strings.Get("SettingsTopBarButtons")));
-        panel.Children.Add(SettingsToggle(Strings.Get("SettingsShowTopBarNewTodoButton"), State.ShowTopBarNewTodoButton, ToggleTopBarNewTodoButton));
-        panel.Children.Add(SettingsToggle(Strings.Get("SettingsShowTopBarNewNoteButton"), State.ShowTopBarNewNoteButton, ToggleTopBarNewNoteButton));
+        panel.Children.Add(WrapWithHint(SettingsToggle(Strings.Get("SettingsShowTopBarNewTodoButton"), State.ShowTopBarNewTodoButton, ToggleTopBarNewTodoButton), "TipNewTodoButton"));
+        panel.Children.Add(WrapWithHint(SettingsToggle(Strings.Get("SettingsShowTopBarNewNoteButton"), State.ShowTopBarNewNoteButton, ToggleTopBarNewNoteButton), "TipNewNoteButton"));
+        panel.Children.Add(WrapWithHint(SettingsToggle(Strings.Get("SettingsShowTopBarExternalOpenButton"), State.ShowTopBarExternalOpenButton, ToggleTopBarExternalOpenButton), "TipExternalOpenButton"));
 
-        panel.Children.Add(SettingsSectionLabel(Strings.Get("SettingsBehavior")));
-        panel.Children.Add(SettingsToggle(Strings.Get("TrayStartup"), SystemSettingsHelper.IsStartupEnabled(), ToggleStartup));
-        panel.Children.Add(SettingsToggle(Strings.Get("TrayCapsuleMode"), State.UseCapsuleMode, ToggleCapsuleMode));
-        panel.Children.Add(SettingsToggle(Strings.Get("TrayDeepCapsuleMode"), State.UseDeepCapsuleMode, ToggleDeepCapsuleMode));
+        // 外部打开：只剩文件后缀这一项配置。
+        panel.Children.Add(SettingsSectionLabel(Strings.Get("SettingsExternalOpen")));
+        panel.Children.Add(WrapWithHint(SettingsFieldLabel(Strings.Get("SettingsExternalMarkdownExtension")), "TipExternalExtension"));
+        panel.Children.Add(CreateExternalMarkdownExtensionEditor());
+
+        // 胶囊：按依赖排序——折叠是总开关，贴边依赖它，收起全部依赖贴边。
+        panel.Children.Add(SettingsSectionLabel(Strings.Get("SettingsCapsule")));
+        _settingsCapsuleModeCheckBox = SettingsToggle(Strings.Get("TrayCapsuleMode"), State.UseCapsuleMode, ToggleCapsuleMode);
+        _settingsDeepCapsuleModeCheckBox = SettingsToggle(Strings.Get("TrayDeepCapsuleMode"), State.UseDeepCapsuleMode, ToggleDeepCapsuleMode);
+        _settingsCapsuleCollapseAllCheckBox = SettingsToggle(Strings.Get("SettingsCapsuleCollapseAll"), State.UseCapsuleCollapseAll, ToggleCapsuleCollapseAll);
+        panel.Children.Add(WrapWithHint(_settingsCapsuleModeCheckBox, "TipCapsuleMode"));
+        panel.Children.Add(WrapWithHint(_settingsDeepCapsuleModeCheckBox, "TipDeepCapsuleMode"));
+        panel.Children.Add(WrapWithHint(_settingsCapsuleCollapseAllCheckBox, "TipCapsuleCollapseAll"));
+        panel.Children.Add(WrapWithHint(SettingsFieldLabel(Strings.Get("SettingsMaxTitleLength"), topMargin: 8), "TipMaxTitleLength"));
+        panel.Children.Add(CreateMaxTitleLengthStepper());
+
+        // 通用
+        panel.Children.Add(SettingsSectionLabel(Strings.Get("SettingsGeneral")));
+        panel.Children.Add(WrapWithHint(SettingsToggle(Strings.Get("TrayStartup"), SystemSettingsHelper.IsStartupEnabled(), ToggleStartup), "TipStartup"));
+        panel.Children.Add(WrapWithHint(SettingsToggle(Strings.Get("SettingsEnableToolTips"), State.EnableToolTips, ToggleToolTips), "TipEnableToolTips"));
+        panel.Children.Add(WrapWithHint(SettingsToggle(Strings.Get("SettingsEnableAnimations"), State.EnableAnimations, ToggleAnimations), "TipEnableAnimations"));
 
         return new Border
         {
@@ -1503,7 +2236,7 @@ public sealed partial class AppController : IDisposable
         };
     }
 
-    private static TextBlock SettingsFieldLabel(string text)
+    private static TextBlock SettingsFieldLabel(string text, double topMargin = 0)
     {
         return new TextBlock
         {
@@ -1511,7 +2244,7 @@ public sealed partial class AppController : IDisposable
             Foreground = TrayWeakTextBrush,
             FontSize = 11,
             FontWeight = FontWeights.Medium,
-            Margin = new Thickness(0, 0, 0, 0)
+            Margin = new Thickness(0, topMargin, 0, 0)
         };
     }
 
@@ -1531,6 +2264,88 @@ public sealed partial class AppController : IDisposable
 
         checkBox.Click += (_, _) => onToggle();
         return checkBox;
+    }
+
+    // Lays the option out as: [option .....stretch.....] [ⓘ]. The trailing ⓘ shows a themed
+    // tooltip with the detailed explanation on hover, so every row stays short while the full
+    // description is one hover away. tipKey is a Strings resource key.
+    private UIElement WrapWithHint(FrameworkElement option, string tipKey)
+    {
+        var grid = new Grid { Margin = new Thickness(0, 4, 0, 0) };
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        // The option keeps its own top margin via its style; reset it here so the row controls spacing.
+        option.Margin = new Thickness(0);
+        option.VerticalAlignment = VerticalAlignment.Center;
+        Grid.SetColumn(option, 0);
+        grid.Children.Add(option);
+
+        var hintGlyph = new TextBlock
+        {
+            Text = "ⓘ",
+            Foreground = TrayWeakTextBrush,
+            FontSize = 12,
+            VerticalAlignment = VerticalAlignment.Center,
+            HorizontalAlignment = HorizontalAlignment.Center
+        };
+
+        var hint = new Border
+        {
+            Width = 18,
+            Height = 18,
+            Margin = new Thickness(6, 0, 0, 0),
+            Background = Brushes.Transparent,
+            Cursor = System.Windows.Input.Cursors.Help,
+            Child = hintGlyph,
+            ToolTip = BuildSettingsHintTooltip(Strings.Get(tipKey))
+        };
+        ToolTipPreferences.SetAlwaysEnabled(hint, true);
+        ToolTipService.SetInitialShowDelay(hint, 200);
+        ToolTipService.SetShowDuration(hint, 20000);
+        ToolTipService.SetBetweenShowDelay(hint, 0);
+        hint.MouseEnter += (_, _) => hintGlyph.Foreground = TrayTextBrush;
+        hint.MouseLeave += (_, _) => hintGlyph.Foreground = TrayWeakTextBrush;
+        Grid.SetColumn(hint, 1);
+        grid.Children.Add(hint);
+
+        return grid;
+    }
+
+    private ToolTip BuildSettingsHintTooltip(string text)
+    {
+        return new ToolTip
+        {
+            Content = new TextBlock
+            {
+                Text = text,
+                Foreground = TrayTextBrush,
+                FontSize = 12,
+                TextWrapping = TextWrapping.Wrap,
+                MaxWidth = 240
+            },
+            Background = TrayPaperBrush,
+            BorderBrush = TrayBorderBrush,
+            BorderThickness = new Thickness(1),
+            Padding = new Thickness(10, 7, 10, 7),
+            HasDropShadow = true
+        };
+    }
+
+    private void RefreshSettingsCapsuleToggleStates()
+    {
+        if (_settingsCapsuleModeCheckBox != null)
+        {
+            _settingsCapsuleModeCheckBox.IsChecked = State.UseCapsuleMode;
+        }
+        if (_settingsDeepCapsuleModeCheckBox != null)
+        {
+            _settingsDeepCapsuleModeCheckBox.IsChecked = State.UseDeepCapsuleMode;
+        }
+        if (_settingsCapsuleCollapseAllCheckBox != null)
+        {
+            _settingsCapsuleCollapseAllCheckBox.IsChecked = State.UseCapsuleCollapseAll;
+        }
     }
 
     private Style BuildSettingsTextBoxStyle()
@@ -1989,6 +2804,7 @@ public sealed partial class AppController : IDisposable
             {
                 Application.Current.Dispatcher.BeginInvoke(new Action(() =>
                 {
+                    Theme.Invalidate();
                     foreach (var window in _windows.Values)
                     {
                         window.UpdateTheme();
@@ -2014,6 +2830,46 @@ public sealed partial class AppController : IDisposable
         RefreshSettingsWindowContent();
     }
 
+    private void ToggleAnimations()
+    {
+        State.EnableAnimations = !State.EnableAnimations;
+        SaveNow();
+        RefreshSettingsWindowContent();
+    }
+
+    private void ToggleToolTips()
+    {
+        State.EnableToolTips = !State.EnableToolTips;
+        SaveNow();
+        RefreshToolTipSetting();
+        RefreshSettingsWindowContent();
+    }
+
+    private void RefreshToolTipSetting()
+    {
+        foreach (var window in _windows.Values)
+        {
+            window.UpdateToolTipSetting();
+        }
+
+        _masterCapsule?.UpdateToolTipSetting();
+
+        foreach (var slot in _deepCapsuleSlots.Values)
+        {
+            slot.UpdateToolTipSetting();
+        }
+
+        if (_settingsWindow != null)
+        {
+            ApplyToolTipSetting(_settingsWindow);
+        }
+    }
+
+    private void ApplyToolTipSetting(Window window)
+    {
+        ToolTipPreferences.Apply(window, State.EnableToolTips);
+    }
+
     private void ToggleCapsuleMode()
     {
         State.UseCapsuleMode = !State.UseCapsuleMode;
@@ -2035,7 +2891,7 @@ public sealed partial class AppController : IDisposable
         ArrangeDeepCapsules();
         SaveNow();
         RebuildTrayMenu();
-        RefreshSettingsWindowContent();
+        RefreshSettingsCapsuleToggleStates();
     }
 
     private void ToggleTopBarNewTodoButton()
@@ -2054,6 +2910,33 @@ public sealed partial class AppController : IDisposable
     {
         State.ShowTopBarExternalOpenButton = !State.ShowTopBarExternalOpenButton;
         RefreshTopBarNewPaperButtonsSetting();
+    }
+
+    private void ToggleLinkedNoteNameDisplay()
+    {
+        State.ShowLinkedNoteName = !State.ShowLinkedNoteName;
+
+        foreach (var window in _windows.Values)
+        {
+            window.RefreshTodoRowsForExternalChange();
+        }
+
+        SaveNow();
+        RefreshSettingsWindowContent();
+    }
+
+    private void ToggleTodoNoteLinks()
+    {
+        State.EnableTodoNoteLinks = !State.EnableTodoNoteLinks;
+        ClearNoteLinkDropTarget();
+
+        foreach (var window in _windows.Values)
+        {
+            window.UpdateTodoLinkFeature();
+        }
+
+        SaveNow();
+        RefreshSettingsWindowContent();
     }
 
     private void RefreshTopBarNewPaperButtonsSetting()
@@ -2088,7 +2971,7 @@ public sealed partial class AppController : IDisposable
         ArrangeDeepCapsules();
         SaveNow();
         RebuildTrayMenu();
-        RefreshSettingsWindowContent();
+        RefreshSettingsCapsuleToggleStates();
     }
 
     public void Dispose()
@@ -2102,6 +2985,9 @@ public sealed partial class AppController : IDisposable
         }
         _settingsWindow?.Close();
         _settingsWindow = null;
+        DestroyAllDeepCapsuleSlots();
+        _masterCapsule?.CloseForReal();
+        _masterCapsule = null;
         _trayIcon?.Dispose();
         _trayIcon = null;
         _trayMenu = null;

@@ -22,8 +22,6 @@ public sealed class MarkdownTextBox : TextEditor
     private readonly MarkdownMarkerColorizer _markerColorizer;
     private readonly MarkdownListBulletRenderer _listBulletRenderer;
     private readonly MarkdownHorizontalRuleRenderer _horizontalRuleRenderer;
-    private static readonly Brush LightPreviewSyntaxBrush = FrozenBrush(Color.FromArgb(72, 54, 43, 31));
-    private static readonly Brush DarkPreviewSyntaxBrush = FrozenBrush(Color.FromArgb(78, 230, 223, 211));
 
     public MarkdownTextBox()
     {
@@ -525,16 +523,9 @@ public sealed class MarkdownTextBox : TextEditor
         TextArea.TextView.EnsureVisualLines();
     }
 
-    private static Brush PreviewSyntaxBrush => Theme.IsDark ? DarkPreviewSyntaxBrush : LightPreviewSyntaxBrush;
+    private static Brush PreviewSyntaxBrush => Theme.SyntaxFadeBrush;
 
     private MarkdownRenderOptions RenderOptions => MarkdownRenderOptions.From(_markdownRenderMode, _isPreviewMode);
-
-    private static SolidColorBrush FrozenBrush(Color color)
-    {
-        var brush = new SolidColorBrush(color);
-        brush.Freeze();
-        return brush;
-    }
 
     private static bool TryGetLinePoint(TextView textView, DocumentLine line, int indexInLine, VisualYPosition yPosition, out Point point)
     {

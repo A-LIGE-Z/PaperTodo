@@ -58,6 +58,7 @@ public sealed partial class PaperWindow : Window
     private Button? _newTodoButton;
     private Button? _newNoteButton;
     private Button? _openMarkdownButton;
+    private Button? _linkNoteButton;
     private TextBlock? _titleText;
     private TextBox? _titleEditBox;
     private TextBlock? _textZoomIndicator;
@@ -66,11 +67,13 @@ public sealed partial class PaperWindow : Window
     private Border? _activeDropRow;
     private Border? _dropIndicatorLine;
     private Border? _appendArea;
+    private Border? _linkedNoteDropRow;
     private bool _closeForReal;
     private string? _pendingFocusItemId;
     private readonly Dictionary<string, TodoTextBox> _todoEditors = new();
     private readonly List<Border> _todoRows = new();
     private TodoDragState? _todoDrag;
+    private NoteLinkDragState? _noteLinkDrag;
     private MarkdownTextBox? _noteBox;
     private Action? _showNotePreview;
     private readonly List<List<PaperItem>> _undoStack = new();
@@ -78,16 +81,31 @@ public sealed partial class PaperWindow : Window
     private const int MaxUndoDepth = 100;
     private string? _activeOriginalItemId;
     private string? _activeOriginalText;
+    private bool _suppressTodoBackspaceUntilKeyUp;
     private bool _isApplyingCollapsedState;
     private Button? _closeButton;
     private Grid _capsuleShell = null!;
+    private Border? _capsuleCloseArea;
+    private TextBlock? _capsuleCloseGlyph;
+    private TranslateTransform? _capsuleCloseGlyphOffset;
     private TextBlock _capsuleLabelText = null!;
     private bool _isMaybeDragging;
     private Point _mouseDownScreenPos;
     private bool _suppressGeometrySave;
     private bool _isDeepCapsulePlaced;
     private bool _isDeepCapsuleHovering;
+    private bool _holdsDeepCapsuleSlotWhileExpanded;
+    private bool _isDeepCapsuleDragging;
+    private bool _isCollapseAllRetracted;
+    private double _deepCapsuleDragMouseOffsetY;
+    private double _deepCapsuleDragLeft;
     private int _deepCapsuleIndex = -1;
+    // Visual slot shift: when the "collapse-all" master capsule occupies slot 0, real
+    // capsules render at slot index+offset while _deepCapsuleIndex stays the paper-list index.
+    private int _deepCapsuleVisualOffset;
+    // Monotonic token guarding deep-capsule move animations; a superseded animation's
+    // Completed handler bails when this no longer matches the value captured at its start.
+    private int _deepCapsuleMoveGeneration;
     private double _startTransitionWidth;
     private double _startTransitionHeight;
     private double _targetTransitionWidth;
@@ -97,23 +115,64 @@ public sealed partial class PaperWindow : Window
     private bool _isTransitionVisualsActive;
     private bool _isEditingTitle;
     private bool _isCoercingTitleEditText;
-    private const double DeepCapsuleHoverOutsideOffset = 8;
-    private const double DeepCapsuleTopMargin = 8;
-    private const double DeepCapsuleStartTopMargin = 48;
-    private const double DeepCapsuleGap = 4;
+    private int _themeAnimationGeneration;
+    private int _clearDoneGeneration;
+    private const double DeepCapsuleHoverOutsideOffset = DeepCapsuleLayout.HoverOutsideOffset;
+    private const double DeepCapsuleExpandedRightInset = DeepCapsuleLayout.ExpandedRightInset;
+    private const double DeepCapsuleTopMargin = DeepCapsuleLayout.TopMargin;
+    private const double DeepCapsuleStartTopMargin = DeepCapsuleLayout.StartTopMargin;
+    private const double DeepCapsuleGap = DeepCapsuleLayout.Gap;
     private const double WindowChromeMargin = 8;
     private const double WindowChromeInset = WindowChromeMargin * 2;
     private const double TitleBarHeight = 23.5;
     private const int CollapseShellFadeMilliseconds = 70;
     private const int CollapseResizeMilliseconds = 150;
     private const int ExpandAnimationMilliseconds = 220;
-    private const double ExpandedChromeCornerRadius = 14;
-    private const double CapsuleChromeCornerRadius = 18;
+    private const double ExpandedChromeCornerRadius = RadiusShell;
+    private const double CapsuleChromeCornerRadius = DeepCapsuleLayout.CornerRadius; // 胶囊圆角，自成一套，不纳入圆角阶梯
+    private const double CapsuleInnerCornerRadius = DeepCapsuleLayout.CornerRadius;   // 左区 / 关闭按钮的内圆角，与药丸外圆角同档
+
+    // 胶囊态内部度量。布局（leftStack/标签）与宽度计算（CapsuleShellWidth）共用同一组值，
+    // 否则二者不一致会让壳体与内容错位。整体偏紧凑，减少图标/文字四周的死白。
+    private const double CapsuleNormalMinWidth = 76;
+    private const double CapsuleLeftPadding = 6;
+    private const double CapsuleIconGap = 4;
+    private const double CapsuleCloseWidth = 30;
+    private const double CapsuleNormalCloseWidth = 21;
+    private const double CapsuleRightPadding = 6;
+    private const double CapsuleIconFontSize = 13;
+    private const double CapsuleLabelFontSize = 11;
+    private const double CapsuleCloseGlyphDeepOffset = -8;
+    private const double CapsuleCloseGlyphNormalOffset = -1;
+    private const double DeepCapsuleReorderDragExtraThreshold = 4;
+    // Half-hidden (peek) cut-off, measured from the END of the title. Negative pulls the cut
+    // INTO the title so the last glyph is roughly half-covered — the capsule reads as clearly
+    // tucked away at the edge, yet enough text shows to identify it. ~half a CJK glyph at 11px,
+    // less 1px so a sliver of breathing room shows to the right of the text.
+    private const double CapsulePeekRightGap = -5;
+
+    // 圆角阶梯：所有元素只从这四档取值，避免散落的随手圆角。
+    // 小元素（勾选框）/ 控件（按钮、徽标、行）/ 块（菜单、面板）/ 外壳（纸片、顶栏）。
+    private const double RadiusSmall = 4;
+    private const double RadiusControl = 8;
+    private const double RadiusBlock = 12;
+    private const double RadiusShell = 16;
     private static readonly object NoteRenderTraceLock = new();
 
     public bool IsDeepCapsulePlaced => _isDeepCapsulePlaced;
+    public bool IsCollapseAllRetracted => _isCollapseAllRetracted;
+    public bool OccupiesDeepCapsuleSlot => IsVisible && (_paper.IsCollapsed || _holdsDeepCapsuleSlotWhileExpanded);
     public bool SuppressGeometrySave => _suppressGeometrySave || _isDeepCapsulePlaced;
     public double DesiredCapsuleWindowWidth => CapsuleWindowWidth();
+    public double DeepCapsuleRestingVisibleWidth => _holdsDeepCapsuleSlotWhileExpanded
+        ? ExpandedDeepCapsuleVisibleWidth()
+        : DeepCapsuleVisibleWidth();
+
+    private enum TodoFocusPlacement
+    {
+        End,
+        Start
+    }
 
     private sealed class TodoDragState
     {
@@ -138,6 +197,20 @@ public sealed partial class PaperWindow : Window
         public Point MouseOffsetInRow { get; set; }
     }
 
+    private sealed class NoteLinkDragState
+    {
+        public NoteLinkDragState(FrameworkElement handle, Point startScreenPoint)
+        {
+            Handle = handle;
+            StartScreenPoint = startScreenPoint;
+        }
+
+        public FrameworkElement Handle { get; }
+        public Point StartScreenPoint { get; }
+        public bool IsDragging { get; set; }
+        public Window? Ghost { get; set; }
+    }
+
     private enum DropPlacement
     {
         Before,
@@ -151,68 +224,30 @@ public sealed partial class PaperWindow : Window
     private static Brush HoverBrush => Theme.HoverBrush;
     private static Brush MenuHoverBrush => Theme.HoverBrush;
 
-    private static readonly Brush LightDropIndicatorBgBrush = FrozenBrush(Color.FromArgb(12, 126, 84, 34));
-    private static readonly Brush DarkDropIndicatorBgBrush = FrozenBrush(Color.FromArgb(12, 166, 140, 104));
-    private static Brush DropIndicatorBgBrush => Theme.IsDark ? DarkDropIndicatorBgBrush : LightDropIndicatorBgBrush;
+    // 以下半透明叠加色全部从当前主题的 Tint / Danger 基色派生，
+    // 切换配色族（暖纸 / 墨 / 林 / 霞）时自动跟随，无需各自维护 Light/Dark 对。
+    private static Brush DropIndicatorBgBrush => Theme.Tint(12);
+    private static Brush DropIndicatorBrush => Theme.Tint(180);
+    private static Brush AppendDropBrush => Theme.Tint(34);
+    private static Brush AppendBorderBrush => Theme.Tint(45);
+    private static Brush AppendBgBrush => Theme.Tint(12);
+    private static Brush AppendHoverBgBrush => Theme.Tint(26);
+    private static Brush NoteLinkTargetBgBrush => Theme.Tint((byte)(Theme.IsDark ? 36 : 28));
+    private static Brush NoteLinkTargetBorderBrush => Theme.Tint(150);
+    private static Brush LinkedNoteBgBrush => Theme.Tint((byte)(Theme.IsDark ? 28 : 18));
+    private static Brush LinkedNoteHoverBgBrush => Theme.Tint((byte)(Theme.IsDark ? 48 : 34));
 
-    private static readonly Brush LightDropIndicatorBrush = FrozenBrush(Color.FromArgb(180, 126, 84, 34));
-    private static readonly Brush DarkDropIndicatorBrush = FrozenBrush(Color.FromArgb(180, 166, 140, 104));
-    private static Brush DropIndicatorBrush => Theme.IsDark ? DarkDropIndicatorBrush : LightDropIndicatorBrush;
+    private static Brush CheckBoxBorderBrush => Theme.CheckBoxBorderBrush;
 
-    private static readonly Brush LightAppendDropBrush = FrozenBrush(Color.FromArgb(34, 126, 84, 34));
-    private static readonly Brush DarkAppendDropBrush = FrozenBrush(Color.FromArgb(34, 166, 140, 104));
-    private static Brush AppendDropBrush => Theme.IsDark ? DarkAppendDropBrush : LightAppendDropBrush;
+    private static Brush TrashBgBrush => Theme.Danger((byte)(Theme.IsDark ? 16 : 12));
+    private static Brush TrashBorderBrush => Theme.Danger(50);
+    private static Brush TrashTextBrush => Theme.DangerBrush;
+    private static Brush TrashHoverBgBrush => Theme.Danger((byte)(Theme.IsDark ? 32 : 26));
+    private static Brush TrashHoverBorderBrush => Theme.DangerBrush;
 
-    private static readonly Brush LightAppendBorderBrush = FrozenBrush(Color.FromArgb(45, 120, 92, 48));
-    private static readonly Brush DarkAppendBorderBrush = FrozenBrush(Color.FromArgb(45, 230, 223, 211));
-    private static Brush AppendBorderBrush => Theme.IsDark ? DarkAppendBorderBrush : LightAppendBorderBrush;
-
-    private static readonly Brush LightAppendBgBrush = FrozenBrush(Color.FromArgb(12, 120, 92, 48));
-    private static readonly Brush DarkAppendBgBrush = FrozenBrush(Color.FromArgb(12, 230, 223, 211));
-    private static Brush AppendBgBrush => Theme.IsDark ? DarkAppendBgBrush : LightAppendBgBrush;
-
-    private static readonly Brush LightAppendHoverBgBrush = FrozenBrush(Color.FromArgb(26, 120, 92, 48));
-    private static readonly Brush DarkAppendHoverBgBrush = FrozenBrush(Color.FromArgb(26, 230, 223, 211));
-    private static Brush AppendHoverBgBrush => Theme.IsDark ? DarkAppendHoverBgBrush : LightAppendHoverBgBrush;
-
-    private static readonly Brush LightCheckBoxBorderBrush = FrozenBrush(Color.FromRgb(180, 160, 120));
-    private static readonly Brush DarkCheckBoxBorderBrush = FrozenBrush(Color.FromRgb(110, 100, 85));
-    private static Brush CheckBoxBorderBrush => Theme.IsDark ? DarkCheckBoxBorderBrush : LightCheckBoxBorderBrush;
-
-    private static readonly Brush LightTrashBgBrush = FrozenBrush(Color.FromArgb(12, 176, 90, 70));
-    private static readonly Brush DarkTrashBgBrush = FrozenBrush(Color.FromArgb(16, 230, 110, 90));
-    private static Brush TrashBgBrush => Theme.IsDark ? DarkTrashBgBrush : LightTrashBgBrush;
-
-    private static readonly Brush LightTrashBorderBrush = FrozenBrush(Color.FromArgb(50, 176, 90, 70));
-    private static readonly Brush DarkTrashBorderBrush = FrozenBrush(Color.FromArgb(50, 230, 110, 90));
-    private static Brush TrashBorderBrush => Theme.IsDark ? DarkTrashBorderBrush : LightTrashBorderBrush;
-
-    private static readonly Brush LightTrashTextBrush = FrozenBrush(Color.FromRgb(176, 90, 70));
-    private static readonly Brush DarkTrashTextBrush = FrozenBrush(Color.FromRgb(230, 110, 90));
-    private static Brush TrashTextBrush => Theme.IsDark ? DarkTrashTextBrush : LightTrashTextBrush;
-
-    private static readonly Brush LightTrashHoverBgBrush = FrozenBrush(Color.FromArgb(26, 176, 90, 70));
-    private static readonly Brush DarkTrashHoverBgBrush = FrozenBrush(Color.FromArgb(32, 230, 110, 90));
-    private static Brush TrashHoverBgBrush => Theme.IsDark ? DarkTrashHoverBgBrush : LightTrashHoverBgBrush;
-
-    private static readonly Brush LightTrashHoverBorderBrush = FrozenBrush(Color.FromRgb(176, 90, 70));
-    private static readonly Brush DarkTrashHoverBorderBrush = FrozenBrush(Color.FromRgb(230, 110, 90));
-    private static Brush TrashHoverBorderBrush => Theme.IsDark ? DarkTrashHoverBorderBrush : LightTrashHoverBorderBrush;
-    private static readonly Brush LightTitleBarBrush = FrozenBrush(Color.FromArgb(12, 120, 92, 48));
-    private static readonly Brush DarkTitleBarBrush = FrozenBrush(Color.FromArgb(18, 230, 223, 211));
-    private static Brush TitleBarBrush => Theme.IsDark ? DarkTitleBarBrush : LightTitleBarBrush;
-
-    private static readonly Brush LightTitleBarDividerBrush = FrozenBrush(Color.FromArgb(28, 120, 92, 48));
-    private static readonly Brush DarkTitleBarDividerBrush = FrozenBrush(Color.FromArgb(34, 230, 223, 211));
-    private static Brush TitleBarDividerBrush => Theme.IsDark ? DarkTitleBarDividerBrush : LightTitleBarDividerBrush;
+    private static Brush TitleBarBrush => Theme.Tint((byte)(Theme.IsDark ? 18 : 12));
+    private static Brush TitleBarDividerBrush => Theme.Tint((byte)(Theme.IsDark ? 34 : 28));
     private const int TodoMoveAnimationMilliseconds = 150;
-
-    private static SolidColorBrush FrozenBrush(Color color)
-    {
-        var brush = new SolidColorBrush(color);
-        brush.Freeze();
-        return brush;
-    }
 
     private static readonly ControlTemplate SharedContextMenuTemplate = BuildContextMenuTemplate();
     private static readonly Style SharedCompactMenuItemStyle = BuildCompactMenuItemStyle();
@@ -225,7 +260,7 @@ public sealed partial class PaperWindow : Window
         border.SetValue(Border.BackgroundProperty, new TemplateBindingExtension(Control.BackgroundProperty));
         border.SetValue(Border.BorderBrushProperty, new TemplateBindingExtension(Control.BorderBrushProperty));
         border.SetValue(Border.BorderThicknessProperty, new Thickness(1));
-        border.SetValue(Border.CornerRadiusProperty, new CornerRadius(10));
+        border.SetValue(Border.CornerRadiusProperty, new CornerRadius(RadiusBlock));
         border.SetValue(Border.PaddingProperty, new TemplateBindingExtension(Control.PaddingProperty));
 
         var presenter = new FrameworkElementFactory(typeof(ItemsPresenter));
@@ -248,7 +283,7 @@ public sealed partial class PaperWindow : Window
 
         var border = new FrameworkElementFactory(typeof(Border));
         border.Name = "Bd";
-        border.SetValue(Border.CornerRadiusProperty, new CornerRadius(7));
+        border.SetValue(Border.CornerRadiusProperty, new CornerRadius(RadiusControl));
         border.SetValue(Border.BackgroundProperty, new TemplateBindingExtension(Control.BackgroundProperty));
         border.SetValue(Border.PaddingProperty, new TemplateBindingExtension(Control.PaddingProperty));
 
@@ -297,7 +332,7 @@ public sealed partial class PaperWindow : Window
 
         var border = new FrameworkElementFactory(typeof(Border));
         border.Name = "Bd";
-        border.SetValue(Border.CornerRadiusProperty, new CornerRadius(8));
+        border.SetValue(Border.CornerRadiusProperty, new CornerRadius(RadiusControl));
         border.SetValue(Border.BackgroundProperty, new TemplateBindingExtension(Control.BackgroundProperty));
         border.SetValue(Border.PaddingProperty, new TemplateBindingExtension(Control.PaddingProperty));
 
@@ -353,7 +388,7 @@ public sealed partial class PaperWindow : Window
         border.SetValue(FrameworkElement.WidthProperty, 16.0);
         border.SetValue(FrameworkElement.HeightProperty, 16.0);
         border.SetValue(Border.BorderThicknessProperty, new Thickness(1.5));
-        border.SetValue(Border.CornerRadiusProperty, new CornerRadius(4));
+        border.SetValue(Border.CornerRadiusProperty, new CornerRadius(RadiusSmall));
         border.SetValue(Border.BorderBrushProperty, new DynamicResourceExtension("CheckBoxBorderBrushKey"));
         border.SetValue(Border.BackgroundProperty, Brushes.Transparent);
         border.SetValue(UIElement.SnapsToDevicePixelsProperty, true);
@@ -416,6 +451,7 @@ public sealed partial class PaperWindow : Window
 
         ConfigureWindow();
         BuildShell();
+        UpdateToolTipSetting();
 
         Loaded += (_, _) => SaveGeometryIfAllowed();
         LocationChanged += (_, _) => SaveGeometryIfAllowed();
@@ -425,6 +461,7 @@ public sealed partial class PaperWindow : Window
         PreviewMouseLeftButtonUp += OnWindowPreviewMouseLeftButtonUp;
         LostMouseCapture += OnLostMouseCapture;
         PreviewKeyDown += OnWindowPreviewKeyDown;
+        PreviewKeyUp += OnWindowPreviewKeyUp;
         Deactivated += (_, _) =>
         {
             if (_todoDrag != null)
@@ -454,6 +491,11 @@ public sealed partial class PaperWindow : Window
     {
         _closeForReal = true;
         Close();
+    }
+
+    public void UpdateToolTipSetting()
+    {
+        ToolTipPreferences.Apply(this, _controller.State.EnableToolTips);
     }
 
     private void ConfigureWindow()
@@ -507,14 +549,71 @@ public sealed partial class PaperWindow : Window
 
         Resources["CheckBoxBorderBrushKey"] = CheckBoxBorderBrush;
         Resources["CheckBoxActiveBrushKey"] = Theme.ActiveBrush;
-        Resources["CheckBoxUncheckedHoverBorderBrushKey"] = Theme.IsDark ? FrozenBrush(Color.FromRgb(180, 160, 130)) : FrozenBrush(Color.FromRgb(120, 95, 60));
-        Resources["CheckBoxUncheckedHoverBgKey"] = Theme.IsDark ? FrozenBrush(Color.FromArgb(20, 230, 223, 211)) : FrozenBrush(Color.FromArgb(20, 120, 92, 48));
-        Resources["CheckBoxActiveHoverBrushKey"] = Theme.IsDark ? FrozenBrush(Color.FromRgb(146, 120, 84)) : FrozenBrush(Color.FromRgb(115, 90, 58));
+        Resources["CheckBoxUncheckedHoverBorderBrushKey"] = Theme.CheckBoxHoverBorderBrush;
+        Resources["CheckBoxUncheckedHoverBgKey"] = Theme.CheckBoxUncheckedHoverBgBrush;
+        Resources["CheckBoxActiveHoverBrushKey"] = Theme.CheckBoxActiveHoverBrush;
     }
 
     public void UpdateTheme()
     {
+        var oldPaperColor = TryGetSolidColor(_paperChrome?.Background, out var capturedPaperColor)
+            ? capturedPaperColor
+            : (Color?)null;
+        var oldBorderColor = TryGetSolidColor(_paperChrome?.BorderBrush, out var capturedBorderColor)
+            ? capturedBorderColor
+            : (Color?)null;
+
+        _themeAnimationGeneration++;
+        var themeAnimationGeneration = _themeAnimationGeneration;
+
         InitializeThemeResources();
+
+        var canAnimateTheme = _controller.State.EnableAnimations &&
+            _paperChrome != null &&
+            oldPaperColor.HasValue &&
+            oldBorderColor.HasValue &&
+            TryGetSolidColor(Resources["PaperBrushKey"] as Brush, out var newPaperColor) &&
+            TryGetSolidColor(Resources["PaperBorderBrushKey"] as Brush, out var newBorderColor);
+
+        // 主题动画只能使用临时本地画刷；完成后必须恢复动态资源绑定。
+        if (_controller.State.EnableAnimations && _paperChrome != null)
+        {
+            if (canAnimateTheme)
+            {
+                var pendingAnimations = 0;
+
+                void MarkThemeAnimationComplete()
+                {
+                    pendingAnimations--;
+                    if (pendingAnimations <= 0 && themeAnimationGeneration == _themeAnimationGeneration)
+                    {
+                        RestorePaperChromeThemeReferences();
+                    }
+                }
+
+                pendingAnimations++;
+                AnimatePaperChromeBrush(
+                    oldPaperColor!.Value,
+                    newPaperColor,
+                    brush => _paperChrome.Background = brush,
+                    MarkThemeAnimationComplete);
+
+                pendingAnimations++;
+                AnimatePaperChromeBrush(
+                    oldBorderColor!.Value,
+                    newBorderColor,
+                    brush => _paperChrome.BorderBrush = brush,
+                    MarkThemeAnimationComplete);
+            }
+            else
+            {
+                RestorePaperChromeThemeReferences();
+            }
+        }
+        else
+        {
+            RestorePaperChromeThemeReferences();
+        }
 
         RefreshPaperTitle();
         RefreshPaperIconButton();
@@ -532,6 +631,42 @@ public sealed partial class PaperWindow : Window
         {
             RebuildTodoRows(CurrentFocusedTodoItemId());
         }
+    }
+
+    private static bool TryGetSolidColor(Brush? brush, out Color color)
+    {
+        if (brush is SolidColorBrush solidBrush)
+        {
+            color = solidBrush.Color;
+            return true;
+        }
+
+        color = default;
+        return false;
+    }
+
+    private void AnimatePaperChromeBrush(Color from, Color to, Action<SolidColorBrush> assignBrush, Action onComplete)
+    {
+        var transitionBrush = new SolidColorBrush(from);
+        assignBrush(transitionBrush);
+
+        var animation = new System.Windows.Media.Animation.ColorAnimation(to, TimeSpan.FromMilliseconds(300))
+        {
+            EasingFunction = AnimationHelper.SmoothEase
+        };
+        animation.Completed += (_, _) => onComplete();
+        transitionBrush.BeginAnimation(SolidColorBrush.ColorProperty, animation);
+    }
+
+    private void RestorePaperChromeThemeReferences()
+    {
+        if (_paperChrome == null)
+        {
+            return;
+        }
+
+        _paperChrome.SetResourceReference(Border.BackgroundProperty, "PaperBrushKey");
+        _paperChrome.SetResourceReference(Border.BorderBrushProperty, "PaperBorderBrushKey");
     }
 
     public void UpdateMarkdownRenderMode()
@@ -784,7 +919,7 @@ public sealed partial class PaperWindow : Window
         {
             Margin = new Thickness(0, 0, 8, 0),
             Padding = new Thickness(4, 1, 5, 1),
-            CornerRadius = new CornerRadius(8),
+            CornerRadius = new CornerRadius(RadiusControl),
             BorderThickness = new Thickness(0, 0, 0, 1),
             Background = Brushes.Transparent,
             Cursor = Cursors.IBeam,
@@ -822,6 +957,8 @@ public sealed partial class PaperWindow : Window
             FontSize = 11,
             FontWeight = FontWeights.SemiBold,
             MaxLength = PaperTitles.MaxTitleLength,
+            // MaxLength is in UTF-16 code units, not text elements, so it is only a coarse guard;
+            // CoerceTitleEditText enforces the real (text-element) limit. Refreshed per edit session.
             Padding = new Thickness(0),
             VerticalContentAlignment = VerticalAlignment.Center,
             FocusVisualStyle = null
@@ -883,6 +1020,17 @@ public sealed partial class PaperWindow : Window
 
         if (_paper.Type == PaperTypes.Note)
         {
+            _linkNoteButton = IconButton("⌖", Strings.Get("ToolTipDragNoteToTodo"));
+            _linkNoteButton.Width = 24;
+            _linkNoteButton.FontSize = 13;
+            _linkNoteButton.Cursor = Cursors.Cross;
+            _linkNoteButton.Visibility = _controller.State.EnableTodoNoteLinks ? Visibility.Visible : Visibility.Collapsed;
+            _linkNoteButton.PreviewMouseLeftButtonDown += (_, e) => BeginNoteLinkMouseGesture(_linkNoteButton, e);
+            _linkNoteButton.PreviewMouseMove += (_, e) => UpdateNoteLinkMouseGesture(e);
+            _linkNoteButton.PreviewMouseLeftButtonUp += (_, e) => EndNoteLinkMouseGestureFromMouseUp(e);
+            _linkNoteButton.LostMouseCapture += (_, _) => EndNoteLinkMouseGesture(commit: false);
+            buttons.Children.Add(_linkNoteButton);
+
             _openMarkdownButton = IconButton("MD", OpenMarkdownEditorToolTip());
             _openMarkdownButton.FontSize = 10.5;
             _openMarkdownButton.Click += (_, _) => OpenMarkdownInDefaultEditor();
@@ -916,7 +1064,7 @@ public sealed partial class PaperWindow : Window
         {
             Margin = new Thickness(0, 0, 0, 1.5),
             BorderThickness = new Thickness(0, 0, 0, 1),
-            CornerRadius = new CornerRadius(14, 14, 0, 0),
+            CornerRadius = new CornerRadius(RadiusShell, RadiusShell, 0, 0),
             Child = top
         };
         topHost.SetResourceReference(Border.BackgroundProperty, "TitleBarBrushKey");
@@ -924,6 +1072,210 @@ public sealed partial class PaperWindow : Window
 
         Grid.SetRow(topHost, 0);
         _shell.Children.Add(topHost);
+    }
+
+    private void BeginNoteLinkMouseGesture(FrameworkElement handle, MouseButtonEventArgs e)
+    {
+        if (!_controller.State.EnableTodoNoteLinks || _paper.Type != PaperTypes.Note)
+        {
+            return;
+        }
+
+        _noteLinkDrag = new NoteLinkDragState(handle, PointToScreen(e.GetPosition(this)));
+        handle.CaptureMouse();
+        e.Handled = true;
+    }
+
+    private void UpdateNoteLinkMouseGesture(MouseEventArgs e)
+    {
+        var state = _noteLinkDrag;
+        if (state == null)
+        {
+            return;
+        }
+
+        if (e.LeftButton != MouseButtonState.Pressed)
+        {
+            EndNoteLinkMouseGesture(commit: state.IsDragging);
+            e.Handled = true;
+            return;
+        }
+
+        var currentScreenPoint = PointToScreen(e.GetPosition(this));
+        if (!state.IsDragging)
+        {
+            var movedEnough =
+                Math.Abs(currentScreenPoint.X - state.StartScreenPoint.X) >= SystemParameters.MinimumHorizontalDragDistance ||
+                Math.Abs(currentScreenPoint.Y - state.StartScreenPoint.Y) >= SystemParameters.MinimumVerticalDragDistance;
+
+            if (!movedEnough)
+            {
+                return;
+            }
+
+            state.IsDragging = true;
+            state.Handle.Opacity = 0.82;
+            Mouse.OverrideCursor = Cursors.Cross;
+            ExitNoteEditor();
+            _controller.BeginNoteLinkDrag(_paper);
+            state.Ghost = CreateNoteLinkDragGhost();
+            state.Ghost.Show();
+            state.Ghost.UpdateLayout();
+        }
+
+        MoveNoteLinkDragGhost(state, currentScreenPoint);
+        _controller.UpdateNoteLinkDrag(_paper, currentScreenPoint);
+        e.Handled = true;
+    }
+
+    private void EndNoteLinkMouseGestureFromMouseUp(MouseButtonEventArgs e)
+    {
+        var state = _noteLinkDrag;
+        if (state == null)
+        {
+            return;
+        }
+
+        EndNoteLinkMouseGesture(commit: state.IsDragging);
+        e.Handled = true;
+    }
+
+    private void EndNoteLinkMouseGesture(bool commit)
+    {
+        var state = _noteLinkDrag;
+        if (state == null)
+        {
+            return;
+        }
+
+        _noteLinkDrag = null;
+
+        if (state.Handle.IsMouseCaptured)
+        {
+            state.Handle.ReleaseMouseCapture();
+        }
+
+        CloseNoteLinkDragGhost(state);
+        state.Handle.Opacity = 1.0;
+        Mouse.OverrideCursor = null;
+        _controller.EndNoteLinkDrag(_paper, commit && state.IsDragging);
+    }
+
+    private Window CreateNoteLinkDragGhost()
+    {
+        var stack = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            VerticalAlignment = VerticalAlignment.Center,
+            IsHitTestVisible = false
+        };
+
+        stack.Children.Add(new TextBlock
+        {
+            Text = "✎",
+            Foreground = TextBrush,
+            FontSize = 13,
+            FontWeight = FontWeights.SemiBold,
+            VerticalAlignment = VerticalAlignment.Center
+        });
+
+        stack.Children.Add(new TextBlock
+        {
+            Text = _controller.PaperCapsuleTitle(_paper),
+            Foreground = TextBrush,
+            FontSize = 12,
+            Margin = new Thickness(6, 0, 0, 0),
+            MaxWidth = 150,
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            VerticalAlignment = VerticalAlignment.Center
+        });
+
+        var root = new Border
+        {
+            Padding = new Thickness(9, 5, 10, 5),
+            CornerRadius = new CornerRadius(RadiusControl),
+            Background = PaperBrush,
+            BorderBrush = NoteLinkTargetBorderBrush,
+            BorderThickness = new Thickness(1),
+            Opacity = 0.86,
+            Child = stack,
+            IsHitTestVisible = false,
+            Effect = new DropShadowEffect
+            {
+                BlurRadius = 16,
+                ShadowDepth = 2,
+                Opacity = 0.22
+            }
+        };
+
+        return new Window
+        {
+            WindowStyle = WindowStyle.None,
+            AllowsTransparency = true,
+            Background = Brushes.Transparent,
+            ShowInTaskbar = false,
+            ShowActivated = false,
+            Topmost = true,
+            SizeToContent = SizeToContent.WidthAndHeight,
+            IsHitTestVisible = false,
+            Content = root
+        };
+    }
+
+    private static void MoveNoteLinkDragGhost(NoteLinkDragState state, Point screenPoint)
+    {
+        if (state.Ghost == null)
+        {
+            return;
+        }
+
+        var mousePoint = screenPoint;
+        var source = PresentationSource.FromVisual(state.Handle);
+        if (source?.CompositionTarget != null)
+        {
+            mousePoint = source.CompositionTarget.TransformFromDevice.Transform(screenPoint);
+        }
+        else
+        {
+            var dpi = VisualTreeHelper.GetDpi(state.Handle);
+            if (dpi.DpiScaleX > 0 && dpi.DpiScaleY > 0)
+            {
+                mousePoint = new Point(screenPoint.X / dpi.DpiScaleX, screenPoint.Y / dpi.DpiScaleY);
+            }
+        }
+
+        var width = state.Ghost.ActualWidth > 1 ? state.Ghost.ActualWidth : state.Ghost.Width;
+        var height = state.Ghost.ActualHeight > 1 ? state.Ghost.ActualHeight : state.Ghost.Height;
+        if (double.IsNaN(width) || double.IsInfinity(width) || width <= 1)
+        {
+            width = 120;
+        }
+        if (double.IsNaN(height) || double.IsInfinity(height) || height <= 1)
+        {
+            height = 28;
+        }
+
+        state.Ghost.Left = mousePoint.X - (width / 2);
+        state.Ghost.Top = mousePoint.Y - (height / 2);
+    }
+
+    private static void CloseNoteLinkDragGhost(NoteLinkDragState state)
+    {
+        if (state.Ghost == null)
+        {
+            return;
+        }
+
+        try
+        {
+            state.Ghost.Close();
+        }
+        catch
+        {
+            // Drag feedback is disposable UI.
+        }
+
+        state.Ghost = null;
     }
 
     private void BuildBody()
@@ -950,7 +1302,7 @@ public sealed partial class PaperWindow : Window
             VerticalAlignment = VerticalAlignment.Bottom,
             Margin = new Thickness(0, 0, 12, 7),
             Padding = new Thickness(6, 1, 6, 1),
-            CornerRadius = new CornerRadius(6),
+            CornerRadius = new CornerRadius(RadiusControl),
             Background = Brushes.Transparent,
             Cursor = Cursors.Hand,
             ToolTip = Strings.Get("ToolTipResetTextZoom"),
@@ -999,7 +1351,7 @@ public sealed partial class PaperWindow : Window
 
         _todoPanel = new StackPanel
         {
-            Margin = new Thickness(8, 4, 7, 4)
+            Margin = new Thickness(6.4, 3.2, 5.6, 3.2)
         };
 
         RebuildTodoRows();
@@ -1258,7 +1610,17 @@ public sealed partial class PaperWindow : Window
         return host;
     }
 
-    private void RebuildTodoRows(string? focusItemId = null)
+    public void RefreshTodoRowsForExternalChange()
+    {
+        if (_paper.Type != PaperTypes.Todo)
+        {
+            return;
+        }
+
+        RebuildTodoRows(CurrentFocusedTodoItemId());
+    }
+
+    private void RebuildTodoRows(string? focusItemId = null, TodoFocusPlacement focusPlacement = TodoFocusPlacement.End)
     {
         if (_todoPanel == null)
         {
@@ -1271,24 +1633,29 @@ public sealed partial class PaperWindow : Window
         NormalizeTodoItems();
         NormalizeOrders();
 
+        // 记录现有行的ID，用于判断哪些是新增的
+        var existingIds = new HashSet<string>(_todoRows.Select(r => (string)r.Tag));
+
         _todoPanel.Children.Clear();
         _todoEditors.Clear();
         _todoRows.Clear();
+        _linkedNoteDropRow = null;
 
         foreach (var item in OrderedItems())
         {
-            _todoPanel.Children.Add(BuildTodoRow(item));
+            var row = BuildTodoRow(item, isNewItem: !existingIds.Contains(item.Id));
+            _todoPanel.Children.Add(row);
         }
 
         _todoPanel.Children.Add(BuildTodoAppendArea());
 
         if (!string.IsNullOrWhiteSpace(targetFocus))
         {
-            FocusTodoItem(targetFocus);
+            FocusTodoItem(targetFocus, focusPlacement);
         }
     }
 
-    private void FocusTodoItem(string? itemId)
+    private void FocusTodoItem(string? itemId, TodoFocusPlacement placement = TodoFocusPlacement.End)
     {
         if (string.IsNullOrWhiteSpace(itemId))
         {
@@ -1300,7 +1667,7 @@ public sealed partial class PaperWindow : Window
             if (_todoEditors.TryGetValue(itemId, out var box))
             {
                 box.Focus();
-                box.CaretIndex = box.Text.Length;
+                box.CaretIndex = placement == TodoFocusPlacement.Start ? 0 : box.Text.Length;
             }
         }), System.Windows.Threading.DispatcherPriority.Input);
     }
@@ -1311,7 +1678,7 @@ public sealed partial class PaperWindow : Window
         {
             Margin = new Thickness(0, 6, 0, 2),
             Padding = new Thickness(0, 4, 0, 4),
-            CornerRadius = new CornerRadius(8),
+            CornerRadius = new CornerRadius(RadiusControl),
             BorderThickness = new Thickness(1),
             BorderBrush = AppendBorderBrush,
             Background = AppendBgBrush,
@@ -1408,24 +1775,69 @@ public sealed partial class PaperWindow : Window
         ShowAppendAreaAsTrashBin(active: false);
     }
 
-    private UIElement BuildTodoRow(PaperItem item)
+    private static string CompactLinkedNoteTitle(string title, int fullTextElementLimit, int truncatedTextElementCount)
     {
+        var text = title.Trim();
+        if (string.IsNullOrEmpty(text))
+        {
+            return "";
+        }
+
+        int[] textElements;
+        try
+        {
+            textElements = StringInfo.ParseCombiningCharacters(text);
+        }
+        catch
+        {
+            if (text.Length <= fullTextElementLimit)
+            {
+                return text;
+            }
+
+            return text[..Math.Min(Math.Max(1, truncatedTextElementCount), text.Length)] + "…";
+        }
+
+        if (textElements.Length <= fullTextElementLimit)
+        {
+            return text;
+        }
+
+        var keep = Math.Max(1, truncatedTextElementCount);
+        var end = textElements.Length > keep ? textElements[keep] : Math.Min(keep, text.Length);
+        return text[..end] + "…";
+    }
+
+    private UIElement BuildTodoRow(PaperItem item, bool isNewItem = false)
+    {
+        var linkedNoteTitle = "";
+        var hasLinkedNote = _controller.State.EnableTodoNoteLinks &&
+            _controller.TryGetLinkedNoteTitle(item.LinkedNoteId, out linkedNoteTitle);
+
         var row = new Border
         {
             Margin = new Thickness(0, 2, 0, 2),
             Padding = new Thickness(2),
-            CornerRadius = new CornerRadius(8),
+            CornerRadius = new CornerRadius(RadiusControl),
             Background = Brushes.Transparent,
             BorderBrush = Brushes.Transparent,
             BorderThickness = new Thickness(0, 2, 0, 2),
             AllowDrop = true,
             Tag = item.Id,
-            RenderTransform = new TranslateTransform()
+            RenderTransform = new TransformGroup
+            {
+                Children = new TransformCollection
+                {
+                    new ScaleTransform(1, 1),
+                    new TranslateTransform(0, 0)
+                }
+            },
+            RenderTransformOrigin = new Point(0.5, 0.5)
         };
 
         row.MouseEnter += (_, _) =>
         {
-            if (!Equals(_activeDropRow, row))
+            if (!Equals(_activeDropRow, row) && !Equals(_linkedNoteDropRow, row))
             {
                 row.Background = HoverBrush;
             }
@@ -1433,16 +1845,17 @@ public sealed partial class PaperWindow : Window
 
         row.MouseLeave += (_, _) =>
         {
-            if (!Equals(_activeDropRow, row))
+            if (!Equals(_activeDropRow, row) && !Equals(_linkedNoteDropRow, row))
             {
                 row.Background = Brushes.Transparent;
             }
         };
 
         var grid = new Grid();
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(28) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(22) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(26) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(18) });
 
         var check = new CheckBox
         {
@@ -1517,6 +1930,16 @@ public sealed partial class PaperWindow : Window
             text.IsDone = true;
             text.Foreground = WeakTextBrush;
             _controller.MarkDirty();
+
+            // 完成动画：只淡化，不缩小
+            if (_controller.State.EnableAnimations)
+            {
+                var fadeAnim = new System.Windows.Media.Animation.DoubleAnimation(1.0, 0.75, TimeSpan.FromMilliseconds(200))
+                {
+                    EasingFunction = AnimationHelper.QuickEase
+                };
+                row.BeginAnimation(OpacityProperty, fadeAnim);
+            }
         };
 
         check.Unchecked += (_, _) =>
@@ -1526,40 +1949,168 @@ public sealed partial class PaperWindow : Window
             text.IsDone = false;
             text.Foreground = TextBrush;
             _controller.MarkDirty();
-        };
 
-        var itemMenu = CreateContextMenu();
-        itemMenu.Items.Add(MenuHeader(Strings.Get("MenuTodoItem")));
-        itemMenu.Items.Add(MenuItem(Strings.Get("MenuDeleteItem"), (_, _) => RemoveItem(item)));
-        itemMenu.Items.Add(MenuItem(Strings.Get("MenuClearDone"), (_, _) => ClearDoneItems()));
-
-        itemMenu.Opened += (_, _) => row.Background = HoverBrush;
-        itemMenu.Closed += (_, _) =>
-        {
-            if (!row.IsMouseOver)
+            // 取消完成动画
+            if (_controller.State.EnableAnimations)
             {
-                row.Background = Brushes.Transparent;
+                var fadeAnim = new System.Windows.Media.Animation.DoubleAnimation(row.Opacity, 1.0, TimeSpan.FromMilliseconds(150));
+                row.BeginAnimation(OpacityProperty, fadeAnim);
             }
         };
 
-        text.ContextMenu = itemMenu;
-        text.PreviewMouseRightButtonDown += (_, _) => text.Focus();
+        ContextMenu CreateItemMenu()
+        {
+            var itemMenu = CreateContextMenu();
+            itemMenu.Items.Add(MenuHeader(Strings.Get("MenuTodoItem")));
+            if (hasLinkedNote)
+            {
+                itemMenu.Items.Add(MenuItem(Strings.Format("MenuOpenLinkedNote", linkedNoteTitle), (_, _) => _controller.OpenLinkedNote(item.LinkedNoteId, this)));
+                itemMenu.Items.Add(MenuItem(Strings.Get("MenuUnlinkNote"), (_, _) => UnlinkNoteFromTodoItem(item)));
+                itemMenu.Items.Add(MenuSeparator());
+            }
+            itemMenu.Items.Add(MenuItem(Strings.Get("MenuDeleteItem"), (_, _) => RemoveItem(item)));
+            itemMenu.Items.Add(MenuItem(Strings.Get("MenuClearDone"), (_, _) => ClearDoneItems()));
+
+            itemMenu.Opened += (_, _) => row.Background = HoverBrush;
+            itemMenu.Closed += (_, _) =>
+            {
+                if (!row.IsMouseOver)
+                {
+                    row.Background = Brushes.Transparent;
+                }
+            };
+
+            return itemMenu;
+        }
+
+        void AttachItemContextMenu(FrameworkElement element)
+        {
+            element.ContextMenu = CreateItemMenu();
+            element.PreviewMouseRightButtonDown += (_, _) => text.Focus();
+        }
+
+        AttachItemContextMenu(row);
+        AttachItemContextMenu(check);
+        AttachItemContextMenu(text);
 
         Grid.SetColumn(text, 1);
         grid.Children.Add(text);
+
+        if (hasLinkedNote)
+        {
+            var showLinkedNoteName = _controller.State.ShowLinkedNoteName;
+            var linkedNoteButtonText = showLinkedNoteName ? CompactLinkedNoteTitle(linkedNoteTitle, 3, 3) : "\uE71B";
+            var linkGlyph = new TextBlock
+            {
+                Text = linkedNoteButtonText,
+                Foreground = WeakTextBrush,
+                Opacity = 0.72,
+                FontFamily = showLinkedNoteName ? new FontFamily("Segoe UI") : new FontFamily("Segoe MDL2 Assets"),
+                FontSize = showLinkedNoteName ? 10.5 : 12.5,
+                FontWeight = FontWeights.SemiBold,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+                TextAlignment = TextAlignment.Center,
+                TextWrapping = TextWrapping.NoWrap,
+                LineHeight = showLinkedNoteName ? 11.5 : double.NaN,
+                MaxWidth = showLinkedNoteName ? 44 : double.PositiveInfinity
+            };
+
+            var linkButton = new Border
+            {
+                Width = showLinkedNoteName ? 50 : 23,
+                MinWidth = 23,
+                MinHeight = 22,
+                Margin = new Thickness(1, 0, 0, 0),
+                Padding = showLinkedNoteName ? new Thickness(3, 1, 3, 1) : new Thickness(0),
+                CornerRadius = new CornerRadius(RadiusControl),
+                Background = LinkedNoteBgBrush,
+                Cursor = Cursors.Hand,
+                ToolTip = Strings.Format("ToolTipOpenLinkedNote", linkedNoteTitle),
+                Child = linkGlyph
+            };
+
+            void UpdateLinkedNoteNameLayout()
+            {
+                if (!showLinkedNoteName)
+                {
+                    return;
+                }
+
+                var isTodoMultiline = text.LineCount > 1;
+                linkGlyph.Text = isTodoMultiline
+                    ? CompactLinkedNoteTitle(linkedNoteTitle, 6, 5)
+                    : CompactLinkedNoteTitle(linkedNoteTitle, 3, 3);
+                linkGlyph.TextWrapping = isTodoMultiline ? TextWrapping.Wrap : TextWrapping.NoWrap;
+                linkGlyph.MaxWidth = isTodoMultiline ? 38 : 44;
+                linkButton.Width = isTodoMultiline ? 44 : 50;
+            }
+
+            void QueueLinkedNoteNameLayoutUpdate()
+            {
+                if (!showLinkedNoteName)
+                {
+                    return;
+                }
+
+                Dispatcher.BeginInvoke((Action)UpdateLinkedNoteNameLayout, System.Windows.Threading.DispatcherPriority.Render);
+            }
+
+            if (showLinkedNoteName)
+            {
+                text.SizeChanged += (_, _) => QueueLinkedNoteNameLayoutUpdate();
+                row.SizeChanged += (_, _) => QueueLinkedNoteNameLayoutUpdate();
+                text.TextChanged += (_, _) => QueueLinkedNoteNameLayoutUpdate();
+                QueueLinkedNoteNameLayoutUpdate();
+            }
+
+            linkButton.MouseEnter += (_, _) =>
+            {
+                linkButton.Background = LinkedNoteHoverBgBrush;
+                linkGlyph.Foreground = TextBrush;
+                linkGlyph.Opacity = 1.0;
+            };
+            linkButton.MouseLeave += (_, _) =>
+            {
+                linkButton.Background = LinkedNoteBgBrush;
+                linkGlyph.Foreground = WeakTextBrush;
+                linkGlyph.Opacity = 0.7;
+                linkButton.Opacity = 1.0;
+            };
+            linkButton.MouseLeftButtonDown += (_, e) =>
+            {
+                linkButton.Opacity = 0.72;
+                e.Handled = true;
+            };
+            linkButton.MouseLeftButtonUp += (_, e) =>
+            {
+                linkButton.Opacity = 1.0;
+                _controller.OpenLinkedNote(item.LinkedNoteId, this);
+                e.Handled = true;
+            };
+            AttachItemContextMenu(linkButton);
+
+            Grid.SetColumn(linkButton, 2);
+            grid.Children.Add(linkButton);
+        }
 
         var handleGlyph = new TextBlock
         {
             Text = "≡",
             Foreground = WeakTextBrush,
             Opacity = 0.48,
-            FontSize = 14,
+            FontSize = 12,
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center
         };
 
         var handle = new Border
         {
+            Width = 14,
+            MinHeight = 24,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Stretch,
+            CornerRadius = new CornerRadius(RadiusSmall),
             Background = Brushes.Transparent,
             Cursor = Cursors.SizeAll,
             Child = handleGlyph,
@@ -1581,17 +2132,38 @@ public sealed partial class PaperWindow : Window
             CaptureMouse();
             e.Handled = true;
         };
+        AttachItemContextMenu(handle);
 
-        Grid.SetColumn(handle, 2);
+        Grid.SetColumn(handle, 3);
         grid.Children.Add(handle);
 
         row.Child = grid;
         _todoRows.Add(row);
+
+        // 新增动画：只对新建的项播放动画
+        if (_controller.State.EnableAnimations && isNewItem)
+        {
+            row.Opacity = 0;
+            AnimationHelper.GetTranslateTransform(row).Y = -20;
+
+            Dispatcher.InvokeAsync(() =>
+            {
+                AnimationHelper.FadeIn(row, 250);
+                AnimationHelper.TranslateTo(row, 0, 0, 250, AnimationHelper.SmoothEase);
+            }, System.Windows.Threading.DispatcherPriority.Render);
+        }
+
         return row;
     }
 
     private void HandleTodoKeyDown(KeyEventArgs e, PaperItem item, TodoTextBox box)
     {
+        if (e.Key == Key.Back && _suppressTodoBackspaceUntilKeyUp)
+        {
+            e.Handled = true;
+            return;
+        }
+
         if (e.Key == Key.Enter && Keyboard.Modifiers == ModifierKeys.None)
         {
             var newItem = AddItemAfter(item, "");
@@ -1605,8 +2177,26 @@ public sealed partial class PaperWindow : Window
         {
             var previous = PreviousItem(item);
             var next = NextItem(item);
-            RemoveItem(item, rebuild: false);
-            RebuildTodoRows(previous?.Id ?? next?.Id);
+            var focusTarget = previous?.Id ?? next?.Id;
+            _suppressTodoBackspaceUntilKeyUp = true;
+
+            // 退格删除不播放动画，直接删除
+            PushUndoSnapshot();
+            _paper.Items.RemoveAll(i => i.Id == item.Id);
+
+            if (_paper.Items.Count == 0)
+            {
+                var replacement = new PaperItem();
+                _paper.Items.Add(replacement);
+                focusTarget = replacement.Id;
+            }
+
+            NormalizeTodoItems();
+            NormalizeOrders();
+            _controller.MarkDirty();
+
+            var focusPlacement = previous != null ? TodoFocusPlacement.End : TodoFocusPlacement.Start;
+            RebuildTodoRows(focusTarget, focusPlacement);
             e.Handled = true;
         }
     }
@@ -1644,13 +2234,45 @@ public sealed partial class PaperWindow : Window
         item.Text = box.Text;
 
         var last = item;
+        var newItems = new List<PaperItem>();
         foreach (var line in lines.Skip(1))
         {
             last = AddItemAfter(last, line, pushUndo: false);
+            newItems.Add(last);
         }
 
         _pendingFocusItemId = last.Id;
         RebuildTodoRows(last.Id);
+
+        // 粘贴多行时的错峰动画
+        if (_controller.State.EnableAnimations && newItems.Count > 1)
+        {
+            for (int i = 0; i < Math.Min(newItems.Count, 15); i++)
+            {
+                var animItem = newItems[i];
+                var animRow = _todoRows.FirstOrDefault(r => (string)r.Tag == animItem.Id);
+                if (animRow == null) continue;
+
+                var delay = i * 40;
+                animRow.Opacity = 0;
+                AnimationHelper.GetTranslateTransform(animRow).Y = -15;
+
+                var timer = new System.Windows.Threading.DispatcherTimer
+                {
+                    Interval = TimeSpan.FromMilliseconds(delay),
+                    Tag = animRow
+                };
+                timer.Tick += (s, _) =>
+                {
+                    timer.Stop();
+                    var row = (Border)timer.Tag;
+                    AnimationHelper.FadeIn(row, 200);
+                    AnimationHelper.TranslateTo(row, 0, 0, 220, AnimationHelper.QuickEase);
+                };
+                timer.Start();
+            }
+        }
+
         _controller.MarkDirty();
     }
 
@@ -1682,7 +2304,6 @@ public sealed partial class PaperWindow : Window
         }
 
         menu.Items.Add(MenuSeparator());
-        menu.Items.Add(MenuHeader(Strings.Get("MenuThisPaper")));
         menu.Items.Add(MenuHeader(_controller.PaperCapsuleTitle(_paper)));
 
         if (_controller.State.UseCapsuleMode)
@@ -1698,7 +2319,7 @@ public sealed partial class PaperWindow : Window
         }
 
         menu.Items.Add(MenuItem(Strings.Get("MenuHide"), (_, _) => _controller.HidePaper(_paper)));
-        menu.Items.Add(MenuItem(Strings.Get("MenuDelete"), (_, _) => ConfirmAndDeletePaper()));
+        menu.Items.Add(MenuItem(Strings.Get("MenuDelete"), (_, _) => DeletePaperFromPaperMenu()));
 
         return menu;
     }
@@ -1815,7 +2436,7 @@ public sealed partial class PaperWindow : Window
             return;
         }
 
-        var cleaned = PaperTitles.CleanCustomTitle(_titleEditBox.Text);
+        var cleaned = PaperTitles.CleanCustomTitle(_titleEditBox.Text, _controller.State.MaxTitleLength);
         if (_titleEditBox.Text == cleaned)
         {
             return;
@@ -1933,6 +2554,22 @@ public sealed partial class PaperWindow : Window
         }
     }
 
+    public void UpdateTodoLinkFeature()
+    {
+        if (_linkNoteButton != null)
+        {
+            _linkNoteButton.Visibility = _controller.State.EnableTodoNoteLinks ? Visibility.Visible : Visibility.Collapsed;
+        }
+
+        if (!_controller.State.EnableTodoNoteLinks)
+        {
+            EndNoteLinkMouseGesture(commit: false);
+            SetNoteLinkDropTarget(null);
+        }
+
+        RefreshTodoRowsForExternalChange();
+    }
+
     private string OpenMarkdownEditorToolTip()
     {
         return Strings.Format("ToolTipOpenMarkdownEditor", CurrentExternalMarkdownExtension());
@@ -1962,6 +2599,17 @@ public sealed partial class PaperWindow : Window
         }
     }
 
+    private void DeletePaperFromPaperMenu()
+    {
+        if (_controller.IsPaperEmpty(_paper))
+        {
+            _controller.DeletePaper(_paper);
+            return;
+        }
+
+        ConfirmAndDeletePaper();
+    }
+
     private bool ShowDeletePaperDialog()
     {
         var dialog = new Window
@@ -1983,7 +2631,7 @@ public sealed partial class PaperWindow : Window
 
         var root = new Border
         {
-            CornerRadius = new CornerRadius(16),
+            CornerRadius = new CornerRadius(RadiusShell),
             BorderBrush = PaperBorderBrush,
             BorderThickness = new Thickness(1),
             Background = PaperBrush,
@@ -2056,13 +2704,13 @@ public sealed partial class PaperWindow : Window
     private static Button DialogButton(string text, bool isDanger)
     {
         var background = isDanger
-            ? FrozenBrush(Color.FromRgb(126, 70, 48))
-            : FrozenBrush(Color.FromArgb(28, 120, 92, 48));
+            ? Theme.DangerBrush
+            : Theme.Tint(28);
 
         var foreground = isDanger ? PaperBrush : TextBrush;
         var hover = isDanger
-            ? FrozenBrush(Color.FromRgb(148, 78, 52))
-            : FrozenBrush(Color.FromArgb(46, 120, 92, 48));
+            ? Theme.DangerHoverBrush
+            : Theme.Tint(46);
 
         var style = new Style(typeof(Button));
         style.Setters.Add(new Setter(Control.PaddingProperty, new Thickness(16, 7, 16, 7)));
@@ -2075,7 +2723,7 @@ public sealed partial class PaperWindow : Window
 
         var border = new FrameworkElementFactory(typeof(Border));
         border.Name = "Bd";
-        border.SetValue(Border.CornerRadiusProperty, new CornerRadius(8));
+        border.SetValue(Border.CornerRadiusProperty, new CornerRadius(RadiusControl));
         border.SetValue(Border.BackgroundProperty, new TemplateBindingExtension(Control.BackgroundProperty));
         border.SetValue(Border.PaddingProperty, new TemplateBindingExtension(Control.PaddingProperty));
 
@@ -2142,6 +2790,47 @@ public sealed partial class PaperWindow : Window
         PushUndoSnapshot();
         var fallbackFocus = focusItemId ?? PreviousItem(item)?.Id ?? NextItem(item)?.Id;
 
+        // 删除动画
+        if (_controller.State.EnableAnimations)
+        {
+            var row = _todoRows.FirstOrDefault(r => (string)r.Tag == item.Id);
+            if (row != null)
+            {
+                AnimationHelper.EnsureTransform(row);
+                var fadeOut = new System.Windows.Media.Animation.DoubleAnimation(1, 0, TimeSpan.FromMilliseconds(200));
+                var slideOut = new System.Windows.Media.Animation.DoubleAnimation(0, 30, TimeSpan.FromMilliseconds(200))
+                {
+                    EasingFunction = AnimationHelper.QuickEase
+                };
+
+                fadeOut.Completed += (s, e) =>
+                {
+                    _paper.Items.RemoveAll(i => i.Id == item.Id);
+
+                    if (_paper.Items.Count == 0)
+                    {
+                        var replacement = new PaperItem();
+                        _paper.Items.Add(replacement);
+                        fallbackFocus = replacement.Id;
+                    }
+
+                    NormalizeTodoItems();
+                    NormalizeOrders();
+                    _controller.MarkDirty();
+
+                    if (rebuild)
+                    {
+                        RebuildTodoRows(fallbackFocus);
+                    }
+                };
+
+                row.BeginAnimation(OpacityProperty, fadeOut);
+                AnimationHelper.GetTranslateTransform(row).BeginAnimation(TranslateTransform.XProperty, slideOut);
+                return;
+            }
+        }
+
+        // 无动画或找不到行时直接删除
         _paper.Items.RemoveAll(i => i.Id == item.Id);
 
         if (_paper.Items.Count == 0)
@@ -2169,14 +2858,90 @@ public sealed partial class PaperWindow : Window
         }
 
         var focusedId = CurrentFocusedTodoItemId();
-        var ordered = OrderedItems().ToList();
-        if (!ordered.Any(i => i.Done))
+        var completedItems = OrderedItems().Where(i => i.Done).ToList();
+        if (completedItems.Count == 0)
         {
             return;
         }
 
+        var completedItemIds = new HashSet<string>(completedItems.Select(i => i.Id), StringComparer.Ordinal);
+        var clearDoneGeneration = ++_clearDoneGeneration;
+
         PushUndoSnapshot();
-        ordered.RemoveAll(i => i.Done);
+
+        // 批量消失动画
+        if (_controller.State.EnableAnimations && completedItems.Count > 0)
+        {
+            var animatedRows = completedItems
+                .Take(15)
+                .Select(item => _todoRows.FirstOrDefault(r => (string)r.Tag == item.Id))
+                .Where(row => row != null)
+                .Cast<Border>()
+                .ToList();
+
+            if (animatedRows.Count > 0)
+            {
+                for (int i = 0; i < animatedRows.Count; i++)
+                {
+                    var row = animatedRows[i];
+                    var delay = i * 30;
+                    void StartRowAnimation()
+                    {
+                        var fadeOut = new System.Windows.Media.Animation.DoubleAnimation(1, 0, TimeSpan.FromMilliseconds(180));
+                        var slideOut = new System.Windows.Media.Animation.DoubleAnimation(0, 20, TimeSpan.FromMilliseconds(180))
+                        {
+                            EasingFunction = AnimationHelper.QuickEase
+                        };
+
+                        row.BeginAnimation(OpacityProperty, fadeOut);
+                        AnimationHelper.GetTranslateTransform(row).BeginAnimation(TranslateTransform.XProperty, slideOut);
+                    }
+
+                    if (delay == 0)
+                    {
+                        StartRowAnimation();
+                        continue;
+                    }
+
+                    var timer = new System.Windows.Threading.DispatcherTimer
+                    {
+                        Interval = TimeSpan.FromMilliseconds(delay)
+                    };
+                    timer.Tick += (s, _) =>
+                    {
+                        timer.Stop();
+                        StartRowAnimation();
+                    };
+                    timer.Start();
+                }
+
+                var finalizeTimer = new System.Windows.Threading.DispatcherTimer
+                {
+                    Interval = TimeSpan.FromMilliseconds(((animatedRows.Count - 1) * 30) + 180)
+                };
+                finalizeTimer.Tick += (_, _) =>
+                {
+                    finalizeTimer.Stop();
+                    FinalizeClearDone(completedItemIds, focusedId, clearDoneGeneration);
+                };
+                finalizeTimer.Start();
+                return;
+            }
+        }
+
+        FinalizeClearDone(completedItemIds, focusedId, clearDoneGeneration);
+    }
+
+    private void FinalizeClearDone(HashSet<string> completedItemIds, string? focusedId, int clearDoneGeneration)
+    {
+        if (clearDoneGeneration != _clearDoneGeneration)
+        {
+            return;
+        }
+
+        var ordered = OrderedItems()
+            .Where(i => !completedItemIds.Contains(i.Id))
+            .ToList();
 
         if (ordered.Count == 0)
         {
@@ -2193,6 +2958,123 @@ public sealed partial class PaperWindow : Window
 
         _controller.MarkDirty();
         RebuildTodoRows(focus);
+    }
+
+    public bool TryHitTodoRow(Point screenPoint, out string? itemId)
+    {
+        itemId = null;
+        if (!_controller.State.EnableTodoNoteLinks || _paper.Type != PaperTypes.Todo || _paper.IsCollapsed || !IsVisible)
+        {
+            return false;
+        }
+
+        foreach (var row in _todoRows)
+        {
+            if (row.Tag is not string rowItemId || !row.IsVisible || row.ActualWidth <= 0 || row.ActualHeight <= 0)
+            {
+                continue;
+            }
+
+            var point = row.PointFromScreen(screenPoint);
+            if (point.X < 0 || point.X > row.ActualWidth || point.Y < 0 || point.Y > row.ActualHeight)
+            {
+                continue;
+            }
+
+            itemId = rowItemId;
+            return true;
+        }
+
+        return false;
+    }
+
+    public void SetNoteLinkDropTarget(string? itemId)
+    {
+        if (_linkedNoteDropRow?.Tag is string currentId &&
+            string.Equals(currentId, itemId, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        ClearNoteLinkDropTargetVisual();
+
+        if (string.IsNullOrWhiteSpace(itemId))
+        {
+            return;
+        }
+
+        var row = _todoRows.FirstOrDefault(r =>
+            r.Tag is string rowItemId &&
+            string.Equals(rowItemId, itemId, StringComparison.Ordinal));
+        if (row == null)
+        {
+            return;
+        }
+
+        _linkedNoteDropRow = row;
+        row.Background = NoteLinkTargetBgBrush;
+        row.BorderBrush = NoteLinkTargetBorderBrush;
+        row.BorderThickness = new Thickness(1);
+        row.Padding = new Thickness(1, 3, 1, 3);
+    }
+
+    public bool LinkNoteToTodo(string itemId, string noteId)
+    {
+        if (!_controller.State.EnableTodoNoteLinks || _paper.Type != PaperTypes.Todo || !_controller.IsExistingNote(noteId))
+        {
+            return false;
+        }
+
+        var item = _paper.Items.FirstOrDefault(i => i.Id == itemId);
+        if (item == null)
+        {
+            return false;
+        }
+
+        if (string.Equals(item.LinkedNoteId, noteId, StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        var focusedId = CurrentFocusedTodoItemId();
+        PushUndoSnapshot();
+        item.LinkedNoteId = noteId;
+        _controller.MarkDirty();
+        RebuildTodoRows(focusedId);
+        return true;
+    }
+
+    private void UnlinkNoteFromTodoItem(PaperItem item)
+    {
+        if (string.IsNullOrWhiteSpace(item.LinkedNoteId))
+        {
+            return;
+        }
+
+        var focusedId = CurrentFocusedTodoItemId() ?? item.Id;
+        PushUndoSnapshot();
+        item.LinkedNoteId = null;
+        _controller.MarkDirty();
+        RebuildTodoRows(focusedId);
+    }
+
+    private void ClearNoteLinkDropTargetVisual()
+    {
+        var row = _linkedNoteDropRow;
+        if (row == null)
+        {
+            return;
+        }
+
+        _linkedNoteDropRow = null;
+        row.BorderThickness = new Thickness(0, 2, 0, 2);
+        row.BorderBrush = Brushes.Transparent;
+        row.Padding = new Thickness(2);
+
+        if (!Equals(_activeDropRow, row))
+        {
+            row.Background = row.IsMouseOver ? HoverBrush : Brushes.Transparent;
+        }
     }
 
 
@@ -2385,9 +3267,9 @@ public sealed partial class PaperWindow : Window
             Width = Math.Max(state.SourceRow.ActualWidth, 160),
             MinHeight = Math.Max(state.SourceRow.ActualHeight, 30),
             Padding = new Thickness(2),
-            CornerRadius = new CornerRadius(9),
-            Background = FrozenBrush(Color.FromRgb(255, 250, 238)),
-            BorderBrush = FrozenBrush(Color.FromArgb(150, 126, 84, 34)),
+            CornerRadius = new CornerRadius(RadiusControl),
+            Background = PaperBrush,
+            BorderBrush = Theme.Tint(150),
             BorderThickness = new Thickness(1),
             Opacity = 0.65,
             IsHitTestVisible = false,
@@ -2403,9 +3285,9 @@ public sealed partial class PaperWindow : Window
         {
             IsHitTestVisible = false
         };
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(28) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(22) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(26) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(18) });
 
         var check = new TextBlock
         {
@@ -2442,7 +3324,7 @@ public sealed partial class PaperWindow : Window
             Text = "≡",
             Foreground = WeakTextBrush,
             Opacity = 0.58,
-            FontSize = 15,
+            FontSize = 13,
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center
         };
@@ -2848,7 +3730,8 @@ public sealed partial class PaperWindow : Window
             Id = i.Id,
             Text = i.Text,
             Done = i.Done,
-            Order = i.Order
+            Order = i.Order,
+            LinkedNoteId = i.LinkedNoteId
         }).ToList();
     }
 
@@ -2906,12 +3789,46 @@ public sealed partial class PaperWindow : Window
         var previousItems = _undoStack[^1];
         _undoStack.RemoveAt(_undoStack.Count - 1);
 
+        // 找出变化的项ID
+        var changedIds = new HashSet<string>();
+        foreach (var prevItem in previousItems)
+        {
+            var currentItem = currentItems.FirstOrDefault(i => i.Id == prevItem.Id);
+            if (currentItem == null || currentItem.Text != prevItem.Text || currentItem.Done != prevItem.Done)
+            {
+                changedIds.Add(prevItem.Id);
+            }
+        }
+        foreach (var currItem in currentItems)
+        {
+            if (!previousItems.Any(i => i.Id == currItem.Id))
+            {
+                changedIds.Add(currItem.Id);
+            }
+        }
+
         _paper.Items = previousItems;
         NormalizeTodoItems();
         NormalizeOrders();
         _controller.MarkDirty();
 
         RebuildTodoRows(focusedId);
+
+        // 闪烁高亮变化的行
+        if (_controller.State.EnableAnimations && changedIds.Count > 0)
+        {
+            Dispatcher.InvokeAsync(() =>
+            {
+                foreach (var id in changedIds.Take(10)) // 最多高亮10个
+                {
+                    var row = _todoRows.FirstOrDefault(r => (string)r.Tag == id);
+                    if (row != null)
+                    {
+                        AnimationHelper.FlashHighlight(row, Colors.Yellow, 120);
+                    }
+                }
+            }, System.Windows.Threading.DispatcherPriority.Render);
+        }
     }
 
     private void Redo()
@@ -2929,12 +3846,46 @@ public sealed partial class PaperWindow : Window
         var nextItems = _redoStack[^1];
         _redoStack.RemoveAt(_redoStack.Count - 1);
 
+        // 找出变化的项ID
+        var changedIds = new HashSet<string>();
+        foreach (var nextItem in nextItems)
+        {
+            var currentItem = currentItems.FirstOrDefault(i => i.Id == nextItem.Id);
+            if (currentItem == null || currentItem.Text != nextItem.Text || currentItem.Done != nextItem.Done)
+            {
+                changedIds.Add(nextItem.Id);
+            }
+        }
+        foreach (var currItem in currentItems)
+        {
+            if (!nextItems.Any(i => i.Id == currItem.Id))
+            {
+                changedIds.Add(currItem.Id);
+            }
+        }
+
         _paper.Items = nextItems;
         NormalizeTodoItems();
         NormalizeOrders();
         _controller.MarkDirty();
 
         RebuildTodoRows(focusedId);
+
+        // 闪烁高亮变化的行
+        if (_controller.State.EnableAnimations && changedIds.Count > 0)
+        {
+            Dispatcher.InvokeAsync(() =>
+            {
+                foreach (var id in changedIds.Take(10))
+                {
+                    var row = _todoRows.FirstOrDefault(r => (string)r.Tag == id);
+                    if (row != null)
+                    {
+                        AnimationHelper.FlashHighlight(row, Colors.Yellow, 120);
+                    }
+                }
+            }, System.Windows.Threading.DispatcherPriority.Render);
+        }
     }
 
     private void OnWindowPreviewKeyDown(object sender, KeyEventArgs e)
@@ -2977,6 +3928,14 @@ public sealed partial class PaperWindow : Window
         }
     }
 
+    private void OnWindowPreviewKeyUp(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Back)
+        {
+            _suppressTodoBackspaceUntilKeyUp = false;
+        }
+    }
+
     public static readonly DependencyProperty TransitionProgressProperty =
         DependencyProperty.Register(
             nameof(TransitionProgress),
@@ -3003,6 +3962,19 @@ public sealed partial class PaperWindow : Window
         set => SetValue(DeepCapsuleAnimatedLeftProperty, value);
     }
 
+    private static readonly DependencyProperty DeepCapsuleAnimatedTopProperty =
+        DependencyProperty.Register(
+            nameof(DeepCapsuleAnimatedTop),
+            typeof(double),
+            typeof(PaperWindow),
+            new PropertyMetadata(double.NaN, OnDeepCapsuleAnimatedTopChanged));
+
+    private double DeepCapsuleAnimatedTop
+    {
+        get => (double)GetValue(DeepCapsuleAnimatedTopProperty);
+        set => SetValue(DeepCapsuleAnimatedTopProperty, value);
+    }
+
     private static void OnTransitionProgressChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
     {
         if (d is PaperWindow window)
@@ -3019,6 +3991,16 @@ public sealed partial class PaperWindow : Window
         }
 
         window.MoveWindowWithoutGeometrySave(() => window.Left = window.RoundToDevicePixelX(left));
+    }
+
+    private static void OnDeepCapsuleAnimatedTopChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
+    {
+        if (d is not PaperWindow window || e.NewValue is not double top || double.IsNaN(top) || double.IsInfinity(top))
+        {
+            return;
+        }
+
+        window.MoveWindowWithoutGeometrySave(() => window.Top = window.RoundToDevicePixelY(top));
     }
 
     private void UpdateTransitionVisuals(double progress)
@@ -3088,23 +4070,47 @@ public sealed partial class PaperWindow : Window
 
     private double CapsuleWindowWidth()
     {
-        return Math.Max(PaperLayoutDefaults.CapsuleWidth, CapsuleShellWidth() + WindowChromeInset);
+        var minWidth = _isDeepCapsulePlaced ? PaperLayoutDefaults.CapsuleWidth : CapsuleNormalMinWidth;
+        return Math.Max(minWidth, CapsuleShellWidth() + WindowChromeInset);
     }
 
     private double CapsuleShellWidth()
     {
-        const double iconWidth = 14;
-        const double iconGap = 6;
-        const double leftPadding = 10;
-        const double closeWidth = 26;
-        const double rightPadding = 4;
+        return Math.Ceiling(CapsuleLeftPadding + MeasureCapsuleIconWidth() + CapsuleIconGap + MeasureCapsuleTitleWidth() + CapsuleCloseWidthForCurrentPlacement() + CapsuleRightPadding);
+    }
 
-        return Math.Ceiling(leftPadding + iconWidth + iconGap + MeasureCapsuleTitleWidth() + closeWidth + rightPadding);
+    private double CapsuleCloseWidthForCurrentPlacement()
+    {
+        return _isDeepCapsulePlaced ? CapsuleCloseWidth : CapsuleNormalCloseWidth;
+    }
+
+    // The pill window clamps to a minimum width (CapsuleWidth), so for short titles the pill is
+    // wider than the raw content. The shell must always fill the pill interior, otherwise it is
+    // left-aligned inside the pill and the close button's rounded right corner floats off the
+    // pill's actual curve. Pill interior = window width minus the chrome margin on both sides.
+    private double CapsuleShellLayoutWidth()
+    {
+        return Math.Max(CapsuleShellWidth(), CapsuleWindowWidth() - WindowChromeInset);
     }
 
     private double MeasureCapsuleTitleWidth()
     {
-        var text = _controller.PaperCapsuleTitle(_paper);
+        return MeasureCapsuleTextWidth(_controller.PaperCapsuleTitle(_paper), CapsuleLabelFontSize, FontWeights.Normal);
+    }
+
+    // The capsule icon glyph (✓ / ✎) is not a fixed box — its rendered advance width depends
+    // on the font and weight. Measure it with the same SemiBold weight it renders at.
+    private double MeasureCapsuleIconWidth()
+    {
+        return MeasureCapsuleTextWidth(_paper.Type == PaperTypes.Note ? "✎" : "✓", CapsuleIconFontSize, FontWeights.SemiBold);
+    }
+
+    // Single source of truth for "how wide does this text actually render". Uses the same
+    // font family (NoteTypography) and weight the capsule icon/label are bound to, so
+    // measurement and rendering never disagree — digits and halfwidth chars get their true
+    // advance width.
+    private double MeasureCapsuleTextWidth(string text, double fontSize, FontWeight weight)
+    {
         if (string.IsNullOrEmpty(text))
         {
             return 0;
@@ -3116,33 +4122,15 @@ public sealed partial class PaperWindow : Window
                 text,
                 CultureInfo.CurrentUICulture,
                 FlowDirection.LeftToRight,
-                new Typeface(NoteTypography.FontFamily, FontStyles.Normal, FontWeights.Normal, FontStretches.Normal),
-                11,
+                new Typeface(NoteTypography.FontFamily, FontStyles.Normal, weight, FontStretches.Normal),
+                fontSize,
                 WeakTextBrush,
                 VisualTreeHelper.GetDpi(this).PixelsPerDip);
             return formatted.WidthIncludingTrailingWhitespace;
         }
         catch
         {
-            return text.Length * 12;
-        }
-    }
-
-    private int CapsuleTitleLength()
-    {
-        var text = _controller.PaperCapsuleTitle(_paper);
-        if (string.IsNullOrEmpty(text))
-        {
-            return 0;
-        }
-
-        try
-        {
-            return StringInfo.ParseCombiningCharacters(text).Length;
-        }
-        catch
-        {
-            return text.Length;
+            return text.Length * fontSize;
         }
     }
 
@@ -3192,100 +4180,215 @@ public sealed partial class PaperWindow : Window
 
     private void ClearDeepCapsulePositionAnimation()
     {
+        ClearDeepCapsuleLeftPositionAnimation();
+        ClearDeepCapsuleTopPositionAnimation();
+    }
+
+    private void ClearDeepCapsuleLeftPositionAnimation()
+    {
         BeginAnimation(DeepCapsuleAnimatedLeftProperty, null);
         BeginAnimation(Window.LeftProperty, null);
     }
 
+    private void ClearDeepCapsuleTopPositionAnimation()
+    {
+        BeginAnimation(DeepCapsuleAnimatedTopProperty, null);
+        BeginAnimation(Window.TopProperty, null);
+    }
+
     private static Rect DeepCapsuleWorkArea()
     {
-        return SystemParameters.WorkArea;
+        return DeepCapsuleLayout.WorkArea;
     }
 
     private double DeepCapsuleTopForIndex(int index)
     {
-        var area = DeepCapsuleWorkArea();
-        var desiredTop = area.Top + DeepCapsuleStartTopMargin + Math.Max(0, index) * (PaperLayoutDefaults.CapsuleHeight + DeepCapsuleGap);
-        var maxTop = Math.Max(area.Top + DeepCapsuleTopMargin, area.Bottom - PaperLayoutDefaults.CapsuleHeight - DeepCapsuleTopMargin);
-        return Math.Min(desiredTop, maxTop);
+        return DeepCapsuleLayout.TopForIndex(index);
     }
 
     private void MoveDeepCapsuleToCurrentTarget(bool animate = false)
     {
-        if (!_isDeepCapsulePlaced)
+        if (!_isDeepCapsulePlaced || _isCollapseAllRetracted)
         {
             return;
         }
 
         var area = DeepCapsuleWorkArea();
         var capsuleWidth = CapsuleWindowWidth();
-        var deepCapsuleVisibleWidth = Math.Clamp(42 + CapsuleTitleLength() * 8, 52, capsuleWidth - 12);
+        var deepCapsuleVisibleWidth = DeepCapsuleVisibleWidth();
         var targetLeft = RoundToDevicePixelX(_isDeepCapsuleHovering
             ? area.Right - capsuleWidth + DeepCapsuleHoverOutsideOffset
             : area.Right - deepCapsuleVisibleWidth);
-        var targetTop = RoundToDevicePixelY(DeepCapsuleTopForIndex(_deepCapsuleIndex));
+        var targetTop = RoundToDevicePixelY(DeepCapsuleTopForIndex(_deepCapsuleIndex + _deepCapsuleVisualOffset));
 
+        BeginDeepCapsuleMove(
+            targetLeft,
+            targetTop,
+            _isDeepCapsuleHovering ? DeepCapsuleLayout.SlideOutMilliseconds : DeepCapsuleLayout.SlideInMilliseconds,
+            DeepCapsuleLayout.SlotMoveMilliseconds,
+            animate);
+    }
+
+    private double DeepCapsuleVisibleWidth()
+    {
+        var capsuleWidth = CapsuleWindowWidth();
+        // Resting edge-attached state is a docked tag, not a cropped full capsule. Keep the
+        // close area fully off-screen and size the visible part to the icon + title only.
+        return Math.Clamp(
+            WindowChromeMargin + CapsuleLeftPadding + MeasureCapsuleIconWidth() + CapsuleIconGap + MeasureCapsuleTitleWidth() + 4,
+            34,
+            Math.Max(34, capsuleWidth - WindowChromeMargin - 24));
+    }
+
+    private double ExpandedDeepCapsuleVisibleWidth()
+    {
+        var capsuleWidth = CapsuleWindowWidth();
+        return Math.Clamp(capsuleWidth - 4, 84, capsuleWidth);
+    }
+
+    // Shared position animator for every deep-capsule move (slot placement, hover peek,
+    // retract, release). A generation token guards completions so a superseded animation's
+    // Completed handler never snaps the window to a stale target.
+    private void BeginDeepCapsuleMove(double targetLeft, double targetTop, int leftDurationMs, int topDurationMs, bool animate)
+    {
         MoveWindowWithoutGeometrySave(() =>
         {
-            Top = targetTop;
-            Width = capsuleWidth;
+            Width = CapsuleWindowWidth();
             Height = PaperLayoutDefaults.CapsuleHeight;
         });
+        UpdateCapsuleClosePlacement();
+
+        var gen = ++_deepCapsuleMoveGeneration;
 
         if (!animate)
         {
             ClearDeepCapsulePositionAnimation();
-            MoveWindowWithoutGeometrySave(() => Left = targetLeft);
+            MoveWindowWithoutGeometrySave(() =>
+            {
+                Left = targetLeft;
+                Top = targetTop;
+            });
+            UpdateCapsuleClosePlacement();
             return;
         }
 
         var currentLeft = double.IsNaN(Left) || double.IsInfinity(Left) ? targetLeft : RoundToDevicePixelX(Left);
-        if (Math.Abs(currentLeft - targetLeft) < 0.5)
+        var currentTop = double.IsNaN(Top) || double.IsInfinity(Top) ? targetTop : RoundToDevicePixelY(Top);
+        var animateLeft = Math.Abs(currentLeft - targetLeft) >= 0.5;
+        var animateTop = Math.Abs(currentTop - targetTop) >= 0.5;
+
+        if (!animateLeft && !animateTop)
         {
             ClearDeepCapsulePositionAnimation();
-            MoveWindowWithoutGeometrySave(() => Left = targetLeft);
+            MoveWindowWithoutGeometrySave(() =>
+            {
+                Left = targetLeft;
+                Top = targetTop;
+            });
+            UpdateCapsuleClosePlacement();
             return;
         }
 
-        var expectedHovering = _isDeepCapsuleHovering;
-        var leftAnimation = new System.Windows.Media.Animation.DoubleAnimation
+        var easeOut = new System.Windows.Media.Animation.CubicEase
         {
-            From = currentLeft,
-            To = targetLeft,
-            Duration = TimeSpan.FromMilliseconds(expectedHovering ? 160 : 130),
+            EasingMode = System.Windows.Media.Animation.EasingMode.EaseOut
+        };
+
+        if (animateLeft)
+        {
+            var leftAnimation = new System.Windows.Media.Animation.DoubleAnimation
+            {
+                From = currentLeft,
+                To = targetLeft,
+                Duration = TimeSpan.FromMilliseconds(leftDurationMs),
+                EasingFunction = easeOut
+            };
+            leftAnimation.Completed += (_, _) =>
+            {
+                if (gen != _deepCapsuleMoveGeneration)
+                {
+                    return;
+                }
+
+                MoveWindowWithoutGeometrySave(() =>
+                {
+                    ClearDeepCapsuleLeftPositionAnimation();
+                    Left = targetLeft;
+                });
+                UpdateCapsuleClosePlacement();
+            };
+
+            BeginAnimation(DeepCapsuleAnimatedLeftProperty, leftAnimation, System.Windows.Media.Animation.HandoffBehavior.SnapshotAndReplace);
+        }
+        else
+        {
+            ClearDeepCapsuleLeftPositionAnimation();
+            MoveWindowWithoutGeometrySave(() => Left = targetLeft);
+        }
+
+        if (animateTop)
+        {
+            var topAnimation = new System.Windows.Media.Animation.DoubleAnimation
+            {
+                From = currentTop,
+                To = targetTop,
+                Duration = TimeSpan.FromMilliseconds(topDurationMs),
+                EasingFunction = easeOut
+            };
+            topAnimation.Completed += (_, _) =>
+            {
+                if (gen != _deepCapsuleMoveGeneration)
+                {
+                    return;
+                }
+
+                MoveWindowWithoutGeometrySave(() =>
+                {
+                    ClearDeepCapsuleTopPositionAnimation();
+                    Top = targetTop;
+                });
+            };
+
+            BeginAnimation(DeepCapsuleAnimatedTopProperty, topAnimation, System.Windows.Media.Animation.HandoffBehavior.SnapshotAndReplace);
+        }
+        else
+        {
+            ClearDeepCapsuleTopPositionAnimation();
+            MoveWindowWithoutGeometrySave(() => Top = targetTop);
+        }
+    }
+
+    private void AnimateWindowOpacity(double to, bool animate)
+    {
+        if (!animate || Math.Abs(Opacity - to) < 0.001)
+        {
+            BeginAnimation(OpacityProperty, null);
+            Opacity = to;
+            return;
+        }
+
+        var anim = new System.Windows.Media.Animation.DoubleAnimation
+        {
+            From = Opacity,
+            To = to,
+            Duration = TimeSpan.FromMilliseconds(160),
             EasingFunction = new System.Windows.Media.Animation.CubicEase
             {
                 EasingMode = System.Windows.Media.Animation.EasingMode.EaseOut
             }
         };
-        leftAnimation.Completed += (_, _) =>
+        anim.Completed += (_, _) =>
         {
-            if (!_isDeepCapsulePlaced || _isDeepCapsuleHovering != expectedHovering)
-            {
-                return;
-            }
-
-            MoveWindowWithoutGeometrySave(() =>
-            {
-                ClearDeepCapsulePositionAnimation();
-                Left = targetLeft;
-            });
+            BeginAnimation(OpacityProperty, null);
+            Opacity = to;
         };
-
-        BeginAnimation(DeepCapsuleAnimatedLeftProperty, leftAnimation, System.Windows.Media.Animation.HandoffBehavior.SnapshotAndReplace);
+        BeginAnimation(OpacityProperty, anim);
     }
 
-    private void SetDeepCapsuleHover(bool hovering)
-    {
-        if (!_isDeepCapsulePlaced || !_paper.IsCollapsed || !_controller.State.UseDeepCapsuleMode)
-        {
-            return;
-        }
-
-        _isDeepCapsuleHovering = hovering;
-        MoveDeepCapsuleToCurrentTarget(animate: true);
-    }
-
-    public void ApplyDeepCapsulePlacement(int index)
+    // Slide this capsule up to the master's slot and fade it out. The window stays shown
+    // (so it keeps counting as a deep-capsule member) but, being a per-pixel transparent
+    // window at Opacity 0, it is fully click-through and never blocks the master pill.
+    public void RetractIntoMaster(double anchorTop, bool animate)
     {
         if (!_paper.IsCollapsed || !_controller.State.UseCapsuleMode || !_controller.State.UseDeepCapsuleMode)
         {
@@ -3294,9 +4397,49 @@ public sealed partial class PaperWindow : Window
         }
 
         _isDeepCapsulePlaced = true;
+        _isCollapseAllRetracted = true;
+        _isDeepCapsuleHovering = false;
+        RefreshEffectiveTopmost();
+
+        var area = DeepCapsuleWorkArea();
+        var capsuleWidth = CapsuleWindowWidth();
+        var targetLeft = RoundToDevicePixelX(area.Right - capsuleWidth + DeepCapsuleHoverOutsideOffset);
+        var targetTop = RoundToDevicePixelY(anchorTop);
+
+        BeginDeepCapsuleMove(targetLeft, targetTop, DeepCapsuleLayout.SlideOutMilliseconds, DeepCapsuleLayout.SlotMoveMilliseconds, animate);
+        AnimateWindowOpacity(0.0, animate);
+    }
+
+    private void SetDeepCapsuleHover(bool hovering)
+    {
+        if (_isDeepCapsuleDragging || !_isDeepCapsulePlaced || !_paper.IsCollapsed || !_controller.State.UseDeepCapsuleMode)
+        {
+            return;
+        }
+
+        _isDeepCapsuleHovering = hovering;
+        MoveDeepCapsuleToCurrentTarget(animate: true);
+    }
+
+    public void ApplyDeepCapsulePlacement(int index, bool animate = false, int visualOffset = 0)
+    {
+        if (!_paper.IsCollapsed || !_controller.State.UseCapsuleMode || !_controller.State.UseDeepCapsuleMode)
+        {
+            ClearDeepCapsulePlacement();
+            return;
+        }
+
+        _holdsDeepCapsuleSlotWhileExpanded = false;
+        _isCollapseAllRetracted = false;
+        if (Math.Abs(Opacity - 1.0) > 0.001)
+        {
+            AnimateWindowOpacity(1.0, animate);
+        }
+        _isDeepCapsulePlaced = true;
         _deepCapsuleIndex = Math.Max(0, index);
+        _deepCapsuleVisualOffset = Math.Max(0, visualOffset);
         RefreshCapsuleLabel();
-        MoveDeepCapsuleToCurrentTarget();
+        MoveDeepCapsuleToCurrentTarget(animate);
         RefreshEffectiveTopmost();
     }
 
@@ -3306,7 +4449,18 @@ public sealed partial class PaperWindow : Window
         ClearDeepCapsulePositionAnimation();
         _isDeepCapsulePlaced = false;
         _isDeepCapsuleHovering = false;
+        _isCollapseAllRetracted = false;
+        _deepCapsuleVisualOffset = 0;
         _deepCapsuleIndex = -1;
+        UpdateCapsuleClosePlacement();
+
+        // A capsule may have been faded out while retracted behind the master; never leave
+        // a live (expanded or free-floating) window invisible.
+        if (Math.Abs(Opacity - 1.0) > 0.001)
+        {
+            BeginAnimation(OpacityProperty, null);
+            Opacity = 1.0;
+        }
 
         if (wasPlaced && restoreCollapsedPosition && _paper.IsCollapsed && IsVisible)
         {
@@ -3320,11 +4474,21 @@ public sealed partial class PaperWindow : Window
         }
     }
 
+    public void ClearDeepCapsuleSlotReservation()
+    {
+        _holdsDeepCapsuleSlotWhileExpanded = false;
+    }
+
     public void UpdateDeepCapsuleMode()
     {
-        if (!_controller.State.UseCapsuleMode || !_controller.State.UseDeepCapsuleMode || !_paper.IsCollapsed)
+        if (!_controller.State.UseCapsuleMode || !_controller.State.UseDeepCapsuleMode)
         {
+            _holdsDeepCapsuleSlotWhileExpanded = false;
             ClearDeepCapsulePlacement();
+        }
+        else if (!_paper.IsCollapsed)
+        {
+            ClearDeepCapsulePlacement(restoreCollapsedPosition: false);
         }
         else
         {
@@ -3334,14 +4498,110 @@ public sealed partial class PaperWindow : Window
         RefreshEffectiveTopmost();
     }
 
+    private void StartDeepCapsuleReorderDrag(Point currentScreenPos)
+    {
+        if (!_isDeepCapsulePlaced)
+        {
+            return;
+        }
+
+        _isDeepCapsuleDragging = true;
+        _isDeepCapsuleHovering = true;
+        // currentScreenPos is in physical device pixels (PointToScreen); Top is in DIPs.
+        // Convert to DIPs so the capsule tracks the cursor 1:1 at any DPI.
+        var dpiScaleY = VisualTreeHelper.GetDpi(this).DpiScaleY;
+        _deepCapsuleDragMouseOffsetY = currentScreenPos.Y / dpiScaleY - Top;
+
+        ClearDeepCapsulePositionAnimation();
+
+        var area = DeepCapsuleWorkArea();
+        var capsuleWidth = CapsuleWindowWidth();
+        _deepCapsuleDragLeft = RoundToDevicePixelX(area.Right - capsuleWidth + DeepCapsuleHoverOutsideOffset);
+
+        MoveWindowWithoutGeometrySave(() =>
+        {
+            Left = _deepCapsuleDragLeft;
+            Width = capsuleWidth;
+            Height = PaperLayoutDefaults.CapsuleHeight;
+        });
+
+        Mouse.OverrideCursor = Cursors.SizeNS;
+        UpdateDeepCapsuleReorderDrag(currentScreenPos);
+    }
+
+    private void UpdateDeepCapsuleReorderDrag(Point currentScreenPos)
+    {
+        if (!_isDeepCapsuleDragging)
+        {
+            return;
+        }
+
+        var area = DeepCapsuleWorkArea();
+        var minTop = area.Top + DeepCapsuleTopMargin;
+        var maxTop = Math.Max(minTop, area.Bottom - PaperLayoutDefaults.CapsuleHeight - DeepCapsuleTopMargin);
+        // currentScreenPos is in physical device pixels; convert to DIPs to match Top/offset.
+        var dpiScaleY = VisualTreeHelper.GetDpi(this).DpiScaleY;
+        var targetTop = Math.Clamp(currentScreenPos.Y / dpiScaleY - _deepCapsuleDragMouseOffsetY, minTop, maxTop);
+
+        MoveWindowWithoutGeometrySave(() =>
+        {
+            Left = _deepCapsuleDragLeft;
+            Top = RoundToDevicePixelY(targetTop);
+        });
+    }
+
+    private void EndDeepCapsuleReorderDrag(bool commit)
+    {
+        if (!_isDeepCapsuleDragging)
+        {
+            return;
+        }
+
+        _isDeepCapsuleDragging = false;
+        Mouse.OverrideCursor = null;
+        _isDeepCapsuleHovering = _capsuleShell.IsMouseOver;
+
+        if (commit)
+        {
+            _controller.ReorderDeepCapsule(_paper, DeepCapsuleDropIndexForCurrentPosition());
+            return;
+        }
+
+        MoveDeepCapsuleToCurrentTarget();
+    }
+
+    private int DeepCapsuleDropIndexForCurrentPosition()
+    {
+        var count = _controller.VisibleDeepCapsuleCount();
+        if (count <= 1)
+        {
+            return 0;
+        }
+
+        var centerY = Top + (PaperLayoutDefaults.CapsuleHeight / 2);
+        var area = DeepCapsuleWorkArea();
+        // Real capsules start at slot _deepCapsuleVisualOffset when the master capsule occupies slot 0.
+        var firstCenterY = area.Top + DeepCapsuleStartTopMargin + _deepCapsuleVisualOffset * (PaperLayoutDefaults.CapsuleHeight + DeepCapsuleGap) + (PaperLayoutDefaults.CapsuleHeight / 2);
+        var slotHeight = PaperLayoutDefaults.CapsuleHeight + DeepCapsuleGap;
+        var originalIndex = Math.Clamp(_deepCapsuleIndex, 0, count - 1);
+        var rawIndex = (centerY - firstCenterY) / slotHeight;
+        var index = rawIndex >= originalIndex
+            ? (int)Math.Floor(rawIndex)
+            : (int)Math.Ceiling(rawIndex);
+        return Math.Clamp(index, 0, count - 1);
+    }
+
     private void AlignExpandedToRightEdge(double targetWidth, double targetHeight)
     {
         var area = DeepCapsuleWorkArea();
         var width = Math.Max(targetWidth, PaperLayoutDefaults.MinWidth);
         var height = Math.Max(targetHeight, PaperLayoutDefaults.MinHeight);
+        var rightInset = Math.Min(
+            Math.Max(DeepCapsuleExpandedRightInset, _controller.VisibleDeepCapsuleRestingWidth() + DeepCapsuleGap),
+            Math.Max(0, area.Width - width));
         var targetTop = Math.Clamp(Top, area.Top + DeepCapsuleTopMargin, Math.Max(area.Top + DeepCapsuleTopMargin, area.Bottom - height - DeepCapsuleTopMargin));
 
-        Left = RoundToDevicePixelX(area.Right - width);
+        Left = RoundToDevicePixelX(area.Right - width - rightInset);
         Top = RoundToDevicePixelY(targetTop);
     }
 
@@ -3449,7 +4709,31 @@ public sealed partial class PaperWindow : Window
         _capsuleLabelText.ToolTip = _controller.PaperTitleText(_paper);
         if (_capsuleShell != null)
         {
-            _capsuleShell.Width = CapsuleShellWidth();
+            _capsuleShell.Width = CapsuleShellLayoutWidth();
+        }
+        UpdateCapsuleClosePlacement();
+    }
+
+    private void UpdateCapsuleClosePlacement()
+    {
+        if (_capsuleCloseArea != null)
+        {
+            _capsuleCloseArea.Width = CapsuleCloseWidthForCurrentPlacement();
+            _capsuleCloseArea.Margin = _isDeepCapsulePlaced
+                ? new Thickness(0, 0, 2, 0)
+                : new Thickness(0);
+        }
+
+        if (_capsuleCloseGlyphOffset != null)
+        {
+            _capsuleCloseGlyphOffset.X = _isDeepCapsulePlaced
+                ? CapsuleCloseGlyphDeepOffset
+                : CapsuleCloseGlyphNormalOffset;
+        }
+
+        if (_capsuleShell != null)
+        {
+            _capsuleShell.Width = CapsuleShellLayoutWidth();
         }
     }
 
@@ -3457,7 +4741,7 @@ public sealed partial class PaperWindow : Window
     {
         _capsuleShell = new Grid
         {
-            Width = CapsuleShellWidth(),
+            Width = CapsuleShellLayoutWidth(),
             Height = 30,
             Background = Brushes.Transparent
         };
@@ -3467,7 +4751,8 @@ public sealed partial class PaperWindow : Window
         var leftArea = new Border
         {
             Background = Brushes.Transparent,
-            CornerRadius = new CornerRadius(10, 0, 0, 10),
+            // Concentric with the capsule pill's left end.
+            CornerRadius = new CornerRadius(CapsuleInnerCornerRadius, 0, 0, CapsuleInnerCornerRadius),
             Cursor = Cursors.Hand
         };
 
@@ -3475,14 +4760,19 @@ public sealed partial class PaperWindow : Window
         {
             Orientation = Orientation.Horizontal,
             VerticalAlignment = VerticalAlignment.Center,
-            HorizontalAlignment = HorizontalAlignment.Center
+            // Hug the left edge (with a small inset) instead of centering, so the icon
+            // doesn't float in the middle of the left area with dead space beside it.
+            HorizontalAlignment = HorizontalAlignment.Left,
+            Margin = new Thickness(CapsuleLeftPadding, 0, 0, 0)
         };
 
         var iconText = new TextBlock
         {
             Text = _paper.Type == PaperTypes.Note ? "✎" : "✓",
             Foreground = TextBrush,
-            FontSize = 13,
+            // Explicit font so the rendered glyph matches what MeasureCapsuleTextWidth measures.
+            FontFamily = NoteTypography.FontFamily,
+            FontSize = CapsuleIconFontSize,
             FontWeight = FontWeights.SemiBold,
             VerticalAlignment = VerticalAlignment.Center
         };
@@ -3491,8 +4781,11 @@ public sealed partial class PaperWindow : Window
         _capsuleLabelText = new TextBlock
         {
             Foreground = WeakTextBrush,
-            FontSize = 11,
-            Margin = new Thickness(6, 0, 0, 0),
+            // Explicit font so the rendered title matches the measured width (the window
+            // default is Segoe UI, which has different digit/halfwidth metrics).
+            FontFamily = NoteTypography.FontFamily,
+            FontSize = CapsuleLabelFontSize,
+            Margin = new Thickness(CapsuleIconGap, 0, 0, 0),
             VerticalAlignment = VerticalAlignment.Center
         };
         RefreshCapsuleLabel();
@@ -3516,17 +4809,38 @@ public sealed partial class PaperWindow : Window
 
         leftArea.PreviewMouseMove += (s, e) =>
         {
+            if (_isDeepCapsuleDragging)
+            {
+                UpdateDeepCapsuleReorderDrag(PointToScreen(e.GetPosition(this)));
+                e.Handled = true;
+                return;
+            }
+
             if (!_isMaybeDragging) return;
-            if (_isDeepCapsulePlaced) return;
 
             Point currentScreenPos = PointToScreen(e.GetPosition(this));
             double deltaX = Math.Abs(currentScreenPos.X - _mouseDownScreenPos.X);
             double deltaY = Math.Abs(currentScreenPos.Y - _mouseDownScreenPos.Y);
 
+            if (_isDeepCapsulePlaced)
+            {
+                // Edge-docked capsules only reorder vertically. Ignore horizontal click jitter
+                // so a normal side click is not mistaken for a drag while the pill slides.
+                if (deltaY >= SystemParameters.MinimumVerticalDragDistance + DeepCapsuleReorderDragExtraThreshold)
+                {
+                    _isMaybeDragging = false;
+                    StartDeepCapsuleReorderDrag(currentScreenPos);
+                    e.Handled = true;
+                }
+
+                return;
+            }
+
             if (deltaX >= SystemParameters.MinimumHorizontalDragDistance ||
                 deltaY >= SystemParameters.MinimumVerticalDragDistance)
             {
                 _isMaybeDragging = false;
+
                 leftArea.ReleaseMouseCapture();
                 leftArea.Background = Brushes.Transparent;
                 leftArea.Cursor = Cursors.SizeAll;
@@ -3550,6 +4864,14 @@ public sealed partial class PaperWindow : Window
 
         leftArea.PreviewMouseLeftButtonUp += (s, e) =>
         {
+            if (_isDeepCapsuleDragging)
+            {
+                EndDeepCapsuleReorderDrag(commit: true);
+                leftArea.ReleaseMouseCapture();
+                e.Handled = true;
+                return;
+            }
+
             if (_isMaybeDragging)
             {
                 _isMaybeDragging = false;
@@ -3563,6 +4885,10 @@ public sealed partial class PaperWindow : Window
         leftArea.LostMouseCapture += (s, e) =>
         {
             _isMaybeDragging = false;
+            if (_isDeepCapsuleDragging && Mouse.LeftButton != MouseButtonState.Pressed)
+            {
+                EndDeepCapsuleReorderDrag(commit: false);
+            }
         };
 
         leftArea.ContextMenu = BuildPaperContextMenu();
@@ -3571,28 +4897,35 @@ public sealed partial class PaperWindow : Window
         Grid.SetColumn(leftArea, 0);
         _capsuleShell.Children.Add(leftArea);
 
+        var closeGlyphOffset = new TranslateTransform(0, 0);
         var closeGlyph = new TextBlock
         {
             Text = "×",
             Foreground = WeakTextBrush,
-            FontSize = 14,
+            FontSize = 18,
             HorizontalAlignment = HorizontalAlignment.Center,
-            VerticalAlignment = VerticalAlignment.Center
+            VerticalAlignment = VerticalAlignment.Center,
+            RenderTransform = closeGlyphOffset
         };
+        _capsuleCloseGlyph = closeGlyph;
+        _capsuleCloseGlyphOffset = closeGlyphOffset;
 
         var capsuleClose = new Border
         {
-            Width = 24,
-            Margin = new Thickness(0, 0, 2, 0),
+            Width = CapsuleCloseWidth,
             VerticalAlignment = VerticalAlignment.Stretch,
             Background = Brushes.Transparent,
-            CornerRadius = new CornerRadius(0, 10, 10, 0),
+            // Concentric with the capsule pill's right edge.
+            CornerRadius = new CornerRadius(0, CapsuleInnerCornerRadius, CapsuleInnerCornerRadius, 0),
             Cursor = Cursors.Hand,
             ToolTip = Strings.Get("ToolTipHideThisPaper"),
             Child = closeGlyph
         };
+        _capsuleCloseArea = capsuleClose;
+        UpdateCapsuleClosePlacement();
         capsuleClose.MouseEnter += (_, _) =>
         {
+            leftArea.Background = Brushes.Transparent;
             capsuleClose.Background = HoverBrush;
             closeGlyph.Foreground = TextBrush;
         };
@@ -3658,17 +4991,32 @@ public sealed partial class PaperWindow : Window
         double finalTargetWidth = RoundToDevicePixelX(targetWidth);
         double finalTargetHeight = RoundToDevicePixelY(targetHeight);
         var arrangeDeepCapsulesAfterCollapse = collapsed && _controller.State.UseCapsuleMode && _controller.State.UseDeepCapsuleMode;
+        var arrangeDeepCapsulesAfterExpand = !collapsed && _isDeepCapsulePlaced && _controller.State.UseCapsuleMode && _controller.State.UseDeepCapsuleMode;
 
         var wasDeepCapsulePlaced = _isDeepCapsulePlaced;
+        var keepDeepCapsuleSlotReservation = !collapsed
+            && wasDeepCapsulePlaced
+            && _paper.IsVisible
+            && _controller.State.UseCapsuleMode
+            && _controller.State.UseDeepCapsuleMode;
 
         _paper.IsCollapsed = collapsed;
         if (!collapsed)
         {
+            _holdsDeepCapsuleSlotWhileExpanded = keepDeepCapsuleSlotReservation;
             ClearDeepCapsulePlacement(restoreCollapsedPosition: false);
             if (alignExpandedToRight || wasDeepCapsulePlaced)
             {
                 MoveWindowWithoutGeometrySave(() => AlignExpandedToRightEdge(finalTargetWidth, finalTargetHeight));
             }
+            if (arrangeDeepCapsulesAfterExpand)
+            {
+                _controller.ArrangeDeepCapsules(animate: true);
+            }
+        }
+        else
+        {
+            _holdsDeepCapsuleSlotWhileExpanded = false;
         }
 
         RefreshEffectiveTopmost();

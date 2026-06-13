@@ -16,7 +16,7 @@
     <value>起動に失敗しました: データファイルを読み込めません。ファイルが使用中、または破損している可能性があります。&#x0A;データが空の状態で上書きされないよう、アプリは安全に停止しました。&#x0A;&#x0A;エラー: {0}</value>
   </data>
   <data name="ResourceTextVersion" xml:space="preserve">
-    <value>1.7</value>
+    <value>1.8</value>
   </data>
   <data name="AppStartupFailureTitle" xml:space="preserve">
     <value>PaperTodo - エラー</value>
@@ -66,6 +66,12 @@
   <data name="MarkdownDefaultLinkLabel" xml:space="preserve">
     <value>リンク</value>
   </data>
+  <data name="ToolTipDragNoteToTodo" xml:space="preserve">
+    <value>ToDo項目へドラッグしてメモを関連付け</value>
+  </data>
+  <data name="ToolTipOpenLinkedNote" xml:space="preserve">
+    <value>関連メモを開く: {0}</value>
+  </data>
   <data name="MarkdownRenderBasic" xml:space="preserve">
     <value>有効</value>
   </data>
@@ -113,6 +119,12 @@
   </data>
   <data name="MenuInsertLink" xml:space="preserve">
     <value>リンクを挿入</value>
+  </data>
+  <data name="MenuOpenLinkedNote" xml:space="preserve">
+    <value>関連メモを開く: {0}</value>
+  </data>
+  <data name="MenuUnlinkNote" xml:space="preserve">
+    <value>メモの関連付けを解除</value>
   </data>
   <data name="MenuItalic" xml:space="preserve">
     <value>斜体</value>
@@ -201,6 +213,21 @@
   <data name="ThemeDark" xml:space="preserve">
     <value>ダーク</value>
   </data>
+  <data name="SettingsColorScheme" xml:space="preserve">
+    <value>配色</value>
+  </data>
+  <data name="ColorSchemeWarm" xml:space="preserve">
+    <value>紙</value>
+  </data>
+  <data name="ColorSchemeInk" xml:space="preserve">
+    <value>墨</value>
+  </data>
+  <data name="ColorSchemeForest" xml:space="preserve">
+    <value>森</value>
+  </data>
+  <data name="ColorSchemeRose" xml:space="preserve">
+    <value>霞</value>
+  </data>
   <data name="ThemeLight" xml:space="preserve">
     <value>ライト</value>
   </data>
@@ -233,6 +260,24 @@
   </data>
   <data name="TrayDeepCapsuleMode" xml:space="preserve">
     <value>カプセルを自動で端に寄せる</value>
+  </data>
+  <data name="SettingsMaxTitleLength" xml:space="preserve">
+    <value>タイトルの最大文字数</value>
+  </data>
+  <data name="SettingsCapsuleCollapseAll" xml:space="preserve">
+    <value>「すべて折りたたむ」カプセル</value>
+  </data>
+  <data name="CapsuleCollapseAllLabel" xml:space="preserve">
+    <value>折りたたむ</value>
+  </data>
+  <data name="CapsuleCollapseAllExpandedTip" xml:space="preserve">
+    <value>すべてのカプセルを折りたたむ</value>
+  </data>
+  <data name="CapsuleCollapseAllCollapsedTip" xml:space="preserve">
+    <value>カプセルを元に戻す</value>
+  </data>
+  <data name="CapsuleCollapseAllCountFormat" xml:space="preserve">
+    <value>{0} 個</value>
   </data>
   <data name="TrayExit" xml:space="preserve">
     <value>終了</value>
@@ -282,6 +327,72 @@
   <data name="SettingsBehavior" xml:space="preserve">
     <value>動作</value>
   </data>
+  <data name="SettingsCapsule" xml:space="preserve">
+    <value>カプセル</value>
+  </data>
+  <data name="SettingsTodoNote" xml:space="preserve">
+    <value>ToDo とノート</value>
+  </data>
+  <data name="SettingsGeneral" xml:space="preserve">
+    <value>一般</value>
+  </data>
+  <data name="TipThemeMode" xml:space="preserve">
+    <value>システム連動・ライト・ダークから選択。「システム連動」は Windows の設定に合わせて自動で切り替わります。</value>
+  </data>
+  <data name="TipColorScheme" xml:space="preserve">
+    <value>ペーパー全体の色調。背景色とアクセント色に影響します。</value>
+  </data>
+  <data name="TipMarkdownRender" xml:space="preserve">
+    <value>ノートでの Markdown の表示方法。「拡張」は見出し・リスト・太字などをリアルタイムに装飾し、「基本」は軽い処理のみ行います。</value>
+  </data>
+  <data name="TipEnableTodoNoteLinks" xml:space="preserve">
+    <value>オンにすると、ノートを ToDo 項目にドラッグして関連付けでき、その ToDo をクリックすると関連ノートが開きます。</value>
+  </data>
+  <data name="TipShowLinkedNoteName" xml:space="preserve">
+    <value>ノートが関連付けられた ToDo 項目の後ろに、そのノートのタイトルを表示します。</value>
+  </data>
+  <data name="TipNewTodoButton" xml:space="preserve">
+    <value>ペーパー上部のバーに「新規 ToDo」ボタンを表示します。</value>
+  </data>
+  <data name="TipNewNoteButton" xml:space="preserve">
+    <value>ペーパー上部のバーに「新規ノート」ボタンを表示します。</value>
+  </data>
+  <data name="TipExternalOpenButton" xml:space="preserve">
+    <value>上部バーに「外部で開く」ボタンを表示します。ノートをファイルに書き出し、既定のアプリで開きます。</value>
+  </data>
+  <data name="TipExternalExtension" xml:space="preserve">
+    <value>ノートを外部で開くときに使う拡張子（例：.md、.txt）。</value>
+  </data>
+  <data name="TipCapsuleMode" xml:space="preserve">
+    <value>オンにすると、ペーパーを小さなカプセルに折りたためて画面を節約できます。他のカプセル機能の親スイッチです。</value>
+  </data>
+  <data name="TipDeepCapsuleMode" xml:space="preserve">
+    <value>折りたたんだカプセルを画面右端に縦に並べてドッキングし、ホバーでスライド表示します。カプセル折りたたみが必要です。</value>
+  </data>
+  <data name="TipCapsuleCollapseAll" xml:space="preserve">
+    <value>ドック上部に「折りたたむ」マスターカプセルを表示し、クリックで全カプセルを一括折りたたみ／展開します。端寄せが必要です。</value>
+  </data>
+  <data name="TipMaxTitleLength" xml:space="preserve">
+    <value>ペーパータイトルに使える最大文字数。カプセルに表示されるタイトルの長さの上限にもなります。</value>
+  </data>
+  <data name="TipStartup" xml:space="preserve">
+    <value>Windows の起動時に PaperTodo を自動的に起動します。</value>
+  </data>
+  <data name="SettingsEnableToolTips" xml:space="preserve">
+    <value>ホバー時のヒントを表示</value>
+  </data>
+  <data name="TipEnableToolTips" xml:space="preserve">
+    <value>オンにすると、ボタン、設定の説明アイコン、操作できる領域にポインターを置いたときに短い説明を表示します。静かな表示にしたい場合はオフにできます。</value>
+  </data>
+  <data name="SettingsEnableAnimations" xml:space="preserve">
+    <value>アニメーションを有効化</value>
+  </data>
+  <data name="TipEnableAnimations" xml:space="preserve">
+    <value>有効にすると、ToDo の完了、追加、削除などの操作で滑らかなアニメーションが表示されます。低スペック PC ではパフォーマンス向上のため無効化できます。</value>
+  </data>
+  <data name="SettingsEnableTodoNoteLinks" xml:space="preserve">
+    <value>ToDo とメモの関連付けを有効化</value>
+  </data>
   <data name="SettingsShowTopBarNewTodoButton" xml:space="preserve">
     <value>上部バーの新規 ToDo ボタンを表示</value>
   </data>
@@ -290,6 +401,9 @@
   </data>
   <data name="SettingsShowTopBarExternalOpenButton" xml:space="preserve">
     <value>上部バーの外部で開くボタンを表示</value>
+  </data>
+  <data name="SettingsShowLinkedNoteName" xml:space="preserve">
+    <value>関連メモ名を表示</value>
   </data>
   <data name="SettingsResetNoteZoom" xml:space="preserve">
     <value>ノートのズームをリセット</value>

@@ -16,7 +16,7 @@
     <value>Startup failed: unable to load the data file. It may be in use or corrupted.&#x0A;To prevent your data from being overwritten with an empty state, the app has stopped safely.&#x0A;&#x0A;Error: {0}</value>
   </data>
   <data name="ResourceTextVersion" xml:space="preserve">
-    <value>1.7</value>
+    <value>1.8</value>
   </data>
   <data name="AppStartupFailureTitle" xml:space="preserve">
     <value>PaperTodo - Error</value>
@@ -66,6 +66,12 @@
   <data name="MarkdownDefaultLinkLabel" xml:space="preserve">
     <value>Link</value>
   </data>
+  <data name="ToolTipDragNoteToTodo" xml:space="preserve">
+    <value>Drag to a todo item to link this note</value>
+  </data>
+  <data name="ToolTipOpenLinkedNote" xml:space="preserve">
+    <value>Open linked note: {0}</value>
+  </data>
   <data name="MarkdownRenderBasic" xml:space="preserve">
     <value>On</value>
   </data>
@@ -113,6 +119,12 @@
   </data>
   <data name="MenuInsertLink" xml:space="preserve">
     <value>Insert link</value>
+  </data>
+  <data name="MenuOpenLinkedNote" xml:space="preserve">
+    <value>Open linked note: {0}</value>
+  </data>
+  <data name="MenuUnlinkNote" xml:space="preserve">
+    <value>Unlink note</value>
   </data>
   <data name="MenuItalic" xml:space="preserve">
     <value>Italic</value>
@@ -201,6 +213,21 @@
   <data name="ThemeDark" xml:space="preserve">
     <value>Dark</value>
   </data>
+  <data name="SettingsColorScheme" xml:space="preserve">
+    <value>Color scheme</value>
+  </data>
+  <data name="ColorSchemeWarm" xml:space="preserve">
+    <value>Paper</value>
+  </data>
+  <data name="ColorSchemeInk" xml:space="preserve">
+    <value>Ink</value>
+  </data>
+  <data name="ColorSchemeForest" xml:space="preserve">
+    <value>Forest</value>
+  </data>
+  <data name="ColorSchemeRose" xml:space="preserve">
+    <value>Rose</value>
+  </data>
   <data name="ThemeLight" xml:space="preserve">
     <value>Light</value>
   </data>
@@ -233,6 +260,24 @@
   </data>
   <data name="TrayDeepCapsuleMode" xml:space="preserve">
     <value>Auto edge-align capsules</value>
+  </data>
+  <data name="SettingsMaxTitleLength" xml:space="preserve">
+    <value>Max title length</value>
+  </data>
+  <data name="SettingsCapsuleCollapseAll" xml:space="preserve">
+    <value>Collapse-all capsule</value>
+  </data>
+  <data name="CapsuleCollapseAllLabel" xml:space="preserve">
+    <value>Collapse</value>
+  </data>
+  <data name="CapsuleCollapseAllExpandedTip" xml:space="preserve">
+    <value>Collapse all capsules</value>
+  </data>
+  <data name="CapsuleCollapseAllCollapsedTip" xml:space="preserve">
+    <value>Restore capsules</value>
+  </data>
+  <data name="CapsuleCollapseAllCountFormat" xml:space="preserve">
+    <value>{0}</value>
   </data>
   <data name="TrayExit" xml:space="preserve">
     <value>Exit</value>
@@ -282,6 +327,72 @@
   <data name="SettingsBehavior" xml:space="preserve">
     <value>Behavior</value>
   </data>
+  <data name="SettingsCapsule" xml:space="preserve">
+    <value>Capsule</value>
+  </data>
+  <data name="SettingsTodoNote" xml:space="preserve">
+    <value>To-dos &amp; notes</value>
+  </data>
+  <data name="SettingsGeneral" xml:space="preserve">
+    <value>General</value>
+  </data>
+  <data name="TipThemeMode" xml:space="preserve">
+    <value>Follow system, light, or dark. "Follow system" switches automatically with the Windows light/dark setting.</value>
+  </data>
+  <data name="TipColorScheme" xml:space="preserve">
+    <value>The overall color tone of the papers, affecting background and accent colors.</value>
+  </data>
+  <data name="TipMarkdownRender" xml:space="preserve">
+    <value>How Markdown is rendered in notes. "Enhanced" live-styles headings, lists, bold, etc.; "Basic" does light processing only.</value>
+  </data>
+  <data name="TipEnableTodoNoteLinks" xml:space="preserve">
+    <value>When on, drag a note onto a to-do item to link them; clicking the to-do opens the linked note.</value>
+  </data>
+  <data name="TipShowLinkedNoteName" xml:space="preserve">
+    <value>Show the linked note's title after a to-do item that has a note attached.</value>
+  </data>
+  <data name="TipNewTodoButton" xml:space="preserve">
+    <value>Show the "New to-do" button in the paper's top bar.</value>
+  </data>
+  <data name="TipNewNoteButton" xml:space="preserve">
+    <value>Show the "New note" button in the paper's top bar.</value>
+  </data>
+  <data name="TipExternalOpenButton" xml:space="preserve">
+    <value>Show the "Open externally" button in the top bar, which exports the note to a file and opens it in the default app.</value>
+  </data>
+  <data name="TipExternalExtension" xml:space="preserve">
+    <value>File extension used when opening a note externally, e.g. .md or .txt.</value>
+  </data>
+  <data name="TipCapsuleMode" xml:space="preserve">
+    <value>When on, a paper can collapse into a small capsule to save screen space. This is the master switch for the other capsule features.</value>
+  </data>
+  <data name="TipDeepCapsuleMode" xml:space="preserve">
+    <value>Collapsed capsules dock to the right screen edge in a vertical stack and slide out on hover. Requires capsule collapse.</value>
+  </data>
+  <data name="TipCapsuleCollapseAll" xml:space="preserve">
+    <value>Show a "Collapse" master capsule atop the docked stack; click it to collapse / expand all capsules at once. Requires edge-align.</value>
+  </data>
+  <data name="TipMaxTitleLength" xml:space="preserve">
+    <value>Maximum number of characters allowed in a paper title, which also caps the title length shown on the capsule.</value>
+  </data>
+  <data name="TipStartup" xml:space="preserve">
+    <value>Launch PaperTodo automatically when Windows starts.</value>
+  </data>
+  <data name="SettingsEnableToolTips" xml:space="preserve">
+    <value>Show hover hints</value>
+  </data>
+  <data name="TipEnableToolTips" xml:space="preserve">
+    <value>When enabled, brief hints appear when the pointer rests on buttons, setting info icons, or other interactive areas. Turn it off to keep the interface quiet.</value>
+  </data>
+  <data name="SettingsEnableAnimations" xml:space="preserve">
+    <value>Enable animations</value>
+  </data>
+  <data name="TipEnableAnimations" xml:space="preserve">
+    <value>When enabled, actions like completing, adding, or deleting todos will have smooth animations. Disable this to improve performance on low-end devices.</value>
+  </data>
+  <data name="SettingsEnableTodoNoteLinks" xml:space="preserve">
+    <value>Enable todo-note links</value>
+  </data>
   <data name="SettingsShowTopBarNewTodoButton" xml:space="preserve">
     <value>Show top-bar new todo button</value>
   </data>
@@ -290,6 +401,9 @@
   </data>
   <data name="SettingsShowTopBarExternalOpenButton" xml:space="preserve">
     <value>Show top-bar external open button</value>
+  </data>
+  <data name="SettingsShowLinkedNoteName" xml:space="preserve">
+    <value>Show linked note name</value>
   </data>
   <data name="SettingsResetNoteZoom" xml:space="preserve">
     <value>Reset note zoom</value>

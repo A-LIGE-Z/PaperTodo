@@ -16,7 +16,7 @@
     <value>启动失败：无法加载数据文件（可能文件被占用或损坏）。&#x0A;为了防止您的数据被覆盖清空，程序已安全中止运行。&#x0A;&#x0A;错误信息：{0}</value>
   </data>
   <data name="ResourceTextVersion" xml:space="preserve">
-    <value>1.7</value>
+    <value>1.8</value>
   </data>
   <data name="AppStartupFailureTitle" xml:space="preserve">
     <value>PaperTodo - 错误</value>
@@ -66,6 +66,12 @@
   <data name="MarkdownDefaultLinkLabel" xml:space="preserve">
     <value>链接</value>
   </data>
+  <data name="ToolTipDragNoteToTodo" xml:space="preserve">
+    <value>拖到待办项以关联笔记</value>
+  </data>
+  <data name="ToolTipOpenLinkedNote" xml:space="preserve">
+    <value>打开关联笔记：{0}</value>
+  </data>
   <data name="MarkdownRenderBasic" xml:space="preserve">
     <value>启用</value>
   </data>
@@ -113,6 +119,12 @@
   </data>
   <data name="MenuInsertLink" xml:space="preserve">
     <value>插入链接</value>
+  </data>
+  <data name="MenuOpenLinkedNote" xml:space="preserve">
+    <value>打开关联笔记：{0}</value>
+  </data>
+  <data name="MenuUnlinkNote" xml:space="preserve">
+    <value>取消关联笔记</value>
   </data>
   <data name="MenuItalic" xml:space="preserve">
     <value>斜体</value>
@@ -198,6 +210,21 @@
   <data name="StartupFailureTitle" xml:space="preserve">
     <value>设置自启动失败</value>
   </data>
+  <data name="SettingsColorScheme" xml:space="preserve">
+    <value>配色方案</value>
+  </data>
+  <data name="ColorSchemeWarm" xml:space="preserve">
+    <value>暖纸</value>
+  </data>
+  <data name="ColorSchemeInk" xml:space="preserve">
+    <value>墨</value>
+  </data>
+  <data name="ColorSchemeForest" xml:space="preserve">
+    <value>林</value>
+  </data>
+  <data name="ColorSchemeRose" xml:space="preserve">
+    <value>霞</value>
+  </data>
   <data name="ThemeDark" xml:space="preserve">
     <value>深色</value>
   </data>
@@ -233,6 +260,24 @@
   </data>
   <data name="TrayDeepCapsuleMode" xml:space="preserve">
     <value>胶囊自动贴边</value>
+  </data>
+  <data name="SettingsMaxTitleLength" xml:space="preserve">
+    <value>标题最大字数</value>
+  </data>
+  <data name="SettingsCapsuleCollapseAll" xml:space="preserve">
+    <value>显示“收起全部”胶囊</value>
+  </data>
+  <data name="CapsuleCollapseAllLabel" xml:space="preserve">
+    <value>收起</value>
+  </data>
+  <data name="CapsuleCollapseAllExpandedTip" xml:space="preserve">
+    <value>收起全部胶囊</value>
+  </data>
+  <data name="CapsuleCollapseAllCollapsedTip" xml:space="preserve">
+    <value>展开全部胶囊</value>
+  </data>
+  <data name="CapsuleCollapseAllCountFormat" xml:space="preserve">
+    <value>{0} 个</value>
   </data>
   <data name="TrayExit" xml:space="preserve">
     <value>退出</value>
@@ -282,6 +327,72 @@
   <data name="SettingsBehavior" xml:space="preserve">
     <value>行为</value>
   </data>
+  <data name="SettingsCapsule" xml:space="preserve">
+    <value>胶囊</value>
+  </data>
+  <data name="SettingsTodoNote" xml:space="preserve">
+    <value>待办与笔记</value>
+  </data>
+  <data name="SettingsGeneral" xml:space="preserve">
+    <value>通用</value>
+  </data>
+  <data name="TipThemeMode" xml:space="preserve">
+    <value>跟随系统、浅色或深色。「跟随系统」会随 Windows 的明暗设置自动切换。</value>
+  </data>
+  <data name="TipColorScheme" xml:space="preserve">
+    <value>纸片的整体配色基调，影响背景与强调色。</value>
+  </data>
+  <data name="TipMarkdownRender" xml:space="preserve">
+    <value>笔记中 Markdown 的渲染方式。「增强」实时美化标题、列表、加粗等；「基础」仅做轻量处理。</value>
+  </data>
+  <data name="TipEnableTodoNoteLinks" xml:space="preserve">
+    <value>开启后，可把笔记拖到待办项上建立关联，点击待办即可打开对应笔记。</value>
+  </data>
+  <data name="TipShowLinkedNoteName" xml:space="preserve">
+    <value>在已关联笔记的待办项后面，显示该笔记的标题。</value>
+  </data>
+  <data name="TipNewTodoButton" xml:space="preserve">
+    <value>在纸片顶栏显示「新建待办」按钮。</value>
+  </data>
+  <data name="TipNewNoteButton" xml:space="preserve">
+    <value>在纸片顶栏显示「新建笔记」按钮。</value>
+  </data>
+  <data name="TipExternalOpenButton" xml:space="preserve">
+    <value>在纸片顶栏显示「用外部程序打开」按钮，可将笔记导出为文件并用系统默认程序打开。</value>
+  </data>
+  <data name="TipExternalExtension" xml:space="preserve">
+    <value>用外部程序打开笔记时使用的文件后缀，例如 .md 或 .txt。</value>
+  </data>
+  <data name="TipCapsuleMode" xml:space="preserve">
+    <value>开启后，纸片可折叠成一颗小胶囊，节省屏幕空间。这是其余胶囊功能的总开关。</value>
+  </data>
+  <data name="TipDeepCapsuleMode" xml:space="preserve">
+    <value>折叠后的胶囊自动停靠到屏幕右侧边缘并竖向排列，鼠标悬浮时滑出。需先开启胶囊折叠。</value>
+  </data>
+  <data name="TipCapsuleCollapseAll" xml:space="preserve">
+    <value>在贴边胶囊顶部显示一颗「收起」主胶囊，点击可一键收起 / 展开全部胶囊。需先开启自动贴边。</value>
+  </data>
+  <data name="TipMaxTitleLength" xml:space="preserve">
+    <value>纸片标题允许输入的最大字数，也决定胶囊上显示的标题长度。</value>
+  </data>
+  <data name="TipStartup" xml:space="preserve">
+    <value>开机时自动启动 PaperTodo。</value>
+  </data>
+  <data name="SettingsEnableToolTips" xml:space="preserve">
+    <value>显示悬停提示</value>
+  </data>
+  <data name="TipEnableToolTips" xml:space="preserve">
+    <value>开启后，指针停在按钮、设置说明或可操作区域上时，会显示简短说明；关闭后不再弹出这些提示。</value>
+  </data>
+  <data name="SettingsEnableAnimations" xml:space="preserve">
+    <value>启用动画效果</value>
+  </data>
+  <data name="TipEnableAnimations" xml:space="preserve">
+    <value>开启后，待办完成、新增、删除等操作会有平滑动画效果。关闭可提升低配电脑的性能。</value>
+  </data>
+  <data name="SettingsEnableTodoNoteLinks" xml:space="preserve">
+    <value>启用待办关联笔记</value>
+  </data>
   <data name="SettingsShowTopBarNewTodoButton" xml:space="preserve">
     <value>显示顶栏新建待办</value>
   </data>
@@ -290,6 +401,9 @@
   </data>
   <data name="SettingsShowTopBarExternalOpenButton" xml:space="preserve">
     <value>显示顶栏外部打开</value>
+  </data>
+  <data name="SettingsShowLinkedNoteName" xml:space="preserve">
+    <value>关联笔记显示名称</value>
   </data>
   <data name="SettingsResetNoteZoom" xml:space="preserve">
     <value>重置笔记缩放</value>

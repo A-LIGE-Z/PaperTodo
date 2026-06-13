@@ -14,7 +14,7 @@ public static class PaperLayoutDefaults
     public const double MinWidth = 220;
     public const double MinHeight = 160;
 
-    public const double CapsuleWidth = 108; // 包含阴影边框边距
+    public const double CapsuleWidth = 92; // 包含阴影边框边距
     public const double CapsuleHeight = 46;
 
     public const double TodoDefaultWidth = 280;
@@ -72,6 +72,7 @@ public sealed class AppState
 {
     public List<PaperData> Papers { get; set; } = new();
     public string Theme { get; set; } = "system";
+    public string ColorScheme { get; set; } = ColorSchemes.Warm;
     public string MarkdownRenderMode { get; set; } = MarkdownRenderModes.Enhanced;
     public string ExternalMarkdownExtension { get; set; } = ExternalMarkdownFileExtensions.Default;
     public double Zoom { get; set; } = 1.0;
@@ -80,6 +81,13 @@ public sealed class AppState
     public bool ShowTopBarNewTodoButton { get; set; } = true;
     public bool ShowTopBarNewNoteButton { get; set; } = true;
     public bool ShowTopBarExternalOpenButton { get; set; } = true;
+    public bool EnableTodoNoteLinks { get; set; } = true;
+    public bool ShowLinkedNoteName { get; set; }
+    public int MaxTitleLength { get; set; } = PaperTitles.DefaultMaxTitleLength;
+    public bool UseCapsuleCollapseAll { get; set; }
+    public bool CapsuleCollapseAllActive { get; set; }
+    public bool EnableAnimations { get; set; } = true;
+    public bool EnableToolTips { get; set; } = true;
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public bool? ShowTopBarNewPaperButtons { get; set; }
@@ -111,5 +119,7 @@ public sealed class PaperItem
     public string Text { get; set; } = "";
     public bool Done { get; set; }
     public int Order { get; set; }
-}
 
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? LinkedNoteId { get; set; }
+}

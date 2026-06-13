@@ -151,6 +151,8 @@ public sealed class StateStore
             state.Theme = "system";
         }
 
+        state.ColorScheme = ColorSchemes.Normalize(state.ColorScheme);
+
         if (!MarkdownRenderModes.IsValid(state.MarkdownRenderMode))
         {
             state.MarkdownRenderMode = MarkdownRenderModes.Enhanced;
@@ -176,6 +178,13 @@ public sealed class StateStore
             state.UseDeepCapsuleMode = false;
         }
 
+        state.MaxTitleLength = PaperTitles.NormalizeMaxTitleLength(state.MaxTitleLength);
+
+        if (!state.UseCapsuleMode || !state.UseDeepCapsuleMode || !state.UseCapsuleCollapseAll)
+        {
+            state.CapsuleCollapseAllActive = false;
+        }
+
         foreach (var paper in state.Papers)
         {
             if (string.IsNullOrWhiteSpace(paper.Id))
@@ -187,7 +196,7 @@ public sealed class StateStore
             {
                 paper.Type = PaperTypes.Todo;
             }
-            paper.Title = PaperTitles.CleanCustomTitle(paper.Title);
+            paper.Title = PaperTitles.CleanCustomTitle(paper.Title, state.MaxTitleLength);
             if (double.IsNaN(paper.TextZoom) || double.IsInfinity(paper.TextZoom) || paper.TextZoom <= 0)
             {
                 paper.TextZoom = 1.0;
