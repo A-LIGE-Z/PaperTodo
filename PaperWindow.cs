@@ -1721,7 +1721,7 @@ public sealed partial class PaperWindow : Window
             _linkNoteButton.LostMouseCapture += (_, _) => EndNoteLinkMouseGesture(commit: false);
             buttons.Children.Add(_linkNoteButton);
 
-            _openMarkdownButton = IconButton("MD", OpenMarkdownEditorToolTip());
+            _openMarkdownButton = IconButton(ExternalOpenButtonLabel(), OpenMarkdownEditorToolTip());
             _openMarkdownButton.FontSize = 10.5;
             _openMarkdownButton.Click += (_, _) => OpenMarkdownInDefaultEditor();
             buttons.Children.Add(_openMarkdownButton);
@@ -3234,6 +3234,7 @@ public sealed partial class PaperWindow : Window
     {
         if (_openMarkdownButton != null)
         {
+            _openMarkdownButton.Content = ExternalOpenButtonLabel();
             _openMarkdownButton.ToolTip = OpenMarkdownEditorToolTip();
             _openMarkdownButton.Visibility = _controller.State.ShowTopBarExternalOpenButton ? Visibility.Visible : Visibility.Collapsed;
         }
@@ -3274,6 +3275,19 @@ public sealed partial class PaperWindow : Window
     private string OpenMarkdownEditorToolTip()
     {
         return Strings.Format("ToolTipOpenMarkdownEditor", CurrentExternalMarkdownExtension());
+    }
+
+    private string ExternalOpenButtonLabel()
+    {
+        var extension = CurrentExternalMarkdownExtension().TrimStart('.');
+        if (string.IsNullOrWhiteSpace(extension))
+        {
+            extension = ExternalMarkdownFileExtensions.Default.TrimStart('.');
+        }
+
+        return extension.Length > 2
+            ? extension[..2].ToUpperInvariant()
+            : extension.ToUpperInvariant();
     }
 
     private string CurrentExternalMarkdownExtension()
