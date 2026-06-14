@@ -27,6 +27,10 @@ public static class DeepCapsuleLayout
     public const int SlideOutMilliseconds = 220;
     public const int SlideInMilliseconds = 180;
     public const int SlotMoveMilliseconds = 200;
+    public static double FocusVisibleWidth(double capsuleWindowWidth)
+    {
+        return Math.Clamp(capsuleWindowWidth - HoverOutsideOffset, 54, capsuleWindowWidth);
+    }
 
     // Display-weighted character count: CJK / fullwidth glyphs count as 2, everything
     // else as 1. A 6-digit number title then weighs the same as a 3-CJK-character title,

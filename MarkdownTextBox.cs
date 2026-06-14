@@ -22,6 +22,7 @@ public sealed class MarkdownTextBox : TextEditor
     private readonly MarkdownMarkerColorizer _markerColorizer;
     private readonly MarkdownListBulletRenderer _listBulletRenderer;
     private readonly MarkdownHorizontalRuleRenderer _horizontalRuleRenderer;
+    private readonly FencedCodeStateCache _fencedCodeStateCache = new();
 
     public MarkdownTextBox()
     {
@@ -447,6 +448,7 @@ public sealed class MarkdownTextBox : TextEditor
     protected override void OnTextChanged(EventArgs e)
     {
         base.OnTextChanged(e);
+        _fencedCodeStateCache.Clear();
 
         if (_isTrimmingText || MaxLength <= 0 || Text.Length <= MaxLength)
         {
@@ -672,7 +674,7 @@ public sealed class MarkdownTextBox : TextEditor
         public string Url { get; }
     }
 
-    private static MarkdownLineStyle AnalyzeLine(IDocument document, DocumentLine line, string text)
+    private MarkdownLineStyle AnalyzeLine(IDocument document, DocumentLine line, string text)
     {
         if (string.IsNullOrEmpty(text))
         {
@@ -690,7 +692,7 @@ public sealed class MarkdownTextBox : TextEditor
             return new MarkdownLineStyle(MarkdownLineKind.CodeFence, text.Length, text.Length);
         }
 
-        if (IsInFencedCodeBlockBeforeLine(document, line))
+        if (_fencedCodeStateCache.IsInFencedCodeBlockBeforeLine(document, line))
         {
             return new MarkdownLineStyle(MarkdownLineKind.CodeBlock, 0, 0);
         }
@@ -879,18 +881,54 @@ public sealed class MarkdownTextBox : TextEditor
         return count >= 3;
     }
 
-    private static bool IsInFencedCodeBlockBeforeLine(IDocument document, DocumentLine line)
+    private sealed class FencedCodeStateCache
     {
-        var inside = false;
-        for (var number = 1; number < line.LineNumber; number++)
+        private readonly Dictionary<int, bool> _insideBeforeLine = new();
+        private IDocument? _document;
+        private int _maxCachedLineNumber = 1;
+
+        public void Clear()
         {
-            var current = document.GetLineByNumber(number);
-            if (IsFenceLine(document.GetText(current), out _))
-            {
-                inside = !inside;
-            }
+            _document = null;
+            _insideBeforeLine.Clear();
+            _maxCachedLineNumber = 1;
         }
-        return inside;
+
+        public bool IsInFencedCodeBlockBeforeLine(IDocument document, DocumentLine line)
+        {
+            if (!ReferenceEquals(_document, document))
+            {
+                _document = document;
+                _insideBeforeLine.Clear();
+                _insideBeforeLine[1] = false;
+                _maxCachedLineNumber = 1;
+            }
+
+            var lineNumber = Math.Max(1, line.LineNumber);
+            if (_insideBeforeLine.TryGetValue(lineNumber, out var cached))
+            {
+                return cached;
+            }
+
+            var nearestLine = Math.Min(_maxCachedLineNumber, lineNumber);
+            var inside = _insideBeforeLine.TryGetValue(nearestLine, out var nearestState)
+                ? nearestState
+                : false;
+
+            for (var number = nearestLine; number < lineNumber; number++)
+            {
+                var current = document.GetLineByNumber(number);
+                if (IsFenceLine(document.GetText(current), out _))
+                {
+                    inside = !inside;
+                }
+
+                _insideBeforeLine[number + 1] = inside;
+            }
+
+            _maxCachedLineNumber = Math.Max(_maxCachedLineNumber, lineNumber);
+            return inside;
+        }
     }
 
     private static int CountRepeated(string text, int start, char c)
@@ -1024,7 +1062,7 @@ public sealed class MarkdownTextBox : TextEditor
                      line = line.NextLine)
                 {
                     var text = document.GetText(line);
-                    var style = AnalyzeLine(document, line, text);
+                    var style = _owner.AnalyzeLine(document, line, text);
                     if (style.Kind is not (MarkdownLineKind.CodeBlock or MarkdownLineKind.CodeFence))
                     {
                         foreach (var span in EnumerateClosedInlineCodeSpans(text))
@@ -1109,7 +1147,7 @@ public sealed class MarkdownTextBox : TextEditor
                      line = line.NextLine)
                 {
                     var text = document.GetText(line);
-                    var style = AnalyzeLine(document, line, text);
+                    var style = _owner.AnalyzeLine(document, line, text);
                     if (style.Kind is not (MarkdownLineKind.UnorderedList or MarkdownLineKind.OrderedList) ||
                         IsTaskList(style, text))
                     {
@@ -1219,7 +1257,7 @@ public sealed class MarkdownTextBox : TextEditor
                      line = line.NextLine)
                 {
                     var text = document.GetText(line);
-                    var style = AnalyzeLine(document, line, text);
+                    var style = _owner.AnalyzeLine(document, line, text);
                     if (style.Kind != MarkdownLineKind.HorizontalRule)
                     {
                         continue;
@@ -1317,7 +1355,7 @@ public sealed class MarkdownTextBox : TextEditor
             var weak = Theme.WeakTextBrush;
             var link = Theme.LinkBrush;
             var code = Theme.ActiveBrush;
-            var style = AnalyzeLine(document, line, text);
+            var style = _owner.AnalyzeLine(document, line, text);
             var isPreviewMode = _owner.IsPreviewMode;
             var symbol = options.FadeSyntax ? PreviewSyntaxBrush : Theme.ActiveBrush;
             var rawLink = options.FadeSyntax ? PreviewSyntaxBrush : weak;

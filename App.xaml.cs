@@ -52,6 +52,12 @@ public partial class App : Application
             return;
         }
 
+        if (startupCommand.Kind == StartupCommandKind.Exit)
+        {
+            _controller.ExecuteStartupCommand(startupCommand);
+            return;
+        }
+
         SessionEnding += (s, args) => _controller?.Exit();
         _controller.Start(createDefaultPaper: !startupCommand.CreatesPaper);
         _controller.ExecuteStartupCommand(startupCommand);

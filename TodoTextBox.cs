@@ -34,7 +34,10 @@ public sealed class TodoTextBox : TextBox
         }
 
         var y = Math.Max(ActualHeight / 2.0, 10);
-        var pen = new Pen(new SolidColorBrush(Color.FromArgb(185, 92, 72, 48)), 1.35);
+        var lineColor = Theme.BrightWeakTextBrush is SolidColorBrush solid
+            ? Color.FromArgb(205, solid.Color.R, solid.Color.G, solid.Color.B)
+            : Color.FromArgb(205, 138, 122, 99);
+        var pen = new Pen(new SolidColorBrush(lineColor), 1.35);
         pen.Freeze();
 
         drawingContext.DrawLine(

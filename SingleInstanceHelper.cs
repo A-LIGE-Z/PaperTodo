@@ -10,6 +10,10 @@ namespace PaperTodo;
 
 public sealed class SingleInstanceHelper : IDisposable
 {
+    private const int SignalRetryCount = 6;
+    private const int SignalConnectTimeoutMs = 180;
+    private const int SignalRetryDelayMs = 70;
+
     private readonly string _mutexName;
     private readonly string _pipeName;
     private Mutex? _mutex;
@@ -46,23 +50,40 @@ public sealed class SingleInstanceHelper : IDisposable
     {
         if (_disposed) throw new ObjectDisposedException(nameof(SingleInstanceHelper));
 
-        try
+        var encodedArgs = EncodeArgs(args);
+        for (var attempt = 0; attempt < SignalRetryCount; attempt++)
         {
-            using var client = new NamedPipeClientStream(
-                ".",
-                _pipeName,
-                PipeDirection.Out,
-                PipeOptions.Asynchronous);
+            try
+            {
+                using var client = new NamedPipeClientStream(
+                    ".",
+                    _pipeName,
+                    PipeDirection.Out,
+                    PipeOptions.Asynchronous);
 
-            client.Connect(250);
+                client.Connect(SignalConnectTimeoutMs);
 
-            using var writer = new StreamWriter(client);
-            writer.WriteLine(EncodeArgs(args));
-            writer.Flush();
-        }
-        catch
-        {
-            // Ignore when the primary instance is still starting or busy.
+                using var writer = new StreamWriter(client);
+                writer.WriteLine(encodedArgs);
+                writer.Flush();
+                return;
+            }
+            catch
+            {
+                if (attempt == SignalRetryCount - 1)
+                {
+                    return;
+                }
+
+                try
+                {
+                    Thread.Sleep(SignalRetryDelayMs);
+                }
+                catch
+                {
+                    return;
+                }
+            }
         }
     }
 

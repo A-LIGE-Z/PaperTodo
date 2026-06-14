@@ -16,7 +16,7 @@
     <value>시작에 실패했습니다: 데이터 파일을 불러올 수 없습니다. 파일이 사용 중이거나 손상되었을 수 있습니다.&#x0A;데이터가 빈 상태로 덮어쓰기 되지 않도록 프로그램을 안전하게 중지했습니다.&#x0A;&#x0A;오류: {0}</value>
   </data>
   <data name="ResourceTextVersion" xml:space="preserve">
-    <value>1.8</value>
+    <value>2.0</value>
   </data>
   <data name="AppStartupFailureTitle" xml:space="preserve">
     <value>PaperTodo - 오류</value>
@@ -267,6 +267,9 @@
   <data name="SettingsCapsuleCollapseAll" xml:space="preserve">
     <value>'모두 접기' 캡슐 표시</value>
   </data>
+  <data name="SettingsShowDeepCapsuleWhileExpanded" xml:space="preserve">
+    <value>펼친 동안 가장자리 캡슐 유지</value>
+  </data>
   <data name="CapsuleCollapseAllLabel" xml:space="preserve">
     <value>접기</value>
   </data>
@@ -346,7 +349,7 @@
     <value>메모에서 Markdown을 표시하는 방식입니다. '확장'은 제목, 목록, 굵게 등을 실시간으로 꾸미고, '기본'은 가벼운 처리만 합니다.</value>
   </data>
   <data name="TipEnableTodoNoteLinks" xml:space="preserve">
-    <value>켜면 메모를 할 일 항목으로 드래그해 연결할 수 있고, 해당 할 일을 클릭하면 연결된 메모가 열립니다.</value>
+    <value>켜면 메모를 할 일 항목으로 드래그해 연결할 수 있고, 해당 항목의 연결 메모 버튼으로 메모를 열 수 있습니다.</value>
   </data>
   <data name="TipShowLinkedNoteName" xml:space="preserve">
     <value>메모가 연결된 할 일 항목 뒤에 그 메모의 제목을 표시합니다.</value>
@@ -358,7 +361,7 @@
     <value>페이퍼 상단 바에 '새 메모' 버튼을 표시합니다.</value>
   </data>
   <data name="TipExternalOpenButton" xml:space="preserve">
-    <value>상단 바에 '외부에서 열기' 버튼을 표시합니다. 메모를 파일로 내보내 기본 앱에서 엽니다.</value>
+    <value>상단 바에 '외부에서 열기' 버튼을 표시합니다. 메모를 임시 파일로 써서 기본 앱에서 엽니다.</value>
   </data>
   <data name="TipExternalExtension" xml:space="preserve">
     <value>메모를 외부에서 열 때 사용할 확장자입니다(예: .md, .txt).</value>
@@ -368,6 +371,9 @@
   </data>
   <data name="TipDeepCapsuleMode" xml:space="preserve">
     <value>접힌 캡슐을 화면 오른쪽 가장자리에 세로로 도킹하고, 마우스를 올리면 슬라이드되어 나타납니다. 캡슐 접기가 필요합니다.</value>
+  </data>
+  <data name="TipShowDeepCapsuleWhileExpanded" xml:space="preserve">
+    <value>켜면 가장자리 캡슐에서 페이퍼를 열 때 해당 슬롯에 강조된 캡슐을 계속 표시합니다. 끄면 여는 동안 캡슐을 숨기고 자리를 비우며, 페이퍼가 다시 캡슐로 돌아간 뒤 표시합니다.</value>
   </data>
   <data name="TipCapsuleCollapseAll" xml:space="preserve">
     <value>도크 상단에 '접기' 마스터 캡슐을 표시하며, 클릭하면 모든 캡슐을 한 번에 접거나 펼칩니다. 가장자리 정렬이 필요합니다.</value>
@@ -382,7 +388,7 @@
     <value>호버 도움말 표시</value>
   </data>
   <data name="TipEnableToolTips" xml:space="preserve">
-    <value>켜면 버튼, 설정 설명 아이콘, 조작 가능한 영역에 포인터를 올렸을 때 짧은 설명을 표시합니다. 더 조용한 화면을 원하면 끌 수 있습니다.</value>
+    <value>켜면 버튼이나 조작 가능한 영역에 포인터를 올렸을 때 짧은 설명을 표시합니다. 설정 설명 아이콘은 항상 사용할 수 있습니다.</value>
   </data>
   <data name="SettingsEnableAnimations" xml:space="preserve">
     <value>애니메이션 효과 사용</value>

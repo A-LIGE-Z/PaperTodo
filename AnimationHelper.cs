@@ -14,15 +14,27 @@ public static class AnimationHelper
     // 确保元素有 RenderTransform（TransformGroup 包含 ScaleTransform 和 TranslateTransform）
     public static void EnsureTransform(UIElement element)
     {
-        if (element.RenderTransform is TransformGroup) return;
+        if (element.RenderTransform is TransformGroup group &&
+            group.Children.Count >= 2 &&
+            group.Children[0] is ScaleTransform &&
+            group.Children[1] is TranslateTransform)
+        {
+            return;
+        }
 
+        var existingTransform = element.RenderTransform;
+        var transforms = new TransformCollection
+        {
+            new ScaleTransform(1, 1),
+            new TranslateTransform(0, 0)
+        };
+        if (existingTransform != null && !ReferenceEquals(existingTransform, Transform.Identity))
+        {
+            transforms.Add(existingTransform);
+        }
         element.RenderTransform = new TransformGroup
         {
-            Children = new TransformCollection
-            {
-                new ScaleTransform(1, 1),
-                new TranslateTransform(0, 0)
-            }
+            Children = transforms
         };
         element.RenderTransformOrigin = new Point(0.5, 0.5);
     }

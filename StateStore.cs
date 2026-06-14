@@ -146,6 +146,10 @@ public sealed class StateStore
     private static void Normalize(AppState state)
     {
         state.Papers ??= new List<PaperData>();
+        state.Papers = state.Papers
+            .Where(paper => paper != null)
+            .Cast<PaperData>()
+            .ToList();
         if (state.Theme is not ("system" or "light" or "dark"))
         {
             state.Theme = "system";
@@ -180,16 +184,22 @@ public sealed class StateStore
 
         state.MaxTitleLength = PaperTitles.NormalizeMaxTitleLength(state.MaxTitleLength);
 
-        if (!state.UseCapsuleMode || !state.UseDeepCapsuleMode || !state.UseCapsuleCollapseAll)
+        if (!state.UseCapsuleMode || !state.UseDeepCapsuleMode)
+        {
+            state.UseCapsuleCollapseAll = false;
+        }
+
+        if (!state.UseCapsuleCollapseAll)
         {
             state.CapsuleCollapseAllActive = false;
         }
 
+        var usedPaperIds = new HashSet<string>(StringComparer.Ordinal);
         foreach (var paper in state.Papers)
         {
-            if (string.IsNullOrWhiteSpace(paper.Id))
+            if (string.IsNullOrWhiteSpace(paper.Id) || !usedPaperIds.Add(paper.Id))
             {
-                paper.Id = Guid.NewGuid().ToString("N");
+                paper.Id = NewUniqueId(usedPaperIds);
             }
 
             if (paper.Type != PaperTypes.Note && paper.Type != PaperTypes.Todo)
@@ -197,39 +207,101 @@ public sealed class StateStore
                 paper.Type = PaperTypes.Todo;
             }
             paper.Title = PaperTitles.CleanCustomTitle(paper.Title, state.MaxTitleLength);
+            paper.X = NormalizeCoordinate(paper.X, 120);
+            paper.Y = NormalizeCoordinate(paper.Y, 120);
             if (double.IsNaN(paper.TextZoom) || double.IsInfinity(paper.TextZoom) || paper.TextZoom <= 0)
             {
                 paper.TextZoom = 1.0;
             }
             paper.TextZoom = Math.Clamp(Math.Round(paper.TextZoom, 1), 0.5, 1.5);
 
-            if (paper.Width < PaperLayoutDefaults.MinWidth)
-            {
-                paper.Width = paper.Type == PaperTypes.Note ? PaperLayoutDefaults.NoteDefaultWidth : PaperLayoutDefaults.TodoDefaultWidth;
-            }
-            if (paper.Height < PaperLayoutDefaults.MinHeight)
-            {
-                paper.Height = paper.Type == PaperTypes.Note ? PaperLayoutDefaults.NoteDefaultHeight : PaperLayoutDefaults.TodoDefaultHeight;
-            }
+            paper.Width = NormalizePaperDimension(
+                paper.Width,
+                paper.Type == PaperTypes.Note ? PaperLayoutDefaults.NoteDefaultWidth : PaperLayoutDefaults.TodoDefaultWidth,
+                PaperLayoutDefaults.MinWidth);
+            paper.Height = NormalizePaperDimension(
+                paper.Height,
+                paper.Type == PaperTypes.Note ? PaperLayoutDefaults.NoteDefaultHeight : PaperLayoutDefaults.TodoDefaultHeight,
+                PaperLayoutDefaults.MinHeight);
 
             paper.Items ??= new List<PaperItem>();
+            paper.Items = paper.Items
+                .Where(item => item != null)
+                .Cast<PaperItem>()
+                .ToList();
             paper.Content ??= "";
             if (!state.UseCapsuleMode)
             {
                 paper.IsCollapsed = false;
             }
 
+            var usedItemIds = new HashSet<string>(StringComparer.Ordinal);
             for (var i = 0; i < paper.Items.Count; i++)
             {
                 var item = paper.Items[i];
-                if (string.IsNullOrWhiteSpace(item.Id))
+                if (string.IsNullOrWhiteSpace(item.Id) || !usedItemIds.Add(item.Id))
                 {
-                    item.Id = Guid.NewGuid().ToString("N");
+                    item.Id = NewUniqueId(usedItemIds);
                 }
 
                 item.Order = i;
                 item.Text ??= "";
             }
         }
+
+        var noteIds = state.Papers
+            .Where(p => p.Type == PaperTypes.Note)
+            .Select(p => p.Id)
+            .ToHashSet(StringComparer.Ordinal);
+
+        foreach (var item in state.Papers.SelectMany(p => p.Items))
+        {
+            if (string.IsNullOrWhiteSpace(item.LinkedNoteId) ||
+                !noteIds.Contains(item.LinkedNoteId))
+            {
+                item.LinkedNoteId = null;
+            }
+        }
+
+        if (state.EnableTodoNoteLinks && state.HideLinkedNotesFromCapsules)
+        {
+            var linkedNoteIds = state.Papers
+                .Where(p => p.Type == PaperTypes.Todo)
+                .SelectMany(p => p.Items)
+                .Select(item => item.LinkedNoteId)
+                .Where(id => !string.IsNullOrWhiteSpace(id))
+                .ToHashSet(StringComparer.Ordinal);
+
+            foreach (var note in state.Papers.Where(p => p.Type == PaperTypes.Note && linkedNoteIds.Contains(p.Id)))
+            {
+                note.IsCollapsed = false;
+            }
+        }
+    }
+
+    private static string NewUniqueId(HashSet<string> usedIds)
+    {
+        string id;
+        do
+        {
+            id = Guid.NewGuid().ToString("N");
+        }
+        while (!usedIds.Add(id));
+
+        return id;
+    }
+
+    private static double NormalizeCoordinate(double value, double fallback)
+    {
+        return double.IsNaN(value) || double.IsInfinity(value)
+            ? fallback
+            : value;
+    }
+
+    private static double NormalizePaperDimension(double value, double fallback, double min)
+    {
+        return double.IsNaN(value) || double.IsInfinity(value) || value < min
+            ? fallback
+            : value;
     }
 }

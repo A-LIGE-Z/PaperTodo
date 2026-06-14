@@ -16,7 +16,7 @@
     <value>启动失败：无法加载数据文件（可能文件被占用或损坏）。&#x0A;为了防止您的数据被覆盖清空，程序已安全中止运行。&#x0A;&#x0A;错误信息：{0}</value>
   </data>
   <data name="ResourceTextVersion" xml:space="preserve">
-    <value>1.8</value>
+    <value>2.0</value>
   </data>
   <data name="AppStartupFailureTitle" xml:space="preserve">
     <value>PaperTodo - 错误</value>
@@ -267,6 +267,9 @@
   <data name="SettingsCapsuleCollapseAll" xml:space="preserve">
     <value>显示“收起全部”胶囊</value>
   </data>
+  <data name="SettingsShowDeepCapsuleWhileExpanded" xml:space="preserve">
+    <value>展开纸片时保留边缘胶囊</value>
+  </data>
   <data name="CapsuleCollapseAllLabel" xml:space="preserve">
     <value>收起</value>
   </data>
@@ -343,13 +346,16 @@
     <value>纸片的整体配色基调，影响背景与强调色。</value>
   </data>
   <data name="TipMarkdownRender" xml:space="preserve">
-    <value>笔记中 Markdown 的渲染方式。「增强」实时美化标题、列表、加粗等；「基础」仅做轻量处理。</value>
+    <value>笔记中 Markdown 的渲染方式。「增强」实时美化标题、列表、加粗等；「启用」仅做轻量处理。</value>
   </data>
   <data name="TipEnableTodoNoteLinks" xml:space="preserve">
-    <value>开启后，可把笔记拖到待办项上建立关联，点击待办即可打开对应笔记。</value>
+    <value>开启后，可把笔记拖到待办项上建立关联，再通过待办项后的关联入口打开对应笔记。</value>
   </data>
   <data name="TipShowLinkedNoteName" xml:space="preserve">
     <value>在已关联笔记的待办项后面，显示该笔记的标题。</value>
+  </data>
+  <data name="TipHideLinkedNotesFromCapsules" xml:space="preserve">
+    <value>开启后，已经挂到待办项上的笔记不会再出现在胶囊列表里，避免边缘胶囊与待办入口重复。关闭后，这些笔记仍可像普通纸片一样折叠为胶囊。</value>
   </data>
   <data name="TipNewTodoButton" xml:space="preserve">
     <value>在纸片顶栏显示「新建待办」按钮。</value>
@@ -358,7 +364,7 @@
     <value>在纸片顶栏显示「新建笔记」按钮。</value>
   </data>
   <data name="TipExternalOpenButton" xml:space="preserve">
-    <value>在纸片顶栏显示「用外部程序打开」按钮，可将笔记导出为文件并用系统默认程序打开。</value>
+    <value>在纸片顶栏显示「用外部程序打开」按钮，可将笔记写入临时文件并用系统默认程序打开。</value>
   </data>
   <data name="TipExternalExtension" xml:space="preserve">
     <value>用外部程序打开笔记时使用的文件后缀，例如 .md 或 .txt。</value>
@@ -368,6 +374,9 @@
   </data>
   <data name="TipDeepCapsuleMode" xml:space="preserve">
     <value>折叠后的胶囊自动停靠到屏幕右侧边缘并竖向排列，鼠标悬浮时滑出。需先开启胶囊折叠。</value>
+  </data>
+  <data name="TipShowDeepCapsuleWhileExpanded" xml:space="preserve">
+    <value>开启后，从边缘胶囊打开纸片时，右侧会保留一颗高亮胶囊并占用原槽位；关闭后，打开期间隐藏它并释放位置，纸片收回胶囊后再显示。</value>
   </data>
   <data name="TipCapsuleCollapseAll" xml:space="preserve">
     <value>在贴边胶囊顶部显示一颗「收起」主胶囊，点击可一键收起 / 展开全部胶囊。需先开启自动贴边。</value>
@@ -382,7 +391,7 @@
     <value>显示悬停提示</value>
   </data>
   <data name="TipEnableToolTips" xml:space="preserve">
-    <value>开启后，指针停在按钮、设置说明或可操作区域上时，会显示简短说明；关闭后不再弹出这些提示。</value>
+    <value>开启后，指针停在按钮和可操作区域上时，会显示简短说明；设置页说明图标始终可用。</value>
   </data>
   <data name="SettingsEnableAnimations" xml:space="preserve">
     <value>启用动画效果</value>
@@ -404,6 +413,9 @@
   </data>
   <data name="SettingsShowLinkedNoteName" xml:space="preserve">
     <value>关联笔记显示名称</value>
+  </data>
+  <data name="SettingsHideLinkedNotesFromCapsules" xml:space="preserve">
+    <value>已关联笔记不显示为胶囊</value>
   </data>
   <data name="SettingsResetNoteZoom" xml:space="preserve">
     <value>重置笔记缩放</value>

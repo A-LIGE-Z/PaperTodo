@@ -6,7 +6,7 @@
 
 一个极简的 Windows 桌面便签工具，只用 WPF 原生实现，没有主窗口、没有账号、没有管理器。
 
-![version](https://img.shields.io/badge/version-v1.9-3b82f6) ![platform](https://img.shields.io/badge/platform-Windows%20x64-555) ![.NET](https://img.shields.io/badge/.NET-10-512bd4) ![UI](https://img.shields.io/badge/UI-WPF-0078d4)
+![version](https://img.shields.io/badge/version-v2.0-3b82f6) ![platform](https://img.shields.io/badge/platform-Windows%20x64-555) ![.NET](https://img.shields.io/badge/.NET-10-512bd4) ![UI](https://img.shields.io/badge/UI-WPF-0078d4)
 
 </div>
 
@@ -75,7 +75,7 @@
 - **标题长度可调** — 设置里可调整标题最大字数，窗口、胶囊、托盘和菜单会统一按新长度显示。
 - **自定义图标** — 程序目录存在 `PaperTodo.ico` 时优先作为托盘图标，否则用内嵌图标。
 
-> 当前版本 **v1.9**。完整改动记录见 [CHANGELOG.md](CHANGELOG.md)。
+> 当前版本 **v2.0**。完整改动记录见 [CHANGELOG.md](CHANGELOG.md)。
 
 ---
 

@@ -31,6 +31,7 @@ public sealed partial class AppController : IDisposable
     private TextBox? _settingsExternalMarkdownTextBox;
     private CheckBox? _settingsCapsuleModeCheckBox;
     private CheckBox? _settingsDeepCapsuleModeCheckBox;
+    private CheckBox? _settingsDeepCapsuleExpandedSlotCheckBox;
     private CheckBox? _settingsCapsuleCollapseAllCheckBox;
     private bool _isExiting;
     private bool _suppressDirty;
@@ -38,11 +39,11 @@ public sealed partial class AppController : IDisposable
     private bool _ignoreSaveFailures;
     private int _trayRefreshSuppressionDepth;
     private long _saveVersion;
+    private readonly Dictionary<string, int> _visibilityAnimationVersions = new();
     private bool _suppressTopmostForFullscreenForeground;
     private PaperWindow? _noteLinkTargetWindow;
     private string? _noteLinkTargetItemId;
     private MasterCapsuleWindow? _masterCapsule;
-    private readonly Dictionary<string, DeepCapsuleSlotWindow> _deepCapsuleSlots = new();
 
     private static Brush TrayPaperBrush => Theme.PaperBrush;
     private static Brush TrayBorderBrush => Theme.PaperBorderBrush;
@@ -262,10 +263,6 @@ public sealed partial class AppController : IDisposable
         {
             window.RefreshPaperTitle();
         }
-        if (_deepCapsuleSlots.TryGetValue(paper.Id, out var slot))
-        {
-            slot.UpdateTitle();
-        }
         RefreshTrayMenu();
         MarkDirty();
     }
@@ -321,6 +318,45 @@ public sealed partial class AppController : IDisposable
         return true;
     }
 
+    public bool IsNoteLinkedToAnyTodo(PaperData paper)
+    {
+        if (paper.Type != PaperTypes.Note)
+        {
+            return false;
+        }
+
+        var noteId = paper.Id;
+        foreach (var sourcePaper in State.Papers)
+        {
+            if (sourcePaper.Type != PaperTypes.Todo)
+            {
+                continue;
+            }
+
+            foreach (var item in sourcePaper.Items)
+            {
+                if (string.Equals(item.LinkedNoteId, noteId, StringComparison.Ordinal))
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    public bool CanPaperDisplayAsCapsule(PaperData paper)
+    {
+        if (!State.UseCapsuleMode)
+        {
+            return false;
+        }
+
+        return !(State.EnableTodoNoteLinks &&
+            State.HideLinkedNotesFromCapsules &&
+            IsNoteLinkedToAnyTodo(paper));
+    }
+
     public void OpenLinkedNote(string? noteId, Window? anchorWindow = null)
     {
         var note = FindNote(noteId);
@@ -329,14 +365,25 @@ public sealed partial class AppController : IDisposable
             return;
         }
 
-        if (_windows.TryGetValue(note.Id, out var window) && window.IsVisible)
+        if (_windows.TryGetValue(note.Id, out var window))
         {
+            note.IsVisible = true;
+            RescuePaperIfOffScreen(note, State.Papers.IndexOf(note));
+            window.CancelPendingVisibilityTransitions();
+
             if (note.IsCollapsed)
             {
-                window.SetCollapsedState(false);
+                window.ExpandForProgrammaticOpen();
             }
+            else if (!window.HasVisibleSurface)
+            {
+                RestoreExistingPaperWindowSurface(note, window);
+            }
+
             PlaceLinkedNoteBesideAnchor(note, window, anchorWindow);
             ForceWindowToFront(window);
+            RefreshTrayMenu();
+            MarkDirty();
             return;
         }
 
@@ -418,7 +465,7 @@ public sealed partial class AppController : IDisposable
 
         const double gap = 10;
         const double margin = 8;
-        var area = SystemParameters.WorkArea;
+        var area = WindowWorkAreaHelper.WorkAreaFor(anchorWindow);
 
         var noteWidth = Math.Max(
             Math.Max(noteWindow is { ActualWidth: > 1 } ? noteWindow.ActualWidth : 0, note.Width),
@@ -510,10 +557,28 @@ public sealed partial class AppController : IDisposable
         }
     }
 
+    private int NextVisibilityAnimationVersion(string paperId)
+    {
+        _visibilityAnimationVersions.TryGetValue(paperId, out var current);
+        var next = current + 1;
+        _visibilityAnimationVersions[paperId] = next;
+        return next;
+    }
+
+    private bool IsVisibilityAnimationCurrent(string paperId, int version)
+    {
+        return _visibilityAnimationVersions.TryGetValue(paperId, out var current) && current == version;
+    }
+
     public void ShowPaper(PaperData paper)
     {
         RefreshTopmostForForegroundWindow();
+        if (paper.IsCollapsed && !CanPaperDisplayAsCapsule(paper))
+        {
+            paper.IsCollapsed = false;
+        }
         paper.IsVisible = true;
+        var visibilityVersion = NextVisibilityAnimationVersion(paper.Id);
         RescuePaperIfOffScreen(paper, State.Papers.IndexOf(paper));
 
         if (!_windows.TryGetValue(paper.Id, out var window))
@@ -521,8 +586,11 @@ public sealed partial class AppController : IDisposable
             window = new PaperWindow(paper, this);
             _windows[paper.Id] = window;
         }
+        window.CancelPendingVisibilityTransitions();
 
-        if (!window.IsVisible)
+        var showAsDeepCapsuleOnly = State.UseCapsuleMode && State.UseDeepCapsuleMode && paper.IsCollapsed;
+
+        if (!showAsDeepCapsuleOnly && !window.IsVisible)
         {
             window.Left = paper.X;
             window.Top = paper.Y;
@@ -544,6 +612,11 @@ public sealed partial class AppController : IDisposable
 
             window.Dispatcher.InvokeAsync(() =>
             {
+                if (!paper.IsVisible || !IsVisibilityAnimationCurrent(paper.Id, visibilityVersion))
+                {
+                    return;
+                }
+
                 // A retracted collapse-all capsule must stay at Opacity 0; restoring it here
                 // would un-hide it behind the master pill on restart.
                 if (window.IsCollapseAllRetracted)
@@ -566,14 +639,18 @@ public sealed partial class AppController : IDisposable
                 }
             }, System.Windows.Threading.DispatcherPriority.Render);
         }
+        else if (showAsDeepCapsuleOnly && window.IsVisible)
+        {
+            window.HideMainWindowForDeepCapsuleMode();
+        }
 
-        if (!_suppressTopmostForFullscreenForeground)
+        if (!_suppressTopmostForFullscreenForeground && window.IsVisible)
         {
             window.Activate();
         }
-        if (State.UseCapsuleMode && State.UseDeepCapsuleMode && paper.IsCollapsed)
+        if (State.UseCapsuleMode && State.UseDeepCapsuleMode && ShouldPaperOccupyDeepCapsuleSlot(paper, window))
         {
-            ArrangeDeepCapsules();
+            ArrangeDeepCapsules(animate: State.EnableAnimations);
         }
         RefreshTrayMenu();
         MarkDirty();
@@ -613,6 +690,10 @@ public sealed partial class AppController : IDisposable
     {
         if (!_windows.TryGetValue(paper.Id, out var window) || !window.IsVisible)
         {
+            if (paper.IsVisible && window?.IsDeepCapsuleSlotVisible == true)
+            {
+                ShowPaper(paper);
+            }
             return;
         }
 
@@ -633,21 +714,17 @@ public sealed partial class AppController : IDisposable
             window.RefreshEffectiveTopmost();
         }
         _masterCapsule?.RefreshEffectiveTopmost();
-        foreach (var slot in _deepCapsuleSlots.Values)
-        {
-            slot.RefreshEffectiveTopmost();
-        }
     }
 
     public void HidePaper(PaperData paper)
     {
         paper.IsVisible = false;
+        var visibilityVersion = NextVisibilityAnimationVersion(paper.Id);
 
         if (_windows.TryGetValue(paper.Id, out var window))
         {
             var saveGeometry = !window.IsDeepCapsulePlaced;
-            window.ClearDeepCapsuleSlotReservation();
-            DestroyDeepCapsuleSlot(paper.Id);
+            window.ClearDeepCapsulePlacement(animate: State.EnableAnimations);
 
             // 隐藏动画：淡出
             if (State.EnableAnimations && window.IsVisible)
@@ -660,7 +737,7 @@ public sealed partial class AppController : IDisposable
                 {
                     window.BeginAnimation(Window.OpacityProperty, null);
                     window.Opacity = 1;
-                    if (paper.IsVisible)
+                    if (paper.IsVisible || !IsVisibilityAnimationCurrent(paper.Id, visibilityVersion))
                     {
                         return;
                     }
@@ -732,8 +809,6 @@ public sealed partial class AppController : IDisposable
             window.SetCollapsedState(false, animate: false, saveGeometry: !window.IsDeepCapsulePlaced);
         }
 
-        DestroyAllDeepCapsuleSlots();
-
         foreach (var paper in State.Papers)
         {
             paper.IsCollapsed = false;
@@ -749,7 +824,6 @@ public sealed partial class AppController : IDisposable
 
         if (_windows.TryGetValue(paper.Id, out var window))
         {
-            DestroyDeepCapsuleSlot(paper.Id);
             window.CloseForReal();
             _windows.Remove(paper.Id);
         }
@@ -804,6 +878,19 @@ public sealed partial class AppController : IDisposable
                 todoWindow.RefreshTodoRowsForExternalChange();
             }
         }
+
+        RefreshCapsuleEligibilityForLinkedNotes();
+    }
+
+    public void RefreshCapsuleEligibilityForLinkedNotes()
+    {
+        foreach (var window in _windows.Values)
+        {
+            window.RefreshCapsuleEligibility();
+        }
+
+        ArrangeDeepCapsules(animate: State.EnableAnimations);
+        RefreshTrayMenu();
     }
 
     public bool IsPaperEmpty(PaperData paper)
@@ -921,8 +1008,8 @@ public sealed partial class AppController : IDisposable
             foreach (var window in _windows.Values)
             {
                 window.ClearDeepCapsulePlacement();
+                window.ClearDeepCapsuleSlotReservation();
             }
-            DestroyAllDeepCapsuleSlots();
             DestroyMasterCapsule();
             return;
         }
@@ -942,28 +1029,31 @@ public sealed partial class AppController : IDisposable
                 continue;
             }
 
-            if (paper.IsVisible && window.OccupiesDeepCapsuleSlot)
+            if (ShouldPaperOccupyDeepCapsuleSlot(paper, window))
             {
-                if (paper.IsCollapsed && retracted)
+                if (retracted)
                 {
                     window.RetractIntoMaster(DeepCapsuleLayout.TopForIndex(0), animate);
                 }
                 else if (paper.IsCollapsed)
                 {
-                    DestroyDeepCapsuleSlot(paper.Id);
                     window.ApplyDeepCapsulePlacement(capsuleIndex, animate, visualOffset);
                 }
                 else
                 {
-                    window.ClearDeepCapsulePlacement(restoreCollapsedPosition: false);
-                    UpsertDeepCapsuleSlot(paper, capsuleIndex, visualOffset, animate);
+                    window.ApplyExpandedDeepCapsuleSlotPlacement(capsuleIndex, animate, visualOffset);
                 }
                 capsuleIndex++;
             }
             else
             {
+                if (!paper.IsVisible && window.HasExpandedDeepCapsuleSlotReservation)
+                {
+                    continue;
+                }
+
                 window.ClearDeepCapsulePlacement();
-                DestroyDeepCapsuleSlot(paper.Id);
+                window.ClearDeepCapsuleSlotReservation();
             }
         }
 
@@ -1014,45 +1104,6 @@ public sealed partial class AppController : IDisposable
 
         _masterCapsule.CloseForReal();
         _masterCapsule = null;
-    }
-
-    private void UpsertDeepCapsuleSlot(PaperData paper, int index, int visualOffset, bool animate)
-    {
-        if (!_windows.TryGetValue(paper.Id, out var window) || !window.IsVisible || paper.IsCollapsed || !window.OccupiesDeepCapsuleSlot)
-        {
-            DestroyDeepCapsuleSlot(paper.Id);
-            return;
-        }
-
-        if (!_deepCapsuleSlots.TryGetValue(paper.Id, out var slot))
-        {
-            slot = new DeepCapsuleSlotWindow(this, paper);
-            _deepCapsuleSlots[paper.Id] = slot;
-            slot.ShowPlaced(index, visualOffset);
-            return;
-        }
-
-        slot.UpdatePlacement(index, visualOffset, animate);
-    }
-
-    private void DestroyDeepCapsuleSlot(string paperId)
-    {
-        if (!_deepCapsuleSlots.Remove(paperId, out var slot))
-        {
-            return;
-        }
-
-        slot.CloseForReal();
-    }
-
-    private void DestroyAllDeepCapsuleSlots()
-    {
-        foreach (var slot in _deepCapsuleSlots.Values)
-        {
-            slot.CloseForReal();
-        }
-
-        _deepCapsuleSlots.Clear();
     }
 
     // Toggle whether the real capsules are retracted behind the master pill.
@@ -1110,18 +1161,35 @@ public sealed partial class AppController : IDisposable
                 continue;
             }
 
-            if (!_windows.TryGetValue(paper.Id, out var window) || !window.IsVisible)
+            if (!_windows.TryGetValue(paper.Id, out var window))
             {
                 continue;
             }
 
-            if (window.OccupiesDeepCapsuleSlot)
+            if (ShouldPaperOccupyDeepCapsuleSlot(paper, window))
             {
                 papers.Add(paper);
             }
         }
 
         return papers;
+    }
+
+    private bool ShouldPaperOccupyDeepCapsuleSlot(PaperData paper, PaperWindow window)
+    {
+        if (!paper.IsVisible || !CanPaperDisplayAsCapsule(paper))
+        {
+            return false;
+        }
+
+        if (paper.IsCollapsed)
+        {
+            return true;
+        }
+
+        return State.UseDeepCapsuleMode &&
+            State.ShowDeepCapsuleWhileExpanded &&
+            window.HasVisibleSurface;
     }
 
     public void MarkDirty()
@@ -1267,7 +1335,7 @@ public sealed partial class AppController : IDisposable
 
     private bool IsPaperShown(PaperData paper)
     {
-        return paper.IsVisible && _windows.TryGetValue(paper.Id, out var window) && window.IsVisible;
+        return paper.IsVisible && _windows.TryGetValue(paper.Id, out var window) && window.HasVisibleSurface;
     }
 
     private bool EnsurePapersOnScreen()
@@ -1283,23 +1351,64 @@ public sealed partial class AppController : IDisposable
 
     private static bool RescuePaperIfOffScreen(PaperData paper, int offsetIndex)
     {
+        var area = SystemParameters.WorkArea;
+        var originalWidth = paper.Width;
+        var originalHeight = paper.Height;
+        paper.Width = ClampPaperDimension(
+            paper.Width,
+            paper.Type == PaperTypes.Note ? PaperLayoutDefaults.NoteDefaultWidth : PaperLayoutDefaults.TodoDefaultWidth,
+            PaperLayoutDefaults.MinWidth,
+            Math.Max(PaperLayoutDefaults.MinWidth, area.Width - 80));
+        paper.Height = ClampPaperDimension(
+            paper.Height,
+            paper.Type == PaperTypes.Note ? PaperLayoutDefaults.NoteDefaultHeight : PaperLayoutDefaults.TodoDefaultHeight,
+            PaperLayoutDefaults.MinHeight,
+            Math.Max(PaperLayoutDefaults.MinHeight, area.Height - 80));
+        var resized = DimensionChanged(originalWidth, paper.Width) ||
+            DimensionChanged(originalHeight, paper.Height);
+
         if (IsPaperOnAnyScreen(paper))
         {
-            return false;
+            return resized;
         }
 
-        var area = SystemParameters.WorkArea;
         var offset = Math.Min(Math.Max(offsetIndex, 0), 8) * 22;
 
-        paper.Width = Math.Clamp(paper.Width, PaperLayoutDefaults.MinWidth, Math.Max(PaperLayoutDefaults.MinWidth, area.Width - 80));
-        paper.Height = Math.Clamp(paper.Height, PaperLayoutDefaults.MinHeight, Math.Max(PaperLayoutDefaults.MinHeight, area.Height - 80));
         paper.X = area.Left + 40 + offset;
         paper.Y = area.Top + 40 + offset;
         return true;
     }
 
+    private static double ClampPaperDimension(double value, double fallback, double min, double max)
+    {
+        if (double.IsNaN(value) || double.IsInfinity(value) || value <= 0)
+        {
+            value = fallback;
+        }
+
+        return Math.Clamp(value, min, max);
+    }
+
+    private static bool DimensionChanged(double oldValue, double newValue)
+    {
+        if (double.IsNaN(oldValue) || double.IsInfinity(oldValue))
+        {
+            return true;
+        }
+
+        return Math.Abs(newValue - oldValue) > 0.001;
+    }
+
     private static bool IsPaperOnAnyScreen(PaperData paper)
     {
+        if (double.IsNaN(paper.X) ||
+            double.IsInfinity(paper.X) ||
+            double.IsNaN(paper.Y) ||
+            double.IsInfinity(paper.Y))
+        {
+            return false;
+        }
+
         var virtualScreen = new Rect(
             SystemParameters.VirtualScreenLeft,
             SystemParameters.VirtualScreenTop,
@@ -1709,10 +1818,6 @@ public sealed partial class AppController : IDisposable
             window.UpdateTheme();
         }
         _masterCapsule?.UpdateTheme();
-        foreach (var slot in _deepCapsuleSlots.Values)
-        {
-            slot.UpdateTheme();
-        }
 
         RebuildTrayMenu();
         RefreshSettingsWindowContent();
@@ -1746,10 +1851,6 @@ public sealed partial class AppController : IDisposable
             window.UpdateTheme();
         }
         _masterCapsule?.UpdateTheme();
-        foreach (var slot in _deepCapsuleSlots.Values)
-        {
-            slot.UpdateTheme();
-        }
 
         RebuildTrayMenu();
         RefreshSettingsWindowContent();
@@ -2071,7 +2172,7 @@ public sealed partial class AppController : IDisposable
             AllowsTransparency = true,
             Background = Brushes.Transparent,
             ShowInTaskbar = false,
-            Topmost = true,
+            Topmost = false,
             WindowStartupLocation = WindowStartupLocation.CenterScreen,
             FontFamily = new FontFamily("Segoe UI"),
             SnapsToDevicePixels = true,
@@ -2096,6 +2197,7 @@ public sealed partial class AppController : IDisposable
             _settingsExternalMarkdownTextBox = null;
             _settingsCapsuleModeCheckBox = null;
             _settingsDeepCapsuleModeCheckBox = null;
+            _settingsDeepCapsuleExpandedSlotCheckBox = null;
             _settingsCapsuleCollapseAllCheckBox = null;
             _settingsWindow = null;
         };
@@ -2120,9 +2222,15 @@ public sealed partial class AppController : IDisposable
 
     private UIElement BuildSettingsWindowContent(Window window)
     {
+        var root = new DockPanel
+        {
+            Width = 288,
+            LastChildFill = true
+        };
+
         var panel = new StackPanel
         {
-            Width = 288
+            Margin = new Thickness(0, 0, 4, 0)
         };
 
         var titleRow = new Grid
@@ -2169,7 +2277,8 @@ public sealed partial class AppController : IDisposable
         Grid.SetColumn(closeButton, 1);
         titleRow.Children.Add(closeButton);
 
-        panel.Children.Add(titleRow);
+        DockPanel.SetDock(titleRow, Dock.Top);
+        root.Children.Add(titleRow);
 
         // 外观
         panel.Children.Add(SettingsSectionLabel(Strings.Get("SettingsDisplay")));
@@ -2183,7 +2292,12 @@ public sealed partial class AppController : IDisposable
         // 待办与笔记：两个关联笔记选项归到一起（原先分散在「显示」和「行为」）。
         panel.Children.Add(SettingsSectionLabel(Strings.Get("SettingsTodoNote")));
         panel.Children.Add(WrapWithHint(SettingsToggle(Strings.Get("SettingsEnableTodoNoteLinks"), State.EnableTodoNoteLinks, ToggleTodoNoteLinks), "TipEnableTodoNoteLinks"));
-        panel.Children.Add(WrapWithHint(SettingsToggle(Strings.Get("SettingsShowLinkedNoteName"), State.ShowLinkedNoteName, ToggleLinkedNoteNameDisplay), "TipShowLinkedNoteName"));
+        var showLinkedNoteNameToggle = SettingsToggle(Strings.Get("SettingsShowLinkedNoteName"), State.ShowLinkedNoteName, ToggleLinkedNoteNameDisplay);
+        showLinkedNoteNameToggle.IsEnabled = State.EnableTodoNoteLinks;
+        panel.Children.Add(WrapWithHint(showLinkedNoteNameToggle, "TipShowLinkedNoteName"));
+        var hideLinkedNotesFromCapsulesToggle = SettingsToggle(Strings.Get("SettingsHideLinkedNotesFromCapsules"), State.HideLinkedNotesFromCapsules, ToggleHideLinkedNotesFromCapsules);
+        hideLinkedNotesFromCapsulesToggle.IsEnabled = State.EnableTodoNoteLinks;
+        panel.Children.Add(WrapWithHint(hideLinkedNotesFromCapsulesToggle, "TipHideLinkedNotesFromCapsules"));
 
         // 顶栏按钮：三个「显示某按钮」开关放在一组（外部打开按钮原先错放在「外部打开」组）。
         panel.Children.Add(SettingsSectionLabel(Strings.Get("SettingsTopBarButtons")));
@@ -2200,10 +2314,13 @@ public sealed partial class AppController : IDisposable
         panel.Children.Add(SettingsSectionLabel(Strings.Get("SettingsCapsule")));
         _settingsCapsuleModeCheckBox = SettingsToggle(Strings.Get("TrayCapsuleMode"), State.UseCapsuleMode, ToggleCapsuleMode);
         _settingsDeepCapsuleModeCheckBox = SettingsToggle(Strings.Get("TrayDeepCapsuleMode"), State.UseDeepCapsuleMode, ToggleDeepCapsuleMode);
+        _settingsDeepCapsuleExpandedSlotCheckBox = SettingsToggle(Strings.Get("SettingsShowDeepCapsuleWhileExpanded"), State.ShowDeepCapsuleWhileExpanded, ToggleDeepCapsuleExpandedSlot);
         _settingsCapsuleCollapseAllCheckBox = SettingsToggle(Strings.Get("SettingsCapsuleCollapseAll"), State.UseCapsuleCollapseAll, ToggleCapsuleCollapseAll);
         panel.Children.Add(WrapWithHint(_settingsCapsuleModeCheckBox, "TipCapsuleMode"));
         panel.Children.Add(WrapWithHint(_settingsDeepCapsuleModeCheckBox, "TipDeepCapsuleMode"));
+        panel.Children.Add(WrapWithHint(_settingsDeepCapsuleExpandedSlotCheckBox, "TipShowDeepCapsuleWhileExpanded"));
         panel.Children.Add(WrapWithHint(_settingsCapsuleCollapseAllCheckBox, "TipCapsuleCollapseAll"));
+        RefreshSettingsCapsuleToggleStates();
         panel.Children.Add(WrapWithHint(SettingsFieldLabel(Strings.Get("SettingsMaxTitleLength"), topMargin: 8), "TipMaxTitleLength"));
         panel.Children.Add(CreateMaxTitleLengthStepper());
 
@@ -2213,15 +2330,39 @@ public sealed partial class AppController : IDisposable
         panel.Children.Add(WrapWithHint(SettingsToggle(Strings.Get("SettingsEnableToolTips"), State.EnableToolTips, ToggleToolTips), "TipEnableToolTips"));
         panel.Children.Add(WrapWithHint(SettingsToggle(Strings.Get("SettingsEnableAnimations"), State.EnableAnimations, ToggleAnimations), "TipEnableAnimations"));
 
+        var scrollViewer = new ScrollViewer
+        {
+            Content = panel,
+            MaxHeight = SettingsOptionsMaxHeight(),
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            CanContentScroll = false,
+            PanningMode = PanningMode.VerticalOnly
+        };
+        root.Children.Add(scrollViewer);
+
         return new Border
         {
             Background = TrayPaperBrush,
             BorderBrush = TrayBorderBrush,
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(12),
+            MaxHeight = SettingsWindowMaxHeight(),
             Padding = new Thickness(14, 12, 14, 14),
-            Child = panel
+            Child = root
         };
+    }
+
+    private static double SettingsWindowMaxHeight()
+    {
+        return Math.Max(260, SystemParameters.WorkArea.Height - 48);
+    }
+
+    private static double SettingsOptionsMaxHeight()
+    {
+        const double verticalPadding = 26;
+        const double titleRowHeight = 34;
+        return Math.Max(180, SettingsWindowMaxHeight() - verticalPadding - titleRowHeight);
     }
 
     private static TextBlock SettingsSectionLabel(string text)
@@ -2341,10 +2482,17 @@ public sealed partial class AppController : IDisposable
         if (_settingsDeepCapsuleModeCheckBox != null)
         {
             _settingsDeepCapsuleModeCheckBox.IsChecked = State.UseDeepCapsuleMode;
+            _settingsDeepCapsuleModeCheckBox.IsEnabled = State.UseCapsuleMode;
+        }
+        if (_settingsDeepCapsuleExpandedSlotCheckBox != null)
+        {
+            _settingsDeepCapsuleExpandedSlotCheckBox.IsChecked = State.ShowDeepCapsuleWhileExpanded;
+            _settingsDeepCapsuleExpandedSlotCheckBox.IsEnabled = State.UseCapsuleMode && State.UseDeepCapsuleMode;
         }
         if (_settingsCapsuleCollapseAllCheckBox != null)
         {
             _settingsCapsuleCollapseAllCheckBox.IsChecked = State.UseCapsuleCollapseAll;
+            _settingsCapsuleCollapseAllCheckBox.IsEnabled = State.UseCapsuleMode && State.UseDeepCapsuleMode;
         }
     }
 
@@ -2520,8 +2668,20 @@ public sealed partial class AppController : IDisposable
         var area = SystemParameters.WorkArea;
         var width = window.ActualWidth > 1 ? window.ActualWidth : window.Width;
         var height = window.ActualHeight > 1 ? window.ActualHeight : 280;
-        window.Left = area.Left + Math.Max(16, (area.Width - width) / 2);
-        window.Top = area.Top + Math.Max(16, (area.Height - height) / 2);
+        var minLeft = area.Left + 16;
+        var minTop = area.Top + 16;
+        var maxLeft = area.Right - width - 16;
+        var maxTop = area.Bottom - height - 16;
+        var centeredLeft = area.Left + (area.Width - width) / 2;
+        var centeredTop = area.Top + (area.Height - height) / 2;
+
+        window.Left = ClampWindowCoordinate(centeredLeft, minLeft, maxLeft);
+        window.Top = ClampWindowCoordinate(centeredTop, minTop, maxTop);
+    }
+
+    private static double ClampWindowCoordinate(double value, double min, double max)
+    {
+        return max < min ? min : Math.Clamp(value, min, max);
     }
 
     private void RefreshTrayMenu()
@@ -2809,6 +2969,7 @@ public sealed partial class AppController : IDisposable
                     {
                         window.UpdateTheme();
                     }
+                    _masterCapsule?.UpdateTheme();
                     RebuildTrayMenu();
                     RefreshSettingsWindowContent();
                 }));
@@ -2854,11 +3015,6 @@ public sealed partial class AppController : IDisposable
 
         _masterCapsule?.UpdateToolTipSetting();
 
-        foreach (var slot in _deepCapsuleSlots.Values)
-        {
-            slot.UpdateToolTipSetting();
-        }
-
         if (_settingsWindow != null)
         {
             ApplyToolTipSetting(_settingsWindow);
@@ -2882,6 +3038,8 @@ public sealed partial class AppController : IDisposable
         if (!State.UseCapsuleMode)
         {
             State.UseDeepCapsuleMode = false;
+            State.UseCapsuleCollapseAll = false;
+            State.CapsuleCollapseAllActive = false;
             foreach (var paper in State.Papers)
             {
                 paper.IsCollapsed = false;
@@ -2889,6 +3047,7 @@ public sealed partial class AppController : IDisposable
         }
 
         ArrangeDeepCapsules();
+        RestoreMissingVisiblePaperSurfaces();
         SaveNow();
         RebuildTrayMenu();
         RefreshSettingsCapsuleToggleStates();
@@ -2921,6 +3080,14 @@ public sealed partial class AppController : IDisposable
             window.RefreshTodoRowsForExternalChange();
         }
 
+        SaveNow();
+        RefreshSettingsWindowContent();
+    }
+
+    private void ToggleHideLinkedNotesFromCapsules()
+    {
+        State.HideLinkedNotesFromCapsules = !State.HideLinkedNotesFromCapsules;
+        RefreshCapsuleEligibilityForLinkedNotes();
         SaveNow();
         RefreshSettingsWindowContent();
     }
@@ -2962,6 +3129,11 @@ public sealed partial class AppController : IDisposable
                 window.UpdateCapsuleMode();
             }
         }
+        else if (!State.UseDeepCapsuleMode)
+        {
+            State.UseCapsuleCollapseAll = false;
+            State.CapsuleCollapseAllActive = false;
+        }
 
         foreach (var window in _windows.Values)
         {
@@ -2969,9 +3141,67 @@ public sealed partial class AppController : IDisposable
         }
 
         ArrangeDeepCapsules();
+        RestoreMissingVisiblePaperSurfaces();
         SaveNow();
         RebuildTrayMenu();
         RefreshSettingsCapsuleToggleStates();
+    }
+
+    private void ToggleDeepCapsuleExpandedSlot()
+    {
+        State.ShowDeepCapsuleWhileExpanded = !State.ShowDeepCapsuleWhileExpanded;
+
+        foreach (var window in _windows.Values)
+        {
+            window.UpdateDeepCapsuleExpandedSlotMode();
+        }
+
+        ArrangeDeepCapsules(animate: State.EnableAnimations);
+        SaveNow();
+        RefreshSettingsCapsuleToggleStates();
+    }
+
+    private void RestoreMissingVisiblePaperSurfaces()
+    {
+        foreach (var paper in State.Papers.ToList())
+        {
+            if (!paper.IsVisible ||
+                !_windows.TryGetValue(paper.Id, out var window) ||
+                window.HasVisibleSurface)
+            {
+                continue;
+            }
+
+            RestoreExistingPaperWindowSurface(paper, window);
+        }
+    }
+
+    private void RestoreExistingPaperWindowSurface(PaperData paper, PaperWindow window)
+    {
+        RescuePaperIfOffScreen(paper, State.Papers.IndexOf(paper));
+        window.CancelPendingVisibilityTransitions();
+        window.ClearDeepCapsulePlacement(animate: false);
+        window.ClearDeepCapsuleSlotReservation(animate: false);
+
+        window.Left = paper.X;
+        window.Top = paper.Y;
+        if (paper.IsCollapsed && State.UseCapsuleMode)
+        {
+            window.Width = window.DesiredCapsuleWindowWidth;
+            window.Height = PaperLayoutDefaults.CapsuleHeight;
+        }
+        else
+        {
+            window.Width = paper.Width;
+            window.Height = paper.Height;
+        }
+
+        window.Opacity = 1.0;
+        if (!window.IsVisible)
+        {
+            window.Show();
+        }
+        window.RefreshEffectiveTopmost();
     }
 
     public void Dispose()
@@ -2985,7 +3215,10 @@ public sealed partial class AppController : IDisposable
         }
         _settingsWindow?.Close();
         _settingsWindow = null;
-        DestroyAllDeepCapsuleSlots();
+        foreach (var window in _windows.Values)
+        {
+            window.ClearDeepCapsuleSlotReservation();
+        }
         _masterCapsule?.CloseForReal();
         _masterCapsule = null;
         _trayIcon?.Dispose();

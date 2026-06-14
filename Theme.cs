@@ -111,6 +111,7 @@ public static class Theme
     public static Brush PaperBorderBrush => Solid(Current.PaperBorder);
     public static Brush TextBrush => Solid(Current.Text);
     public static Brush WeakTextBrush => Solid(Current.WeakText);
+    public static Brush BrightWeakTextBrush => Solid(IsDark ? Lighten(Current.WeakText, 0.22) : Current.WeakText);
     public static Brush ActiveBrush => Solid(Current.Active);
     public static Brush CodeBrush => Solid(Current.Code);
     public static Brush QuoteBorderBrush => Solid(Current.QuoteBorder);
@@ -119,6 +120,7 @@ public static class Theme
     public static Brush DangerBrush => Solid(Current.Danger);
 
     public static Brush HoverBrush => Tint((byte)(IsDark ? 48 : 32));
+    public static Brush CapsuleFocusBorderBrush => Solid(Mix(Current.Active, Current.Text, IsDark ? 0.38 : 0.08));
 
     // ---- 派生画刷 ----
     /// <summary>在当前主题的暖色叠加基上按 alpha 取一层半透明画刷。</summary>

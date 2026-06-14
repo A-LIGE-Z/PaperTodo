@@ -39,6 +39,27 @@ public static class MarkdownRenderModes
 public static class ExternalMarkdownFileExtensions
 {
     public const string Default = ".md";
+    private static readonly HashSet<string> BlockedExecutableExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".bat",
+        ".cmd",
+        ".com",
+        ".cpl",
+        ".exe",
+        ".hta",
+        ".js",
+        ".jse",
+        ".lnk",
+        ".msi",
+        ".pif",
+        ".ps1",
+        ".reg",
+        ".scr",
+        ".vbe",
+        ".vbs",
+        ".wsf",
+        ".wsh"
+    };
 
     public static string Normalize(string? extension)
     {
@@ -64,7 +85,8 @@ public static class ExternalMarkdownFileExtensions
             return Default;
         }
 
-        return value.ToLowerInvariant();
+        var normalized = value.ToLowerInvariant();
+        return BlockedExecutableExtensions.Contains(normalized) ? Default : normalized;
     }
 }
 
@@ -83,9 +105,11 @@ public sealed class AppState
     public bool ShowTopBarExternalOpenButton { get; set; } = true;
     public bool EnableTodoNoteLinks { get; set; } = true;
     public bool ShowLinkedNoteName { get; set; }
+    public bool HideLinkedNotesFromCapsules { get; set; }
     public int MaxTitleLength { get; set; } = PaperTitles.DefaultMaxTitleLength;
     public bool UseCapsuleCollapseAll { get; set; }
     public bool CapsuleCollapseAllActive { get; set; }
+    public bool ShowDeepCapsuleWhileExpanded { get; set; } = true;
     public bool EnableAnimations { get; set; } = true;
     public bool EnableToolTips { get; set; } = true;
 
