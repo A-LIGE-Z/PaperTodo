@@ -5,7 +5,10 @@ namespace PaperTodo;
 internal static class FullscreenForegroundWindowDetector
 {
     private const uint MonitorDefaultToNearest = 2;
+    private const uint GwHwndNext = 2;
     private const int FullscreenTolerance = 2;
+    private const int MaxZOrderWindowsToProbe = 48;
+    private static IntPtr _lastExternalForegroundWindow;
 
     public static bool IsForegroundFullscreen()
     {
@@ -15,18 +18,61 @@ internal static class FullscreenForegroundWindowDetector
             return false;
         }
 
-        _ = GetWindowThreadProcessId(foreground, out var processId);
-        if (processId == Environment.ProcessId)
+        if (IsCurrentProcessWindow(foreground))
+        {
+            return IsTrackedExternalForegroundFullscreen() || IsTopExternalWindowFullscreen();
+        }
+
+        _lastExternalForegroundWindow = foreground;
+        return IsFullscreenWindow(foreground);
+    }
+
+    private static bool IsTrackedExternalForegroundFullscreen()
+    {
+        if (_lastExternalForegroundWindow == IntPtr.Zero)
         {
             return false;
         }
 
-        if (!GetWindowRect(foreground, out var windowRect) || windowRect.IsEmpty)
+        if (!IsWindow(_lastExternalForegroundWindow) || IsCurrentProcessWindow(_lastExternalForegroundWindow))
+        {
+            _lastExternalForegroundWindow = IntPtr.Zero;
+            return false;
+        }
+
+        return IsFullscreenWindow(_lastExternalForegroundWindow);
+    }
+
+    private static bool IsTopExternalWindowFullscreen()
+    {
+        var hwnd = GetTopWindow(IntPtr.Zero);
+        for (var i = 0; hwnd != IntPtr.Zero && i < MaxZOrderWindowsToProbe; i++)
+        {
+            if (!IsCurrentProcessWindow(hwnd) && IsVisibleWindow(hwnd))
+            {
+                if (IsFullscreenWindow(hwnd))
+                {
+                    _lastExternalForegroundWindow = hwnd;
+                    return true;
+                }
+
+                return false;
+            }
+
+            hwnd = GetWindow(hwnd, GwHwndNext);
+        }
+
+        return false;
+    }
+
+    private static bool IsFullscreenWindow(IntPtr hwnd)
+    {
+        if (!IsVisibleWindow(hwnd) || !GetWindowRect(hwnd, out var windowRect) || windowRect.IsEmpty)
         {
             return false;
         }
 
-        var monitor = MonitorFromWindow(foreground, MonitorDefaultToNearest);
+        var monitor = MonitorFromWindow(hwnd, MonitorDefaultToNearest);
         if (monitor == IntPtr.Zero)
         {
             return false;
@@ -44,6 +90,17 @@ internal static class FullscreenForegroundWindowDetector
         return CoversMonitor(windowRect, monitorInfo.Monitor);
     }
 
+    private static bool IsVisibleWindow(IntPtr hwnd)
+    {
+        return IsWindowVisible(hwnd) && !IsIconic(hwnd);
+    }
+
+    private static bool IsCurrentProcessWindow(IntPtr hwnd)
+    {
+        _ = GetWindowThreadProcessId(hwnd, out var processId);
+        return processId == Environment.ProcessId;
+    }
+
     private static bool CoversMonitor(Rectangle windowRect, Rectangle monitorRect)
     {
         return windowRect.Left <= monitorRect.Left + FullscreenTolerance &&
@@ -54,6 +111,21 @@ internal static class FullscreenForegroundWindowDetector
 
     [DllImport("user32.dll")]
     private static extern IntPtr GetForegroundWindow();
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetTopWindow(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetWindow(IntPtr hWnd, uint uCmd);
+
+    [DllImport("user32.dll")]
+    private static extern bool IsWindow(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    private static extern bool IsWindowVisible(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    private static extern bool IsIconic(IntPtr hWnd);
 
     [DllImport("user32.dll")]
     private static extern bool GetWindowRect(IntPtr hWnd, out Rectangle lpRect);

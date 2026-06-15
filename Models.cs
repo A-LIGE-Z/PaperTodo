@@ -39,27 +39,6 @@ public static class MarkdownRenderModes
 public static class ExternalMarkdownFileExtensions
 {
     public const string Default = ".md";
-    private static readonly HashSet<string> BlockedExecutableExtensions = new(StringComparer.OrdinalIgnoreCase)
-    {
-        ".bat",
-        ".cmd",
-        ".com",
-        ".cpl",
-        ".exe",
-        ".hta",
-        ".js",
-        ".jse",
-        ".lnk",
-        ".msi",
-        ".pif",
-        ".ps1",
-        ".reg",
-        ".scr",
-        ".vbe",
-        ".vbs",
-        ".wsf",
-        ".wsh"
-    };
 
     public static string Normalize(string? extension)
     {
@@ -85,8 +64,7 @@ public static class ExternalMarkdownFileExtensions
             return Default;
         }
 
-        var normalized = value.ToLowerInvariant();
-        return BlockedExecutableExtensions.Contains(normalized) ? Default : normalized;
+        return value.ToLowerInvariant();
     }
 }
 

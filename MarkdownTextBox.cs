@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.IO;
 using System.Text;
 using System.Windows;
 using System.Windows.Controls;
@@ -411,7 +412,7 @@ public sealed class MarkdownTextBox : TextEditor
                      line = line.NextLine)
                 {
                     var text = Document.GetText(line);
-                    foreach (var link in EnumerateMarkdownLinks(text))
+                    foreach (var link in EnumerateInlineLinks(text))
                     {
                         var segment = new TextSegment
                         {
@@ -569,7 +570,7 @@ public sealed class MarkdownTextBox : TextEditor
         var text = Document.GetText(line);
         var indexInLine = Math.Clamp(clampedOffset - line.Offset, 0, text.Length);
 
-        foreach (var link in EnumerateMarkdownLinks(text))
+        foreach (var link in EnumerateInlineLinks(text))
         {
             if (indexInLine >= link.Start && indexInLine < link.End)
             {
@@ -672,6 +673,20 @@ public sealed class MarkdownTextBox : TextEditor
         public int Start { get; }
         public int End { get; }
         public string Url { get; }
+    }
+
+    private static bool IsIgnored(IReadOnlyList<InlineSpan> ignoredSpans, int start, int length)
+    {
+        var end = start + length;
+        foreach (var span in ignoredSpans)
+        {
+            if (span.Intersects(start, end))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private MarkdownLineStyle AnalyzeLine(IDocument document, DocumentLine line, string text)
@@ -955,9 +970,19 @@ public sealed class MarkdownTextBox : TextEditor
             trimmed = "https://" + trimmed;
         }
 
+        if (TryNormalizeLocalMarkdownPath(trimmed, out normalizedUrl))
+        {
+            return true;
+        }
+
         if (!Uri.TryCreate(trimmed, UriKind.Absolute, out var uri))
         {
             return false;
+        }
+
+        if (uri.IsFile)
+        {
+            return TryNormalizeLocalMarkdownPath(uri.LocalPath, out normalizedUrl);
         }
 
         if (uri.Scheme is not ("http" or "https" or "mailto"))
@@ -967,6 +992,105 @@ public sealed class MarkdownTextBox : TextEditor
 
         normalizedUrl = uri.AbsoluteUri;
         return true;
+    }
+
+    private readonly struct HtmlInlineSpan
+    {
+        public HtmlInlineSpan(
+            int start,
+            int openEnd,
+            int closeStart,
+            int end,
+            string tagName,
+            string? url)
+        {
+            Start = start;
+            OpenEnd = openEnd;
+            CloseStart = closeStart;
+            End = end;
+            TagName = tagName;
+            Url = url;
+        }
+
+        public int Start { get; }
+        public int OpenEnd { get; }
+        public int ContentStart => OpenEnd;
+        public int ContentEnd => CloseStart;
+        public int CloseStart { get; }
+        public int End { get; }
+        public string TagName { get; }
+        public string? Url { get; }
+    }
+
+    private static bool TryNormalizeLocalMarkdownPath(string rawPath, out string normalizedPath)
+    {
+        normalizedPath = "";
+        var trimmed = rawPath.Trim();
+        if (!LooksLikeLocalMarkdownPath(trimmed) || IsDevicePath(trimmed))
+        {
+            return false;
+        }
+
+        try
+        {
+            var fullPath = Path.GetFullPath(trimmed);
+            if (IsDevicePath(fullPath))
+            {
+                return false;
+            }
+
+            normalizedPath = fullPath;
+            return true;
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+        catch (NotSupportedException)
+        {
+            return false;
+        }
+        catch (PathTooLongException)
+        {
+            return false;
+        }
+    }
+
+    private static bool LooksLikeLocalMarkdownPath(string text)
+    {
+        return IsWindowsDrivePath(text) || IsUncPath(text);
+    }
+
+    private static bool IsWindowsDrivePath(string text)
+    {
+        return text.Length >= 3 &&
+            IsAsciiLetter(text[0]) &&
+            text[1] == ':' &&
+            IsDirectorySeparator(text[2]);
+    }
+
+    private static bool IsUncPath(string text)
+    {
+        return text.Length >= 3 &&
+            IsDirectorySeparator(text[0]) &&
+            IsDirectorySeparator(text[1]) &&
+            !IsDirectorySeparator(text[2]);
+    }
+
+    private static bool IsDevicePath(string text)
+    {
+        return text.StartsWith(@"\\.\", StringComparison.Ordinal) ||
+            text.StartsWith(@"\\?\", StringComparison.Ordinal);
+    }
+
+    private static bool IsDirectorySeparator(char value)
+    {
+        return value is '\\' or '/';
+    }
+
+    private static bool IsAsciiLetter(char value)
+    {
+        return value is >= 'A' and <= 'Z' or >= 'a' and <= 'z';
     }
 
     private static IEnumerable<MarkdownLinkSpan> EnumerateMarkdownLinks(string text)
@@ -1001,6 +1125,292 @@ public sealed class MarkdownTextBox : TextEditor
 
             search = spanEnd;
         }
+    }
+
+    private static IEnumerable<MarkdownLinkSpan> EnumerateInlineLinks(string text)
+    {
+        var ignoredSpans = EnumerateClosedInlineCodeSpans(text).ToList();
+        foreach (var link in EnumerateMarkdownLinks(text))
+        {
+            if (!IsIgnored(ignoredSpans, link.Start, link.End - link.Start))
+            {
+                yield return link;
+            }
+        }
+
+        foreach (var html in EnumerateHtmlInlineSpans(text, ignoredSpans))
+        {
+            if (html.Url != null)
+            {
+                yield return new MarkdownLinkSpan(html.Start, html.End, html.Url);
+            }
+        }
+    }
+
+    private static IEnumerable<HtmlInlineSpan> EnumerateHtmlInlineSpans(string text, IReadOnlyList<InlineSpan> ignoredSpans)
+    {
+        var search = 0;
+        while (search < text.Length)
+        {
+            var openStart = text.IndexOf('<', search);
+            if (openStart < 0)
+            {
+                yield break;
+            }
+
+            if (!TryParseHtmlOpeningTag(text, openStart, out var tagName, out var openEnd, out var url))
+            {
+                search = openStart + 1;
+                continue;
+            }
+
+            if (!TryFindHtmlClosingTag(text, tagName, openEnd, out var closeStart, out var closeEnd))
+            {
+                search = openEnd;
+                continue;
+            }
+
+            if (closeStart > openEnd &&
+                !IsIgnored(ignoredSpans, openStart, closeEnd - openStart))
+            {
+                yield return new HtmlInlineSpan(openStart, openEnd, closeStart, closeEnd, tagName, url);
+            }
+
+            search = closeEnd;
+        }
+    }
+
+    private static bool TryParseHtmlOpeningTag(
+        string text,
+        int openStart,
+        out string tagName,
+        out int openEnd,
+        out string? url)
+    {
+        tagName = "";
+        openEnd = openStart;
+        url = null;
+
+        if (openStart + 2 >= text.Length ||
+            text[openStart] != '<' ||
+            text[openStart + 1] == '/')
+        {
+            return false;
+        }
+
+        var nameStart = openStart + 1;
+        var nameEnd = nameStart;
+        while (nameEnd < text.Length && IsHtmlTagNameChar(text[nameEnd]))
+        {
+            nameEnd++;
+        }
+
+        if (nameEnd == nameStart)
+        {
+            return false;
+        }
+
+        tagName = text[nameStart..nameEnd].ToLowerInvariant();
+        if (!IsSupportedHtmlInlineTag(tagName))
+        {
+            return false;
+        }
+
+        var tagEnd = FindHtmlTagEnd(text, nameEnd);
+        if (tagEnd < 0)
+        {
+            return false;
+        }
+
+        var attributes = text[nameEnd..tagEnd];
+        if (tagName == "a")
+        {
+            if (!TryGetHtmlHrefAttribute(attributes, out url) ||
+                !TryNormalizeMarkdownUrl(url, out url))
+            {
+                return false;
+            }
+        }
+        else if (!string.IsNullOrWhiteSpace(attributes))
+        {
+            return false;
+        }
+
+        openEnd = tagEnd + 1;
+        return true;
+    }
+
+    private static bool TryFindHtmlClosingTag(
+        string text,
+        string tagName,
+        int searchStart,
+        out int closeStart,
+        out int closeEnd)
+    {
+        closeStart = -1;
+        closeEnd = -1;
+        var search = searchStart;
+
+        while (search < text.Length)
+        {
+            var start = text.IndexOf("</", search, StringComparison.Ordinal);
+            if (start < 0)
+            {
+                return false;
+            }
+
+            var nameStart = start + 2;
+            var nameEnd = nameStart;
+            while (nameEnd < text.Length && IsHtmlTagNameChar(text[nameEnd]))
+            {
+                nameEnd++;
+            }
+
+            if (nameEnd > nameStart &&
+                string.Equals(text[nameStart..nameEnd], tagName, StringComparison.OrdinalIgnoreCase))
+            {
+                var end = nameEnd;
+                while (end < text.Length && char.IsWhiteSpace(text[end]))
+                {
+                    end++;
+                }
+
+                if (end < text.Length && text[end] == '>')
+                {
+                    closeStart = start;
+                    closeEnd = end + 1;
+                    return true;
+                }
+            }
+
+            search = start + 2;
+        }
+
+        return false;
+    }
+
+    private static int FindHtmlTagEnd(string text, int start)
+    {
+        char quote = '\0';
+        for (var i = start; i < text.Length; i++)
+        {
+            var c = text[i];
+            if (quote != '\0')
+            {
+                if (c == quote)
+                {
+                    quote = '\0';
+                }
+                continue;
+            }
+
+            if (c is '"' or '\'')
+            {
+                quote = c;
+                continue;
+            }
+
+            if (c == '>')
+            {
+                return i;
+            }
+        }
+
+        return -1;
+    }
+
+    private static bool TryGetHtmlHrefAttribute(string attributes, out string href)
+    {
+        href = "";
+        var index = 0;
+        while (index < attributes.Length)
+        {
+            while (index < attributes.Length && char.IsWhiteSpace(attributes[index]))
+            {
+                index++;
+            }
+
+            var nameStart = index;
+            while (index < attributes.Length && IsHtmlAttributeNameChar(attributes[index]))
+            {
+                index++;
+            }
+
+            if (index == nameStart)
+            {
+                return false;
+            }
+
+            var name = attributes[nameStart..index];
+            while (index < attributes.Length && char.IsWhiteSpace(attributes[index]))
+            {
+                index++;
+            }
+
+            if (index >= attributes.Length || attributes[index] != '=')
+            {
+                return false;
+            }
+
+            index++;
+            while (index < attributes.Length && char.IsWhiteSpace(attributes[index]))
+            {
+                index++;
+            }
+
+            if (index >= attributes.Length)
+            {
+                return false;
+            }
+
+            string value;
+            if (attributes[index] is '"' or '\'' )
+            {
+                var quote = attributes[index];
+                var valueStart = ++index;
+                var valueEnd = attributes.IndexOf(quote, valueStart);
+                if (valueEnd < 0)
+                {
+                    return false;
+                }
+
+                value = attributes[valueStart..valueEnd];
+                index = valueEnd + 1;
+            }
+            else
+            {
+                var valueStart = index;
+                while (index < attributes.Length && !char.IsWhiteSpace(attributes[index]))
+                {
+                    index++;
+                }
+
+                value = attributes[valueStart..index];
+            }
+
+            if (string.Equals(name, "href", StringComparison.OrdinalIgnoreCase))
+            {
+                href = value;
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool IsSupportedHtmlInlineTag(string tagName)
+    {
+        return tagName is "b" or "strong" or "i" or "em" or "s" or "del" or "u" or "code" or "a";
+    }
+
+    private static bool IsHtmlTagNameChar(char value)
+    {
+        return value is >= 'A' and <= 'Z' or >= 'a' and <= 'z';
+    }
+
+    private static bool IsHtmlAttributeNameChar(char value)
+    {
+        return value is >= 'A' and <= 'Z' or >= 'a' and <= 'z' or >= '0' and <= '9' or '-' or '_';
     }
 
     private static IEnumerable<InlineSpan> EnumerateClosedInlineCodeSpans(string text)
@@ -1378,6 +1788,7 @@ public sealed class MarkdownTextBox : TextEditor
             var ignoredSpans = MarkInlineCode(line, text, symbol, code, isPreviewMode);
             AddListMarkerIgnoredSpan(text, style, ignoredSpans);
             ignoredSpans.AddRange(MarkLinks(line, text, symbol, rawLink, link, ignoredSpans, isPreviewMode));
+            ignoredSpans.AddRange(MarkHtmlInlineTags(line, text, symbol, code, link, ignoredSpans, isPreviewMode));
             MarkInlineEmphasis(line, text, symbol, ignoredSpans);
             MarkCheckbox(line, text, style, Theme.ActiveBrush, code);
             MarkInlineMarkers(line, text, symbol, ignoredSpans, isPreviewMode);
@@ -1590,6 +2001,63 @@ public sealed class MarkdownTextBox : TextEditor
 
                 spans.Add(new InlineSpan(labelStart, spanEnd));
                 index = spanEnd;
+            }
+
+            return spans;
+        }
+
+        private List<InlineSpan> MarkHtmlInlineTags(
+            DocumentLine line,
+            string text,
+            Brush symbol,
+            Brush code,
+            Brush link,
+            List<InlineSpan> ignoredSpans,
+            bool isPreviewMode)
+        {
+            var spans = new List<InlineSpan>();
+            foreach (var html in EnumerateHtmlInlineSpans(text, ignoredSpans))
+            {
+                var openLength = html.OpenEnd - html.Start;
+                var contentLength = html.ContentEnd - html.ContentStart;
+                var closeLength = html.End - html.CloseStart;
+                if (contentLength <= 0)
+                {
+                    continue;
+                }
+
+                MarkSymbol(line, html.Start, openLength, symbol);
+                MarkSymbol(line, html.CloseStart, closeLength, symbol);
+
+                switch (html.TagName)
+                {
+                    case "b":
+                    case "strong":
+                        MarkStyled(line, html.ContentStart, contentLength, StrongTypeface, null);
+                        break;
+                    case "i":
+                    case "em":
+                        MarkStyled(line, html.ContentStart, contentLength, EmphasisTypeface, null);
+                        break;
+                    case "s":
+                    case "del":
+                        MarkStyled(line, html.ContentStart, contentLength, NormalTypeface, TextDecorations.Strikethrough);
+                        break;
+                    case "u":
+                        MarkStyled(line, html.ContentStart, contentLength, NormalTypeface, TextDecorations.Underline);
+                        break;
+                    case "code":
+                        MarkCode(line, html.ContentStart, contentLength, code);
+                        break;
+                    case "a":
+                        if (isPreviewMode)
+                        {
+                            MarkLinkLabel(line, html.ContentStart, contentLength, link);
+                        }
+                        break;
+                }
+
+                spans.Add(new InlineSpan(html.Start, html.End));
             }
 
             return spans;
