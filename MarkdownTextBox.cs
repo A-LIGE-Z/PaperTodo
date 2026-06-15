@@ -15,10 +15,14 @@ namespace PaperTodo;
 
 public sealed class MarkdownTextBox : TextEditor
 {
+    private const int MaxSafePasteLength = 30000;
+    private const int MaxSafePasteLineLength = 6000;
+
     private bool _isTrimmingText;
     private bool _acceptsReturn = true;
     private bool _acceptsTab = true;
     private bool _isPreviewMode;
+    private bool _isPostPasteRefreshQueued;
     private double _textZoom = 1.0;
     private readonly MarkdownMarkerColorizer _markerColorizer;
     private readonly MarkdownListBulletRenderer _listBulletRenderer;
@@ -489,8 +493,7 @@ public sealed class MarkdownTextBox : TextEditor
 
     private void OnPaste(object sender, DataObjectPastingEventArgs e)
     {
-        if (MaxLength <= 0 ||
-            !e.DataObject.GetDataPresent(DataFormats.UnicodeText))
+        if (!e.DataObject.GetDataPresent(DataFormats.UnicodeText))
         {
             return;
         }
@@ -502,23 +505,23 @@ public sealed class MarkdownTextBox : TextEditor
         }
 
         var selectedLength = Math.Max(0, SelectionLength);
-        var allowed = MaxLength - Math.Max(0, Text.Length - selectedLength);
-        if (allowed <= 0)
+        if (!TryBuildSafePasteText(text, selectedLength, out var pasteText))
         {
             e.CancelCommand();
             return;
         }
 
-        if (text.Length <= allowed)
+        if (pasteText.Length == text.Length)
         {
             return;
         }
 
-        var clipped = text[..allowed];
         var data = new DataObject();
-        data.SetData(DataFormats.UnicodeText, clipped);
-        data.SetData(DataFormats.Text, clipped);
+        data.SetData(DataFormats.UnicodeText, pasteText);
+        data.SetData(DataFormats.Text, pasteText);
         e.DataObject = data;
+        e.FormatToApply = DataFormats.UnicodeText;
+        QueuePostPasteRefresh();
     }
 
     private void EnsureVisualLines()
@@ -529,6 +532,106 @@ public sealed class MarkdownTextBox : TextEditor
     private static Brush PreviewSyntaxBrush => Theme.SyntaxFadeBrush;
 
     private MarkdownRenderOptions RenderOptions => MarkdownRenderOptions.From(_markdownRenderMode, _isPreviewMode);
+
+    private bool TryBuildSafePasteText(string text, int selectedLength, out string pasteText)
+    {
+        pasteText = text;
+        var allowed = MaxLength > 0
+            ? MaxLength - Math.Max(0, Text.Length - selectedLength)
+            : int.MaxValue;
+        if (allowed <= 0)
+        {
+            pasteText = "";
+            return false;
+        }
+
+        var maxPasteLength = Math.Min(allowed, MaxSafePasteLength);
+        if (text.Length <= maxPasteLength && !ContainsLineLongerThan(text, MaxSafePasteLineLength))
+        {
+            return true;
+        }
+
+        pasteText = ClipPasteText(text, maxPasteLength, MaxSafePasteLineLength);
+        return pasteText.Length > 0;
+    }
+
+    private static string ClipPasteText(string text, int maxLength, int maxLineLength)
+    {
+        if (maxLength <= 0 || maxLineLength <= 0)
+        {
+            return "";
+        }
+
+        var builder = new StringBuilder(Math.Min(text.Length, maxLength));
+        var lineLength = 0;
+        foreach (var c in text)
+        {
+            if (builder.Length >= maxLength)
+            {
+                break;
+            }
+
+            if (c is '\r' or '\n')
+            {
+                builder.Append(c);
+                lineLength = 0;
+                continue;
+            }
+
+            if (lineLength >= maxLineLength)
+            {
+                break;
+            }
+
+            builder.Append(c);
+            lineLength++;
+        }
+
+        return builder.ToString();
+    }
+
+    private static bool ContainsLineLongerThan(string text, int maxLength)
+    {
+        if (string.IsNullOrEmpty(text) || maxLength <= 0)
+        {
+            return false;
+        }
+
+        var lineLength = 0;
+        foreach (var c in text)
+        {
+            if (c is '\r' or '\n')
+            {
+                lineLength = 0;
+                continue;
+            }
+
+            lineLength++;
+            if (lineLength > maxLength)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private void QueuePostPasteRefresh()
+    {
+        if (_isPostPasteRefreshQueued)
+        {
+            return;
+        }
+
+        _isPostPasteRefreshQueued = true;
+        Dispatcher.BeginInvoke(
+            (Action)(() =>
+            {
+                _isPostPasteRefreshQueued = false;
+                RefreshTextView();
+            }),
+            System.Windows.Threading.DispatcherPriority.ContextIdle);
+    }
 
     private static bool TryGetLinePoint(TextView textView, DocumentLine line, int indexInLine, VisualYPosition yPosition, out Point point)
     {
