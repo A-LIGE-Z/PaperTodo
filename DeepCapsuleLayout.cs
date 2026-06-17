@@ -8,9 +8,8 @@ namespace PaperTodo;
 // their positions through here so they never disagree on where a slot sits.
 public static class DeepCapsuleLayout
 {
-    // Horizontal peek: how far the pill pokes past the right work-area edge while hovered.
-    // The real capsule close area sits inside an 8px transparent window margin. Keep
-    // enough of the close area clipped so hover does not expose a full button block.
+    // Focus reveal is a right-anchored viewport expansion. It intentionally reveals only
+    // part of the hidden tail so the capsule does not travel too far into the desktop.
     public const double HoverOutsideOffset = 26;
     // Expanded windows opened from edge-aligned capsules should not hug the screen edge.
     public const double ExpandedRightInset = 36;
@@ -31,10 +30,11 @@ public static class DeepCapsuleLayout
     public const int SlideOutMilliseconds = 220;
     public const int SlideInMilliseconds = 180;
     public const int SlotMoveMilliseconds = 200;
-    public static double FocusVisibleWidth(double capsuleWindowWidth)
+    public static double FocusVisibleWidth(double capsuleWindowWidth, double restingVisibleWidth)
     {
-        var hiddenWidth = WindowChromeMargin + CornerRadius;
-        return Math.Clamp(capsuleWindowWidth - hiddenWidth, 54, capsuleWindowWidth);
+        var resting = Math.Clamp(restingVisibleWidth, 1, capsuleWindowWidth);
+        var visibleWidth = resting + ((capsuleWindowWidth - resting) * 0.5);
+        return Math.Clamp(visibleWidth, Math.Min(54, capsuleWindowWidth), capsuleWindowWidth);
     }
 
     // Display-weighted character count: CJK / fullwidth glyphs count as 2, everything

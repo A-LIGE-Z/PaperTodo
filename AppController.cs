@@ -707,6 +707,10 @@ public sealed partial class AppController : IDisposable
             return;
         }
 
+        if (!paper.IsCollapsed)
+        {
+            window.EnsureExpandedSurfaceGeometry();
+        }
         ForceWindowToFrontWithEmphasis(window, State);
     }
 
@@ -1665,7 +1669,6 @@ public sealed partial class AppController : IDisposable
     private void CreateTrayIcon()
     {
         _trayMenu = CreateTrayMenu();
-        _trayMenu.Opened += (_, _) => RebuildTrayMenu();
 
         RebuildTrayMenu();
 
@@ -1676,6 +1679,7 @@ public sealed partial class AppController : IDisposable
             ContextMenu = _trayMenu,
             Visibility = Visibility.Visible
         };
+        _trayIcon.PreviewTrayContextMenuOpen += (_, _) => RebuildTrayMenu();
 
         _trayIcon.TrayMouseDoubleClick += (_, _) =>
         {

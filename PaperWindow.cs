@@ -92,9 +92,6 @@ public sealed partial class PaperWindow : Window
     private Border? _deepCapsuleSlotChrome;
     private Border? _deepCapsuleSlotOutline;
     private Grid? _deepCapsuleSlotShell;
-    private TranslateTransform? _deepCapsuleSlotChromeOffset;
-    private TranslateTransform? _deepCapsuleSlotShellOffset;
-    private TranslateTransform? _deepCapsuleSlotOutlineOffset;
     private TextBlock? _deepCapsuleSlotIconText;
     private Border? _deepCapsuleSlotCloseArea;
     private TextBlock? _deepCapsuleSlotCloseGlyph;
@@ -131,6 +128,9 @@ public sealed partial class PaperWindow : Window
     private int _deepCapsuleMoveGeneration;
     private int _deepCapsuleSlotMoveGeneration;
     private int _collapseTransitionGeneration;
+    private double _deepCapsuleSlotTargetLeft;
+    private double _deepCapsuleSlotStartViewportWidth;
+    private double _deepCapsuleSlotTargetViewportWidth;
     private Point _deepCapsuleSlotMouseDownScreenPos;
     private double _startTransitionWidth;
     private double _startTransitionHeight;
@@ -140,7 +140,7 @@ public sealed partial class PaperWindow : Window
     private double _transitionBaseHeight;
     private bool _isTransitionVisualsActive;
     private bool _isEditingTitle;
-    private bool _isCoercingTitleEditText;
+    private bool _pendingTitleEdit;
     private int _themeAnimationGeneration;
     private int _clearDoneGeneration;
     private int _todoRowsGeneration;
@@ -1001,14 +1001,12 @@ public sealed partial class PaperWindow : Window
             Opacity = 1
         };
 
-        _deepCapsuleSlotChromeOffset = new TranslateTransform();
         _deepCapsuleSlotChrome = new Border
         {
             Margin = new Thickness(WindowChromeMargin),
             CornerRadius = new CornerRadius(CapsuleChromeCornerRadius),
             BorderThickness = new Thickness(1),
             SnapsToDevicePixels = true,
-            RenderTransform = _deepCapsuleSlotChromeOffset,
             Effect = new DropShadowEffect
             {
                 BlurRadius = 14,
@@ -1020,12 +1018,9 @@ public sealed partial class PaperWindow : Window
         _deepCapsuleSlotHostRoot.Children.Add(_deepCapsuleSlotChrome);
 
         _deepCapsuleSlotShell = BuildDeepCapsuleSlotShell();
-        _deepCapsuleSlotShellOffset = new TranslateTransform();
-        _deepCapsuleSlotShell.RenderTransform = _deepCapsuleSlotShellOffset;
         Panel.SetZIndex(_deepCapsuleSlotShell, 10);
         _deepCapsuleSlotHostRoot.Children.Add(_deepCapsuleSlotShell);
 
-        _deepCapsuleSlotOutlineOffset = new TranslateTransform();
         _deepCapsuleSlotOutline = new Border
         {
             Margin = new Thickness(WindowChromeMargin - DeepCapsuleSlotOutlineThickness + DeepCapsuleSlotOutlineOverlap),
@@ -1033,8 +1028,7 @@ public sealed partial class PaperWindow : Window
             BorderThickness = new Thickness(DeepCapsuleSlotOutlineThickness),
             Background = Brushes.Transparent,
             IsHitTestVisible = false,
-            SnapsToDevicePixels = true,
-            RenderTransform = _deepCapsuleSlotOutlineOffset
+            SnapsToDevicePixels = true
         };
         Panel.SetZIndex(_deepCapsuleSlotOutline, 20);
         _deepCapsuleSlotHostRoot.Children.Add(_deepCapsuleSlotOutline);
@@ -1067,7 +1061,7 @@ public sealed partial class PaperWindow : Window
     {
         var shell = new Grid
         {
-            Width = CapsuleShellLayoutWidth(usesDeepCapsulePresentation: true),
+            Width = DeepCapsuleSlotShellLayoutWidth(),
             Height = 30,
             Margin = new Thickness(WindowChromeMargin),
             HorizontalAlignment = HorizontalAlignment.Left,
@@ -1081,16 +1075,18 @@ public sealed partial class PaperWindow : Window
         {
             Background = Brushes.Transparent,
             CornerRadius = new CornerRadius(CapsuleInnerCornerRadius, 0, 0, CapsuleInnerCornerRadius),
-            Cursor = Cursors.Hand
+            Cursor = Cursors.Hand,
+            ClipToBounds = true
         };
 
-        var leftStack = new StackPanel
+        var leftStack = new Grid
         {
-            Orientation = Orientation.Horizontal,
             VerticalAlignment = VerticalAlignment.Center,
-            HorizontalAlignment = HorizontalAlignment.Left,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
             Margin = new Thickness(CapsuleLeftPadding, 0, 0, 0)
         };
+        leftStack.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        leftStack.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
 
         _deepCapsuleSlotIconText = new TextBlock
         {
@@ -1101,6 +1097,7 @@ public sealed partial class PaperWindow : Window
             FontWeight = FontWeights.SemiBold,
             VerticalAlignment = VerticalAlignment.Center
         };
+        Grid.SetColumn(_deepCapsuleSlotIconText, 0);
         leftStack.Children.Add(_deepCapsuleSlotIconText);
 
         _deepCapsuleSlotLabelText = new TextBlock
@@ -1109,8 +1106,11 @@ public sealed partial class PaperWindow : Window
             FontFamily = NoteTypography.FontFamily,
             FontSize = CapsuleLabelFontSize,
             Margin = new Thickness(CapsuleIconGap, 0, 0, 0),
-            VerticalAlignment = VerticalAlignment.Center
+            VerticalAlignment = VerticalAlignment.Center,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            TextTrimming = TextTrimming.CharacterEllipsis
         };
+        Grid.SetColumn(_deepCapsuleSlotLabelText, 1);
         leftStack.Children.Add(_deepCapsuleSlotLabelText);
         leftArea.Child = leftStack;
 
@@ -1269,6 +1269,7 @@ public sealed partial class PaperWindow : Window
         }
         else
         {
+            EnsureExpandedSurfaceGeometry(alignToRightEdge: true);
             _controller.BringPaperToFront(_paper);
         }
     }
@@ -1321,10 +1322,71 @@ public sealed partial class PaperWindow : Window
         HideMainWindowForDeepCapsuleRest();
     }
 
+    public void EnsureExpandedSurfaceGeometry(bool alignToRightEdge = false)
+    {
+        if (_paper.IsCollapsed)
+        {
+            return;
+        }
+
+        var needsRestore =
+            !IsVisible ||
+            _isApplyingCollapsedState ||
+            _isTransitionVisualsActive ||
+            Width <= DesiredCapsuleWindowWidth + 8 ||
+            Height <= PaperLayoutDefaults.CapsuleHeight + 8 ||
+            _shell.Visibility != Visibility.Visible ||
+            _capsuleShell.Visibility == Visibility.Visible;
+        if (!needsRestore)
+        {
+            return;
+        }
+
+        BeginAnimation(TransitionProgressProperty, null);
+        _shell.BeginAnimation(UIElement.OpacityProperty, null);
+        _capsuleShell.BeginAnimation(UIElement.OpacityProperty, null);
+        ResetTransitionVisuals();
+
+        _isApplyingCollapsedState = false;
+        _shell.Width = double.NaN;
+        _shell.Height = double.NaN;
+        _shell.Visibility = Visibility.Visible;
+        _shell.Opacity = 1.0;
+        _capsuleShell.Visibility = Visibility.Collapsed;
+        _capsuleShell.Opacity = 0.0;
+        MinWidth = PaperLayoutDefaults.MinWidth;
+        MinHeight = PaperLayoutDefaults.MinHeight;
+        ResizeMode = ResizeMode.CanResizeWithGrip;
+
+        var targetWidth = RoundToDevicePixelX(Math.Max(_paper.Width, PaperLayoutDefaults.MinWidth));
+        var targetHeight = RoundToDevicePixelY(Math.Max(_paper.Height, PaperLayoutDefaults.MinHeight));
+        MoveWindowWithoutGeometrySave(() =>
+        {
+            Width = targetWidth;
+            Height = targetHeight;
+            if (alignToRightEdge)
+            {
+                var requiredRightInset = _controller.State.ShowDeepCapsuleWhileExpanded && _controller.CanPaperDisplayAsCapsule(_paper)
+                    ? ExpandedDeepCapsuleVisibleWidth() + DeepCapsuleGap
+                    : 0;
+                AlignExpandedToRightEdge(targetWidth, targetHeight, requiredRightInset);
+            }
+        });
+
+        if (!IsVisible)
+        {
+            Opacity = 1.0;
+            Show();
+        }
+
+        RefreshEffectiveTopmost();
+    }
+
     public void ExpandForProgrammaticOpen()
     {
         if (!_paper.IsCollapsed)
         {
+            EnsureExpandedSurfaceGeometry(alignToRightEdge: true);
             return;
         }
 
@@ -1394,16 +1456,8 @@ public sealed partial class PaperWindow : Window
     {
         var host = EnsureDeepCapsuleSlotHost();
         var rightEdge = targetLeft + visibleWidth;
-        var viewportWidth = Math.Max(visibleWidth, ExpandedDeepCapsuleVisibleWidth());
+        var viewportWidth = visibleWidth;
         var targetHostLeft = RoundToDevicePixelX(rightEdge - viewportWidth);
-        var targetContentOffset = RoundToDevicePixelX(viewportWidth - visibleWidth);
-        var currentContentOffset = _deepCapsuleSlotShellOffset == null
-            ? targetContentOffset
-            : RoundToDevicePixelX(_deepCapsuleSlotShellOffset.X);
-        var initialContentOffset = animate && host.IsVisible
-            ? currentContentOffset
-            : targetContentOffset;
-        ApplyDeepCapsuleSlotHostViewport(viewportWidth, initialContentOffset);
         host.Height = PaperLayoutDefaults.CapsuleHeight;
         if (!keepHiding)
         {
@@ -1414,7 +1468,6 @@ public sealed partial class PaperWindow : Window
                     : DeepCapsuleSlotState.None);
             }
         }
-        _deepCapsuleSlotLeft = targetHostLeft;
         _deepCapsuleSlotTop = targetTop;
         if (_deepCapsuleSlotHostRoot != null)
         {
@@ -1428,7 +1481,8 @@ public sealed partial class PaperWindow : Window
             host.BeginAnimation(Window.OpacityProperty, null);
             host.Left = targetHostLeft;
             host.Top = targetTop;
-            ApplyDeepCapsuleSlotHostViewport(viewportWidth, targetContentOffset);
+            ApplyDeepCapsuleSlotHostViewport(viewportWidth);
+            _deepCapsuleSlotLeft = targetHostLeft;
             host.Opacity = _isCollapseAllRetracted ? 0 : 1;
             host.Show();
             RefreshEffectiveTopmost();
@@ -1446,52 +1500,67 @@ public sealed partial class PaperWindow : Window
         {
             host.BeginAnimation(Window.LeftProperty, null);
             host.BeginAnimation(Window.TopProperty, null);
-            ClearDeepCapsuleSlotContentOffsetAnimation();
+            ClearDeepCapsuleSlotHorizontalAnimation();
             host.Left = targetHostLeft;
             host.Top = targetTop;
-            ApplyDeepCapsuleSlotHostViewport(viewportWidth, targetContentOffset);
+            ApplyDeepCapsuleSlotHostViewport(viewportWidth);
             _deepCapsuleSlotLeft = targetHostLeft;
             _deepCapsuleSlotTop = targetTop;
             return;
         }
 
         var currentTop = double.IsNaN(host.Top) || double.IsInfinity(host.Top) ? targetTop : RoundToDevicePixelY(host.Top);
-        var currentOffset = initialContentOffset;
+        var currentHostLeft = double.IsNaN(host.Left) || double.IsInfinity(host.Left) ? targetHostLeft : RoundToDevicePixelX(host.Left);
+        var currentViewportWidth = double.IsNaN(host.Width) || double.IsInfinity(host.Width) || host.Width <= 0
+            ? viewportWidth
+            : RoundToDevicePixelX(host.Width);
         var easeOut = new System.Windows.Media.Animation.CubicEase
         {
             EasingMode = System.Windows.Media.Animation.EasingMode.EaseOut
         };
 
         host.BeginAnimation(Window.LeftProperty, null);
-        host.Left = targetHostLeft;
-        host.Width = viewportWidth;
-        _deepCapsuleSlotLeft = targetHostLeft;
-
-        if (Math.Abs(currentOffset - targetContentOffset) >= 0.5)
+        var targetRight = targetHostLeft + viewportWidth;
+        var currentRight = currentHostLeft + currentViewportWidth;
+        var needsHorizontalAnimation =
+            Math.Abs(currentHostLeft - targetHostLeft) >= 0.5 ||
+            Math.Abs(currentRight - targetRight) >= 0.5 ||
+            Math.Abs(currentViewportWidth - viewportWidth) >= 0.5;
+        if (needsHorizontalAnimation)
         {
-            var offsetAnim = new System.Windows.Media.Animation.DoubleAnimation
+            _deepCapsuleSlotTargetLeft = targetHostLeft;
+            _deepCapsuleSlotStartViewportWidth = currentViewportWidth;
+            _deepCapsuleSlotTargetViewportWidth = viewportWidth;
+
+            ApplyDeepCapsuleSlotHostViewport(currentViewportWidth);
+            ApplyDeepCapsuleSlotHorizontalProgress(0.0);
+            var horizontalAnim = new System.Windows.Media.Animation.DoubleAnimation
             {
-                From = currentOffset,
-                To = targetContentOffset,
+                From = 0.0,
+                To = 1.0,
                 Duration = TimeSpan.FromMilliseconds(durationMs),
                 EasingFunction = easeOut
             };
-            offsetAnim.Completed += (_, _) =>
+            horizontalAnim.Completed += (_, _) =>
             {
                 if (generation != _deepCapsuleSlotMoveGeneration)
                 {
                     return;
                 }
 
-                ClearDeepCapsuleSlotContentOffsetAnimation();
-                ApplyDeepCapsuleSlotContentOffset(targetContentOffset);
+                ClearDeepCapsuleSlotHorizontalAnimation();
+                ApplyDeepCapsuleSlotHostViewport(viewportWidth);
+                host.Left = targetHostLeft;
+                _deepCapsuleSlotLeft = targetHostLeft;
             };
-            BeginAnimation(DeepCapsuleSlotContentOffsetProperty, offsetAnim, System.Windows.Media.Animation.HandoffBehavior.SnapshotAndReplace);
+            BeginAnimation(DeepCapsuleSlotHorizontalProgressProperty, horizontalAnim, System.Windows.Media.Animation.HandoffBehavior.SnapshotAndReplace);
         }
         else
         {
-            ClearDeepCapsuleSlotContentOffsetAnimation();
-            ApplyDeepCapsuleSlotContentOffset(targetContentOffset);
+            ClearDeepCapsuleSlotHorizontalAnimation();
+            host.Left = targetHostLeft;
+            ApplyDeepCapsuleSlotHostViewport(viewportWidth);
+            _deepCapsuleSlotLeft = targetHostLeft;
         }
 
         if (Math.Abs(currentTop - targetTop) >= 0.5)
@@ -1571,6 +1640,7 @@ public sealed partial class PaperWindow : Window
             return;
         }
 
+        ClearDeepCapsuleSlotHorizontalAnimation();
         _deepCapsuleSlotHost.Content = null;
         _deepCapsuleSlotHost.Close();
         _deepCapsuleSlotHost = null;
@@ -1578,9 +1648,6 @@ public sealed partial class PaperWindow : Window
         _deepCapsuleSlotChrome = null;
         _deepCapsuleSlotOutline = null;
         _deepCapsuleSlotShell = null;
-        _deepCapsuleSlotChromeOffset = null;
-        _deepCapsuleSlotShellOffset = null;
-        _deepCapsuleSlotOutlineOffset = null;
         _deepCapsuleSlotIconText = null;
         _deepCapsuleSlotCloseArea = null;
         _deepCapsuleSlotCloseGlyph = null;
@@ -1686,14 +1753,13 @@ public sealed partial class PaperWindow : Window
             FontSize = 11,
             FontWeight = FontWeights.SemiBold,
             MaxLength = PaperTitles.MaxTitleLength,
-            // MaxLength is in UTF-16 code units, not text elements, so it is only a coarse guard;
-            // CoerceTitleEditText enforces the real (text-element) limit. Refreshed per edit session.
+            // MaxLength is only a coarse UTF-16 guard; the real title limit is applied on commit
+            // so IME composition is never interrupted by rewriting TextBox.Text mid-edit.
             Padding = new Thickness(0),
             VerticalContentAlignment = VerticalAlignment.Center,
             FocusVisualStyle = null
         };
         _titleEditBox.PreviewMouseLeftButtonDown += (_, e) => e.Handled = false;
-        _titleEditBox.TextChanged += (_, _) => CoerceTitleEditText();
         _titleEditBox.PreviewKeyDown += (_, e) =>
         {
             if (e.Key == Key.Enter)
@@ -3315,18 +3381,26 @@ public sealed partial class PaperWindow : Window
 
     private void RequestTitleEdit()
     {
-        if (_paper.IsCollapsed && _controller.State.UseCapsuleMode)
-        {
-            SetCollapsedState(false);
-        }
-
-        Dispatcher.BeginInvoke((Action)BeginTitleEdit, System.Windows.Threading.DispatcherPriority.Input);
+        QueueTitleEditAfterWindowIsExpanded();
     }
 
     private void BeginTitleEdit()
     {
         if (_titleText == null || _titleEditBox == null)
         {
+            return;
+        }
+
+        if (_isEditingTitle)
+        {
+            _titleEditBox.Focus();
+            _titleEditBox.SelectAll();
+            return;
+        }
+
+        if (!CanBeginTitleEditNow())
+        {
+            QueueTitleEditAfterWindowIsExpanded();
             return;
         }
 
@@ -3351,35 +3425,65 @@ public sealed partial class PaperWindow : Window
             return;
         }
 
-        if (commit)
+        if (!_isEditingTitle)
         {
-            _controller.UpdatePaperTitle(_paper, _titleEditBox.Text);
+            return;
         }
 
+        var editedTitle = _titleEditBox.Text;
         _isEditingTitle = false;
         _titleEditBox.Visibility = Visibility.Collapsed;
         _titleText.Visibility = Visibility.Visible;
-        RefreshPaperTitle();
+
+        if (commit)
+        {
+            _controller.UpdatePaperTitle(_paper, editedTitle);
+        }
+        else
+        {
+            RefreshPaperTitle();
+        }
     }
 
-    private void CoerceTitleEditText()
+    private bool CanBeginTitleEditNow()
     {
-        if (_titleEditBox == null || _isCoercingTitleEditText)
+        return IsVisible &&
+            !_paper.IsCollapsed &&
+            !_isApplyingCollapsedState &&
+            !_isTransitionVisualsActive &&
+            Width > DesiredCapsuleWindowWidth + 8 &&
+            Height > PaperLayoutDefaults.CapsuleHeight + 8;
+    }
+
+    private void QueueTitleEditAfterWindowIsExpanded()
+    {
+        if (_pendingTitleEdit)
         {
             return;
         }
 
-        var cleaned = PaperTitles.CleanCustomTitle(_titleEditBox.Text, _controller.State.MaxTitleLength);
-        if (_titleEditBox.Text == cleaned)
+        _pendingTitleEdit = true;
+        if (_paper.IsCollapsed || !IsVisible)
         {
-            return;
+            ExpandForProgrammaticOpen();
+        }
+        else
+        {
+            EnsureExpandedSurfaceGeometry(alignToRightEdge: true);
         }
 
-        _isCoercingTitleEditText = true;
-        var caret = Math.Min(cleaned.Length, _titleEditBox.CaretIndex);
-        _titleEditBox.Text = cleaned;
-        _titleEditBox.CaretIndex = caret;
-        _isCoercingTitleEditText = false;
+        var delay = Math.Max(ExpandAnimationMilliseconds, CollapseResizeMilliseconds) + 30;
+        var timer = new System.Windows.Threading.DispatcherTimer
+        {
+            Interval = TimeSpan.FromMilliseconds(delay)
+        };
+        timer.Tick += (_, _) =>
+        {
+            timer.Stop();
+            _pendingTitleEdit = false;
+            Dispatcher.BeginInvoke((Action)BeginTitleEdit, System.Windows.Threading.DispatcherPriority.Input);
+        };
+        timer.Start();
     }
 
     public void UpdateTextZoom()
@@ -4938,17 +5042,17 @@ public sealed partial class PaperWindow : Window
         set => SetValue(DeepCapsuleAnimatedTopProperty, value);
     }
 
-    private static readonly DependencyProperty DeepCapsuleSlotContentOffsetProperty =
+    private static readonly DependencyProperty DeepCapsuleSlotHorizontalProgressProperty =
         DependencyProperty.Register(
-            nameof(DeepCapsuleSlotContentOffset),
+            nameof(DeepCapsuleSlotHorizontalProgress),
             typeof(double),
             typeof(PaperWindow),
-            new PropertyMetadata(double.NaN, OnDeepCapsuleSlotContentOffsetChanged));
+            new PropertyMetadata(double.NaN, OnDeepCapsuleSlotHorizontalProgressChanged));
 
-    private double DeepCapsuleSlotContentOffset
+    private double DeepCapsuleSlotHorizontalProgress
     {
-        get => (double)GetValue(DeepCapsuleSlotContentOffsetProperty);
-        set => SetValue(DeepCapsuleSlotContentOffsetProperty, value);
+        get => (double)GetValue(DeepCapsuleSlotHorizontalProgressProperty);
+        set => SetValue(DeepCapsuleSlotHorizontalProgressProperty, value);
     }
 
     private static void OnTransitionProgressChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
@@ -4979,14 +5083,14 @@ public sealed partial class PaperWindow : Window
         window.MoveWindowWithoutGeometrySave(() => window.Top = window.RoundToDevicePixelY(top));
     }
 
-    private static void OnDeepCapsuleSlotContentOffsetChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
+    private static void OnDeepCapsuleSlotHorizontalProgressChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
     {
-        if (d is not PaperWindow window || e.NewValue is not double offset || double.IsNaN(offset) || double.IsInfinity(offset))
+        if (d is not PaperWindow window || e.NewValue is not double progress || double.IsNaN(progress) || double.IsInfinity(progress))
         {
             return;
         }
 
-        window.ApplyDeepCapsuleSlotContentOffset(window.RoundToDevicePixelX(offset));
+        window.ApplyDeepCapsuleSlotHorizontalProgress(progress);
     }
 
     private void UpdateTransitionVisuals(double progress)
@@ -5204,61 +5308,86 @@ public sealed partial class PaperWindow : Window
         BeginAnimation(Window.TopProperty, null);
     }
 
-    private void ClearDeepCapsuleSlotContentOffsetAnimation()
+    private void ClearDeepCapsuleSlotHorizontalAnimation()
     {
-        BeginAnimation(DeepCapsuleSlotContentOffsetProperty, null);
+        BeginAnimation(DeepCapsuleSlotHorizontalProgressProperty, null);
     }
+
+    private bool IsDeepCapsuleSlotHorizontalAnimating => !double.IsNaN(DeepCapsuleSlotHorizontalProgress);
 
     private static Rect DeepCapsuleWorkArea()
     {
         return DeepCapsuleLayout.WorkArea;
     }
 
-    private void ApplyDeepCapsuleSlotHostViewport(double viewportWidth, double contentOffset)
+    private void ApplyDeepCapsuleSlotHostViewport(double viewportWidth)
     {
         if (_deepCapsuleSlotHost == null)
         {
             return;
         }
 
-        var fullWidth = CapsuleWindowWidth(usesDeepCapsulePresentation: true);
-        viewportWidth = Math.Clamp(viewportWidth, 1, fullWidth);
-        _deepCapsuleSlotHost.Width = viewportWidth;
+        _deepCapsuleSlotHost.Width = DeepCapsuleSlotViewportWidth(viewportWidth);
         _deepCapsuleSlotHost.Height = PaperLayoutDefaults.CapsuleHeight;
+        ApplyDeepCapsuleSlotFixedLayout();
+    }
+
+    private void ApplyDeepCapsuleSlotFixedLayout()
+    {
+        var fullWidth = CapsuleWindowWidth(usesDeepCapsulePresentation: true);
+        var outlineMargin = WindowChromeMargin - DeepCapsuleSlotOutlineThickness + DeepCapsuleSlotOutlineOverlap;
 
         if (_deepCapsuleSlotChrome != null)
         {
-            _deepCapsuleSlotChrome.Width = Math.Max(0, fullWidth - WindowChromeInset);
+            _deepCapsuleSlotChrome.Margin = new Thickness(WindowChromeMargin, WindowChromeMargin, 0, WindowChromeMargin);
+            _deepCapsuleSlotChrome.Width = Math.Max(0, fullWidth - WindowChromeMargin);
         }
         if (_deepCapsuleSlotShell != null)
         {
-            _deepCapsuleSlotShell.Width = CapsuleShellLayoutWidth(usesDeepCapsulePresentation: true);
+            _deepCapsuleSlotShell.Margin = new Thickness(WindowChromeMargin, WindowChromeMargin, 0, WindowChromeMargin);
+            _deepCapsuleSlotShell.Width = DeepCapsuleSlotShellLayoutWidth();
         }
         if (_deepCapsuleSlotOutline != null)
         {
-            _deepCapsuleSlotOutline.Width = Math.Max(0, fullWidth - (2 * (WindowChromeMargin - DeepCapsuleSlotOutlineThickness + DeepCapsuleSlotOutlineOverlap)));
+            _deepCapsuleSlotOutline.Margin = new Thickness(outlineMargin, outlineMargin, 0, outlineMargin);
+            _deepCapsuleSlotOutline.Width = Math.Max(0, fullWidth - outlineMargin);
         }
-
-        ApplyDeepCapsuleSlotContentOffset(contentOffset);
     }
 
-    private void ApplyDeepCapsuleSlotContentOffset(double contentOffset)
+    private void ApplyDeepCapsuleSlotHorizontalProgress(double progress)
     {
-        var viewportWidth = _deepCapsuleSlotHost?.Width ?? ExpandedDeepCapsuleVisibleWidth();
-        contentOffset = Math.Clamp(contentOffset, 0, Math.Max(0, viewportWidth - 1));
+        if (_deepCapsuleSlotHost == null)
+        {
+            return;
+        }
 
-        if (_deepCapsuleSlotChromeOffset != null)
-        {
-            _deepCapsuleSlotChromeOffset.X = contentOffset;
-        }
-        if (_deepCapsuleSlotShellOffset != null)
-        {
-            _deepCapsuleSlotShellOffset.X = contentOffset;
-        }
-        if (_deepCapsuleSlotOutlineOffset != null)
-        {
-            _deepCapsuleSlotOutlineOffset.X = contentOffset;
-        }
+        progress = Math.Clamp(progress, 0.0, 1.0);
+        var viewportWidth = Lerp(_deepCapsuleSlotStartViewportWidth, _deepCapsuleSlotTargetViewportWidth, progress);
+        var anchorRight = _deepCapsuleSlotTargetLeft + _deepCapsuleSlotTargetViewportWidth;
+        var left = anchorRight - viewportWidth;
+
+        _deepCapsuleSlotHost.Left = RoundToDevicePixelX(left);
+        _deepCapsuleSlotHost.Width = DeepCapsuleSlotViewportWidth(RoundToDevicePixelX(viewportWidth));
+        _deepCapsuleSlotHost.Height = PaperLayoutDefaults.CapsuleHeight;
+        _deepCapsuleSlotLeft = _deepCapsuleSlotHost.Left;
+    }
+
+    private static double Lerp(double from, double to, double progress)
+    {
+        return from + (to - from) * progress;
+    }
+
+    private double DeepCapsuleSlotShellLayoutWidth()
+    {
+        var fullWidth = CapsuleWindowWidth(usesDeepCapsulePresentation: true);
+        return Math.Max(0, Math.Max(
+            CapsuleShellWidth(usesDeepCapsulePresentation: true),
+            fullWidth - WindowChromeMargin));
+    }
+
+    private double DeepCapsuleSlotViewportWidth(double viewportWidth)
+    {
+        return Math.Clamp(viewportWidth, 1, CapsuleWindowWidth(usesDeepCapsulePresentation: true));
     }
 
     private double DeepCapsuleTopForIndex(int index)
@@ -5311,7 +5440,9 @@ public sealed partial class PaperWindow : Window
 
     private double ExpandedDeepCapsuleVisibleWidth()
     {
-        return DeepCapsuleLayout.FocusVisibleWidth(CapsuleWindowWidth(usesDeepCapsulePresentation: true));
+        return DeepCapsuleLayout.FocusVisibleWidth(
+            CapsuleWindowWidth(usesDeepCapsulePresentation: true),
+            DeepCapsuleVisibleWidth());
     }
 
     private bool IsLikelyAtDeepCapsuleEdge(double capsuleWidth)
@@ -5486,8 +5617,18 @@ public sealed partial class PaperWindow : Window
         RefreshEffectiveTopmost();
 
         var area = DeepCapsuleWorkArea();
-        var visibleWidth = ExpandedDeepCapsuleVisibleWidth();
-        var targetLeft = RoundToDevicePixelX(area.Right - visibleWidth);
+        var currentSlotVisible = _deepCapsuleSlotHost?.IsVisible == true &&
+            !double.IsNaN(_deepCapsuleSlotHost.Width) &&
+            !double.IsInfinity(_deepCapsuleSlotHost.Width) &&
+            _deepCapsuleSlotHost.Width > 0;
+        var visibleWidth = currentSlotVisible
+            ? DeepCapsuleSlotViewportWidth(_deepCapsuleSlotHost!.Width)
+            : DeepCapsuleVisibleWidth();
+        var targetLeft = currentSlotVisible &&
+            !double.IsNaN(_deepCapsuleSlotHost!.Left) &&
+            !double.IsInfinity(_deepCapsuleSlotHost.Left)
+                ? RoundToDevicePixelX(_deepCapsuleSlotHost.Left)
+                : RoundToDevicePixelX(area.Right - visibleWidth);
         var targetTop = RoundToDevicePixelY(anchorTop);
 
         MoveExpandedDeepCapsuleSlotHost(targetLeft, targetTop, visibleWidth, animate);
@@ -5632,7 +5773,7 @@ public sealed partial class PaperWindow : Window
             SetDeepCapsuleSlotState(_paper.IsCollapsed ? DeepCapsuleSlotState.CollapsedDocked : DeepCapsuleSlotState.None);
         }
         UpdateDeepCapsuleSlotHostTheme();
-        UpdateDeepCapsuleSlotClosePlacement();
+        UpdateDeepCapsuleSlotClosePlacement(updateHostViewport: !_paper.IsCollapsed || !HasDeepCapsuleSlotPlacement);
 
         if (_paper.IsCollapsed && HasDeepCapsuleSlotPlacement)
         {
@@ -5683,6 +5824,7 @@ public sealed partial class PaperWindow : Window
             {
                 _deepCapsuleSlotHostRoot.Opacity = 1.0;
             }
+            ClearDeepCapsuleSlotHorizontalAnimation();
             _deepCapsuleSlotHost.Hide();
             return;
         }
@@ -5744,7 +5886,7 @@ public sealed partial class PaperWindow : Window
         SetDeepCapsuleSlotState(DeepCapsuleSlotState.Retracting);
         SetDeepCapsuleVisualState(DeepCapsuleVisualState.Resting);
         UpdateDeepCapsuleSlotHostTheme();
-        UpdateDeepCapsuleSlotClosePlacement();
+        UpdateDeepCapsuleSlotClosePlacement(updateHostViewport: false);
 
         root.BeginAnimation(UIElement.OpacityProperty, null);
         root.Opacity = 1.0;
@@ -5929,7 +6071,7 @@ public sealed partial class PaperWindow : Window
         _deepCapsuleDragLeft = RoundToDevicePixelX(area.Right - visibleWidth);
 
         _deepCapsuleSlotHost.Left = _deepCapsuleDragLeft;
-        ApplyDeepCapsuleSlotHostViewport(visibleWidth, 0);
+        ApplyDeepCapsuleSlotHostViewport(visibleWidth);
         _deepCapsuleSlotLeft = _deepCapsuleSlotHost.Left;
 
         Mouse.OverrideCursor = Cursors.SizeNS;
@@ -6178,9 +6320,9 @@ public sealed partial class PaperWindow : Window
 
         _deepCapsuleSlotLabelText.Text = _controller.PaperCapsuleTitle(_paper);
         _deepCapsuleSlotLabelText.ToolTip = _controller.PaperTitleText(_paper);
-        if (_deepCapsuleSlotShell != null)
+        if (_deepCapsuleSlotShell != null && !IsDeepCapsuleSlotHorizontalAnimating)
         {
-            _deepCapsuleSlotShell.Width = CapsuleShellLayoutWidth(usesDeepCapsulePresentation: true);
+            _deepCapsuleSlotShell.Width = DeepCapsuleSlotShellLayoutWidth();
         }
     }
 
@@ -6210,7 +6352,7 @@ public sealed partial class PaperWindow : Window
         UpdateDeepCapsuleSlotClosePlacement();
     }
 
-    private void UpdateDeepCapsuleSlotClosePlacement()
+    private void UpdateDeepCapsuleSlotClosePlacement(bool updateHostViewport = true)
     {
         var usesActivePresentation = _deepCapsuleVisualState is DeepCapsuleVisualState.Active or DeepCapsuleVisualState.Hovered;
         if (_deepCapsuleSlotCloseArea != null)
@@ -6226,14 +6368,14 @@ public sealed partial class PaperWindow : Window
             _deepCapsuleSlotCloseGlyphOffset.X = CapsuleCloseGlyphDeepOffset;
         }
 
-        if (_deepCapsuleSlotShell != null)
+        if (_deepCapsuleSlotShell != null && !IsDeepCapsuleSlotHorizontalAnimating)
         {
-            _deepCapsuleSlotShell.Width = CapsuleShellLayoutWidth(usesDeepCapsulePresentation: true);
+            _deepCapsuleSlotShell.Width = DeepCapsuleSlotShellLayoutWidth();
         }
 
-        if (_deepCapsuleSlotHost != null && HasDeepCapsuleSlotPlacement)
+        if (updateHostViewport && _deepCapsuleSlotHost != null && HasDeepCapsuleSlotPlacement)
         {
-            ApplyDeepCapsuleSlotHostViewport(_deepCapsuleSlotHost.Width, _deepCapsuleSlotShellOffset?.X ?? 0);
+            ApplyDeepCapsuleSlotHostViewport(_deepCapsuleSlotHost.Width);
         }
     }
 

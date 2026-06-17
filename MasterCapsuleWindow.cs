@@ -32,9 +32,9 @@ public sealed class MasterCapsuleWindow : Window
     private const double MasterRightPadding = 10;
     private const double MasterGlyphFontSize = 12;
     private const double MasterLabelFontSize = 11;
-    // Keep the label fully readable; only the trailing padding/chrome is clipped by the
-    // screen edge.
-    private const double MasterPeekRightGap = 2;
+    // Reserve a couple of device-independent pixels so text anti-aliasing is not clipped
+    // when the visible width is rounded to the screen edge.
+    private const double MasterTextPixelReserve = 2;
 
     private readonly AppController _controller;
 
@@ -120,7 +120,7 @@ public sealed class MasterCapsuleWindow : Window
         _pillOffset = new TranslateTransform();
         _pill = new Border
         {
-            Margin = new Thickness(WindowChromeMargin),
+            Margin = new Thickness(WindowChromeMargin, WindowChromeMargin, 0, WindowChromeMargin),
             CornerRadius = new CornerRadius(DeepCapsuleLayout.CornerRadius),
             BorderThickness = new Thickness(1),
             Background = Theme.PaperBrush,
@@ -325,12 +325,27 @@ public sealed class MasterCapsuleWindow : Window
 
     private double MasterVisibleWidth()
     {
+        var peekLabel = FirstTextElement(Strings.Get("CapsuleCollapseAllLabel"));
         var visibleWidth = WindowChromeMargin + MasterLeftPadding
-            + MeasureText(_glyph.Text, MasterGlyphFontSize, FontWeights.SemiBold)
+            + Math.Max(
+                MeasureText("▾", MasterGlyphFontSize, FontWeights.SemiBold),
+                MeasureText("▸", MasterGlyphFontSize, FontWeights.SemiBold))
             + MasterGlyphGap
-            + MeasureText(_label.Text, MasterLabelFontSize, FontWeights.Normal)
-            + MasterPeekRightGap;
+            + MeasureText(peekLabel, MasterLabelFontSize, FontWeights.Normal)
+            + MasterRightPadding
+            + MasterTextPixelReserve;
         return Math.Clamp(visibleWidth, 1, CapsuleWindowWidth());
+    }
+
+    private static string FirstTextElement(string text)
+    {
+        if (string.IsNullOrEmpty(text))
+        {
+            return string.Empty;
+        }
+
+        var enumerator = StringInfo.GetTextElementEnumerator(text);
+        return enumerator.MoveNext() ? (string)enumerator.Current : string.Empty;
     }
 
     private void ApplyDockedWidth(double visibleWidth)
@@ -374,12 +389,16 @@ public sealed class MasterCapsuleWindow : Window
         var visibleWidth = MasterVisibleWidth();
         var targetLeft = RoundX(area.Right - visibleWidth);
         var targetTop = RoundY(DeepCapsuleLayout.TopForIndex(0, _controller.State.DeepCapsuleStartTopMargin));
+        var currentLeft = double.IsNaN(Left) || double.IsInfinity(Left) ? targetLeft : RoundX(Left);
 
         MoveWithoutSave(() =>
         {
             ApplyDockedWidth(visibleWidth);
-            Left = targetLeft;
             Top = targetTop;
+            if (!animate)
+            {
+                Left = targetLeft;
+            }
         });
 
         if (!animate)
@@ -388,7 +407,6 @@ public sealed class MasterCapsuleWindow : Window
             return;
         }
 
-        var currentLeft = double.IsNaN(Left) || double.IsInfinity(Left) ? targetLeft : RoundX(Left);
         if (Math.Abs(currentLeft - targetLeft) < 0.5)
         {
             BeginAnimation(AnimatedLeftProperty, null);
