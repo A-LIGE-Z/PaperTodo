@@ -300,6 +300,21 @@
   <data name="SettingsFullscreenTopmostMode" xml:space="preserve">
     <value>全屏置顶策略</value>
   </data>
+  <data name="SettingsTodoVisualSize" xml:space="preserve">
+    <value>待办视觉大小</value>
+  </data>
+  <data name="TodoVisualSizeSmall" xml:space="preserve">
+    <value>小</value>
+  </data>
+  <data name="TodoVisualSizeMedium" xml:space="preserve">
+    <value>中</value>
+  </data>
+  <data name="TodoVisualSizeLarge" xml:space="preserve">
+    <value>大</value>
+  </data>
+  <data name="TodoVisualSizeExtraLarge" xml:space="preserve">
+    <value>特大</value>
+  </data>
   <data name="TrayInlineConfirmDelete" xml:space="preserve">
     <value>⚠ 删除</value>
   </data>
@@ -359,6 +374,9 @@
   </data>
   <data name="TipFullscreenTopmostMode" xml:space="preserve">
     <value>检测到外部全屏窗口时，控制纸片和贴边胶囊是否临时降低层级。默认避让；不避让会保持在全屏画面之上。</value>
+  </data>
+  <data name="TipTodoVisualSize" xml:space="preserve">
+    <value>调整待办项的视觉大小。小为 12，中为当前 13，大为 14，特大为 15.5。</value>
   </data>
   <data name="TipEnableTodoNoteLinks" xml:space="preserve">
     <value>开启后，可把笔记拖到待办项上建立关联，再通过待办项后的关联入口打开对应笔记。</value>

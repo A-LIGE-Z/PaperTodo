@@ -300,6 +300,21 @@
   <data name="SettingsFullscreenTopmostMode" xml:space="preserve">
     <value>전체 화면 위 표시</value>
   </data>
+  <data name="SettingsTodoVisualSize" xml:space="preserve">
+    <value>할 일 표시 크기</value>
+  </data>
+  <data name="TodoVisualSizeSmall" xml:space="preserve">
+    <value>작게</value>
+  </data>
+  <data name="TodoVisualSizeMedium" xml:space="preserve">
+    <value>중간</value>
+  </data>
+  <data name="TodoVisualSizeLarge" xml:space="preserve">
+    <value>크게</value>
+  </data>
+  <data name="TodoVisualSizeExtraLarge" xml:space="preserve">
+    <value>특대</value>
+  </data>
   <data name="TrayInlineConfirmDelete" xml:space="preserve">
     <value>⚠ 삭제</value>
   </data>
@@ -359,6 +374,9 @@
   </data>
   <data name="TipFullscreenTopmostMode" xml:space="preserve">
     <value>다른 앱이 전체 화면일 때 종이와 가장자리 캡슐의 창 순서를 임시로 낮출지 선택합니다. 기본값은 피하기이며, 위에 유지는 전체 화면 콘텐츠 위에 남습니다.</value>
+  </data>
+  <data name="TipTodoVisualSize" xml:space="preserve">
+    <value>할 일 항목의 표시 크기를 조정합니다. 작게는 12, 중간은 현재 13, 크게는 14, 특대는 15.5입니다.</value>
   </data>
   <data name="TipEnableTodoNoteLinks" xml:space="preserve">
     <value>켜면 메모를 할 일 항목으로 드래그해 연결할 수 있고, 해당 항목의 연결 메모 버튼으로 메모를 열 수 있습니다.</value>

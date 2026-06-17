@@ -300,6 +300,21 @@
   <data name="SettingsFullscreenTopmostMode" xml:space="preserve">
     <value>全画面時の最前面</value>
   </data>
+  <data name="SettingsTodoVisualSize" xml:space="preserve">
+    <value>ToDo の表示サイズ</value>
+  </data>
+  <data name="TodoVisualSizeSmall" xml:space="preserve">
+    <value>小</value>
+  </data>
+  <data name="TodoVisualSizeMedium" xml:space="preserve">
+    <value>中</value>
+  </data>
+  <data name="TodoVisualSizeLarge" xml:space="preserve">
+    <value>大</value>
+  </data>
+  <data name="TodoVisualSizeExtraLarge" xml:space="preserve">
+    <value>特大</value>
+  </data>
   <data name="TrayInlineConfirmDelete" xml:space="preserve">
     <value>⚠ 削除</value>
   </data>
@@ -359,6 +374,9 @@
   </data>
   <data name="TipFullscreenTopmostMode" xml:space="preserve">
     <value>他のアプリが全画面のとき、紙片と端のカプセルの重なり順を一時的に下げるかを選びます。初期設定は避けるで、最前面のままでは全画面表示の上に残ります。</value>
+  </data>
+  <data name="TipTodoVisualSize" xml:space="preserve">
+    <value>ToDo 項目の表示サイズを調整します。小は 12、中は現在の 13、大は 14、特大は 15.5 です。</value>
   </data>
   <data name="TipEnableTodoNoteLinks" xml:space="preserve">
     <value>オンにすると、ノートを ToDo 項目にドラッグして関連付けでき、その項目の関連ノートボタンからノートを開けます。</value>

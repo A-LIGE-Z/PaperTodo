@@ -300,6 +300,21 @@
   <data name="SettingsFullscreenTopmostMode" xml:space="preserve">
     <value>Fullscreen topmost</value>
   </data>
+  <data name="SettingsTodoVisualSize" xml:space="preserve">
+    <value>Todo visual size</value>
+  </data>
+  <data name="TodoVisualSizeSmall" xml:space="preserve">
+    <value>Small</value>
+  </data>
+  <data name="TodoVisualSizeMedium" xml:space="preserve">
+    <value>Medium</value>
+  </data>
+  <data name="TodoVisualSizeLarge" xml:space="preserve">
+    <value>Large</value>
+  </data>
+  <data name="TodoVisualSizeExtraLarge" xml:space="preserve">
+    <value>XL</value>
+  </data>
   <data name="TrayInlineConfirmDelete" xml:space="preserve">
     <value>⚠ Delete</value>
   </data>
@@ -359,6 +374,9 @@
   </data>
   <data name="TipFullscreenTopmostMode" xml:space="preserve">
     <value>When another app is fullscreen, choose whether papers and edge capsules temporarily lower their z-order. Avoid is the default; stay on top keeps them above fullscreen content.</value>
+  </data>
+  <data name="TipTodoVisualSize" xml:space="preserve">
+    <value>Adjust the visual size of todo items. Small is 12, medium keeps the current 13, large is 14, and XL is 15.5.</value>
   </data>
   <data name="TipEnableTodoNoteLinks" xml:space="preserve">
     <value>When on, drag a note onto a to-do item to link them, then use the linked-note button on that item to open the note.</value>

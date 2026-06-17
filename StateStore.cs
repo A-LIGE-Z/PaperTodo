@@ -164,6 +164,7 @@ public sealed class StateStore
 
         state.ExternalMarkdownExtension = ExternalMarkdownFileExtensions.Normalize(state.ExternalMarkdownExtension);
         state.FullscreenTopmostMode = FullscreenTopmostModes.Normalize(state.FullscreenTopmostMode);
+        state.TodoVisualSize = TodoVisualSizes.Normalize(state.TodoVisualSize);
         state.TopBarHeight = 0;
 
         if (state.ShowTopBarNewPaperButtons is bool showTopBarNewPaperButtons)

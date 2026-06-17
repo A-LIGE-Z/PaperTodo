@@ -80,12 +80,49 @@ public static class FullscreenTopmostModes
     }
 }
 
+public static class TodoVisualSizes
+{
+    public const string Small = "small";
+    public const string Medium = "medium";
+    public const string Large = "large";
+    public const string ExtraLarge = "extraLarge";
+
+    public static string Normalize(string? size)
+    {
+        return size is Small or Large or ExtraLarge ? size : Medium;
+    }
+
+    public static TodoVisualMetrics Metrics(string? size)
+    {
+        return Normalize(size) switch
+        {
+            Small => new TodoVisualMetrics(12, 2.5, 28, 13, 12, 9.5, 11.5, 21, 13, 23),
+            Large => new TodoVisualMetrics(14, 3.5, 32, 15, 14, 11.5, 13.5, 24, 15, 26),
+            ExtraLarge => new TodoVisualMetrics(15.5, 4.5, 36, 16.5, 15.5, 13, 15, 27, 17, 30),
+            _ => new TodoVisualMetrics(13, 3, 30, 14, 13, 10.5, 12.5, 22, 14, 24)
+        };
+    }
+}
+
+public readonly record struct TodoVisualMetrics(
+    double TextFontSize,
+    double TextVerticalPadding,
+    double AppendMinHeight,
+    double AppendGlyphFontSize,
+    double TrashGlyphFontSize,
+    double LinkedNoteNameFontSize,
+    double LinkedNoteIconFontSize,
+    double CheckColumnWidth,
+    double GhostTextFontSize,
+    double RowMinHeight);
+
 public sealed class AppState
 {
     public List<PaperData> Papers { get; set; } = new();
     public string Theme { get; set; } = "system";
     public string ColorScheme { get; set; } = ColorSchemes.Warm;
     public string MarkdownRenderMode { get; set; } = MarkdownRenderModes.Enhanced;
+    public string TodoVisualSize { get; set; } = TodoVisualSizes.Medium;
     public string ExternalMarkdownExtension { get; set; } = ExternalMarkdownFileExtensions.Default;
     public double Zoom { get; set; } = 1.0;
     public bool UseCapsuleMode { get; set; } = true;
