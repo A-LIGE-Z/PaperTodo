@@ -92,6 +92,9 @@ public sealed partial class PaperWindow : Window
     private Border? _deepCapsuleSlotChrome;
     private Border? _deepCapsuleSlotOutline;
     private Grid? _deepCapsuleSlotShell;
+    private TranslateTransform? _deepCapsuleSlotChromeOffset;
+    private TranslateTransform? _deepCapsuleSlotShellOffset;
+    private TranslateTransform? _deepCapsuleSlotOutlineOffset;
     private TextBlock? _deepCapsuleSlotIconText;
     private Border? _deepCapsuleSlotCloseArea;
     private TextBlock? _deepCapsuleSlotCloseGlyph;
@@ -148,7 +151,7 @@ public sealed partial class PaperWindow : Window
     private const double DeepCapsuleGap = DeepCapsuleLayout.Gap;
     private const double WindowChromeMargin = 8;
     private const double WindowChromeInset = WindowChromeMargin * 2;
-    private const double TitleBarHeight = 23.5;
+    private const double TitleBarHeight = PaperLayoutDefaults.TopBarHeight;
     private const int CollapseShellFadeMilliseconds = 70;
     private const int CollapseResizeMilliseconds = 150;
     private const int ExpandAnimationMilliseconds = 220;
@@ -534,6 +537,7 @@ public sealed partial class PaperWindow : Window
         LostMouseCapture += OnLostMouseCapture;
         PreviewKeyDown += OnWindowPreviewKeyDown;
         PreviewKeyUp += OnWindowPreviewKeyUp;
+        Activated += (_, _) => _controller.RefreshFloatingSurfaceZOrder();
         Deactivated += (_, _) =>
         {
             if (_todoDrag != null)
@@ -992,17 +996,19 @@ public sealed partial class PaperWindow : Window
 
         _deepCapsuleSlotHostRoot = new Grid
         {
-            Background = Brushes.Transparent,
-            ClipToBounds = false,
+            Background = null,
+            ClipToBounds = true,
             Opacity = 1
         };
 
+        _deepCapsuleSlotChromeOffset = new TranslateTransform();
         _deepCapsuleSlotChrome = new Border
         {
             Margin = new Thickness(WindowChromeMargin),
             CornerRadius = new CornerRadius(CapsuleChromeCornerRadius),
             BorderThickness = new Thickness(1),
             SnapsToDevicePixels = true,
+            RenderTransform = _deepCapsuleSlotChromeOffset,
             Effect = new DropShadowEffect
             {
                 BlurRadius = 14,
@@ -1014,9 +1020,12 @@ public sealed partial class PaperWindow : Window
         _deepCapsuleSlotHostRoot.Children.Add(_deepCapsuleSlotChrome);
 
         _deepCapsuleSlotShell = BuildDeepCapsuleSlotShell();
+        _deepCapsuleSlotShellOffset = new TranslateTransform();
+        _deepCapsuleSlotShell.RenderTransform = _deepCapsuleSlotShellOffset;
         Panel.SetZIndex(_deepCapsuleSlotShell, 10);
         _deepCapsuleSlotHostRoot.Children.Add(_deepCapsuleSlotShell);
 
+        _deepCapsuleSlotOutlineOffset = new TranslateTransform();
         _deepCapsuleSlotOutline = new Border
         {
             Margin = new Thickness(WindowChromeMargin - DeepCapsuleSlotOutlineThickness + DeepCapsuleSlotOutlineOverlap),
@@ -1024,7 +1033,8 @@ public sealed partial class PaperWindow : Window
             BorderThickness = new Thickness(DeepCapsuleSlotOutlineThickness),
             Background = Brushes.Transparent,
             IsHitTestVisible = false,
-            SnapsToDevicePixels = true
+            SnapsToDevicePixels = true,
+            RenderTransform = _deepCapsuleSlotOutlineOffset
         };
         Panel.SetZIndex(_deepCapsuleSlotOutline, 20);
         _deepCapsuleSlotHostRoot.Children.Add(_deepCapsuleSlotOutline);
@@ -1041,6 +1051,7 @@ public sealed partial class PaperWindow : Window
             FontFamily = new FontFamily("Segoe UI"),
             SnapsToDevicePixels = true,
             UseLayoutRounding = true,
+            Topmost = !_controller.SuppressTopmostForFullscreenForeground,
             Width = CapsuleWindowWidth(usesDeepCapsulePresentation: true),
             Height = PaperLayoutDefaults.CapsuleHeight,
             Content = _deepCapsuleSlotHostRoot
@@ -1376,13 +1387,23 @@ public sealed partial class PaperWindow : Window
     private void MoveExpandedDeepCapsuleSlotHost(
         double targetLeft,
         double targetTop,
-        double width,
+        double visibleWidth,
         bool animate,
         int durationMs = DeepCapsuleLayout.SlotMoveMilliseconds,
         bool keepHiding = false)
     {
         var host = EnsureDeepCapsuleSlotHost();
-        host.Width = width;
+        var rightEdge = targetLeft + visibleWidth;
+        var viewportWidth = Math.Max(visibleWidth, ExpandedDeepCapsuleVisibleWidth());
+        var targetHostLeft = RoundToDevicePixelX(rightEdge - viewportWidth);
+        var targetContentOffset = RoundToDevicePixelX(viewportWidth - visibleWidth);
+        var currentContentOffset = _deepCapsuleSlotShellOffset == null
+            ? targetContentOffset
+            : RoundToDevicePixelX(_deepCapsuleSlotShellOffset.X);
+        var initialContentOffset = animate && host.IsVisible
+            ? currentContentOffset
+            : targetContentOffset;
+        ApplyDeepCapsuleSlotHostViewport(viewportWidth, initialContentOffset);
         host.Height = PaperLayoutDefaults.CapsuleHeight;
         if (!keepHiding)
         {
@@ -1393,7 +1414,7 @@ public sealed partial class PaperWindow : Window
                     : DeepCapsuleSlotState.None);
             }
         }
-        _deepCapsuleSlotLeft = targetLeft;
+        _deepCapsuleSlotLeft = targetHostLeft;
         _deepCapsuleSlotTop = targetTop;
         if (_deepCapsuleSlotHostRoot != null)
         {
@@ -1405,8 +1426,9 @@ public sealed partial class PaperWindow : Window
         if (!host.IsVisible)
         {
             host.BeginAnimation(Window.OpacityProperty, null);
-            host.Left = targetLeft;
+            host.Left = targetHostLeft;
             host.Top = targetTop;
+            ApplyDeepCapsuleSlotHostViewport(viewportWidth, targetContentOffset);
             host.Opacity = _isCollapseAllRetracted ? 0 : 1;
             host.Show();
             RefreshEffectiveTopmost();
@@ -1424,47 +1446,52 @@ public sealed partial class PaperWindow : Window
         {
             host.BeginAnimation(Window.LeftProperty, null);
             host.BeginAnimation(Window.TopProperty, null);
-            host.Left = targetLeft;
+            ClearDeepCapsuleSlotContentOffsetAnimation();
+            host.Left = targetHostLeft;
             host.Top = targetTop;
-            _deepCapsuleSlotLeft = targetLeft;
+            ApplyDeepCapsuleSlotHostViewport(viewportWidth, targetContentOffset);
+            _deepCapsuleSlotLeft = targetHostLeft;
             _deepCapsuleSlotTop = targetTop;
             return;
         }
 
-        var currentLeft = double.IsNaN(host.Left) || double.IsInfinity(host.Left) ? targetLeft : RoundToDevicePixelX(host.Left);
         var currentTop = double.IsNaN(host.Top) || double.IsInfinity(host.Top) ? targetTop : RoundToDevicePixelY(host.Top);
+        var currentOffset = initialContentOffset;
         var easeOut = new System.Windows.Media.Animation.CubicEase
         {
             EasingMode = System.Windows.Media.Animation.EasingMode.EaseOut
         };
 
-        if (Math.Abs(currentLeft - targetLeft) >= 0.5)
+        host.BeginAnimation(Window.LeftProperty, null);
+        host.Left = targetHostLeft;
+        host.Width = viewportWidth;
+        _deepCapsuleSlotLeft = targetHostLeft;
+
+        if (Math.Abs(currentOffset - targetContentOffset) >= 0.5)
         {
-            var leftAnim = new System.Windows.Media.Animation.DoubleAnimation
+            var offsetAnim = new System.Windows.Media.Animation.DoubleAnimation
             {
-                From = currentLeft,
-                To = targetLeft,
+                From = currentOffset,
+                To = targetContentOffset,
                 Duration = TimeSpan.FromMilliseconds(durationMs),
                 EasingFunction = easeOut
             };
-            leftAnim.Completed += (_, _) =>
+            offsetAnim.Completed += (_, _) =>
             {
                 if (generation != _deepCapsuleSlotMoveGeneration)
                 {
                     return;
                 }
 
-                host.BeginAnimation(Window.LeftProperty, null);
-                host.Left = targetLeft;
-                _deepCapsuleSlotLeft = targetLeft;
+                ClearDeepCapsuleSlotContentOffsetAnimation();
+                ApplyDeepCapsuleSlotContentOffset(targetContentOffset);
             };
-            host.BeginAnimation(Window.LeftProperty, leftAnim, System.Windows.Media.Animation.HandoffBehavior.SnapshotAndReplace);
+            BeginAnimation(DeepCapsuleSlotContentOffsetProperty, offsetAnim, System.Windows.Media.Animation.HandoffBehavior.SnapshotAndReplace);
         }
         else
         {
-            host.BeginAnimation(Window.LeftProperty, null);
-            host.Left = targetLeft;
-            _deepCapsuleSlotLeft = targetLeft;
+            ClearDeepCapsuleSlotContentOffsetAnimation();
+            ApplyDeepCapsuleSlotContentOffset(targetContentOffset);
         }
 
         if (Math.Abs(currentTop - targetTop) >= 0.5)
@@ -1551,6 +1578,9 @@ public sealed partial class PaperWindow : Window
         _deepCapsuleSlotChrome = null;
         _deepCapsuleSlotOutline = null;
         _deepCapsuleSlotShell = null;
+        _deepCapsuleSlotChromeOffset = null;
+        _deepCapsuleSlotShellOffset = null;
+        _deepCapsuleSlotOutlineOffset = null;
         _deepCapsuleSlotIconText = null;
         _deepCapsuleSlotCloseArea = null;
         _deepCapsuleSlotCloseGlyph = null;
@@ -3218,10 +3248,26 @@ public sealed partial class PaperWindow : Window
     internal void RefreshEffectiveTopmost()
     {
         var shouldBeTopmost = _paper.AlwaysOnTop || (_controller.State.UseCapsuleMode && _paper.IsCollapsed);
-        Topmost = shouldBeTopmost && !_controller.SuppressTopmostForFullscreenForeground;
+        var effectiveTopmost = shouldBeTopmost && !_controller.SuppressTopmostForFullscreenForeground;
+        Topmost = effectiveTopmost;
+        if (IsVisible && (shouldBeTopmost || _controller.SuppressTopmostForFullscreenForeground))
+        {
+            ApplyTopmostZOrder(this, effectiveTopmost, _controller.FullscreenAvoidanceWindow);
+        }
+
+        RefreshDeepCapsuleSlotTopmost();
+    }
+
+    internal void RefreshDeepCapsuleSlotTopmost()
+    {
         if (_deepCapsuleSlotHost != null)
         {
-            _deepCapsuleSlotHost.Topmost = !_controller.SuppressTopmostForFullscreenForeground;
+            var slotShouldBeTopmost = !_controller.SuppressTopmostForFullscreenForeground;
+            _deepCapsuleSlotHost.Topmost = slotShouldBeTopmost;
+            if (_deepCapsuleSlotHost.IsVisible)
+            {
+                ApplyTopmostZOrder(_deepCapsuleSlotHost, slotShouldBeTopmost, _controller.FullscreenAvoidanceWindow);
+            }
         }
     }
 
@@ -4892,6 +4938,19 @@ public sealed partial class PaperWindow : Window
         set => SetValue(DeepCapsuleAnimatedTopProperty, value);
     }
 
+    private static readonly DependencyProperty DeepCapsuleSlotContentOffsetProperty =
+        DependencyProperty.Register(
+            nameof(DeepCapsuleSlotContentOffset),
+            typeof(double),
+            typeof(PaperWindow),
+            new PropertyMetadata(double.NaN, OnDeepCapsuleSlotContentOffsetChanged));
+
+    private double DeepCapsuleSlotContentOffset
+    {
+        get => (double)GetValue(DeepCapsuleSlotContentOffsetProperty);
+        set => SetValue(DeepCapsuleSlotContentOffsetProperty, value);
+    }
+
     private static void OnTransitionProgressChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
     {
         if (d is PaperWindow window)
@@ -4918,6 +4977,16 @@ public sealed partial class PaperWindow : Window
         }
 
         window.MoveWindowWithoutGeometrySave(() => window.Top = window.RoundToDevicePixelY(top));
+    }
+
+    private static void OnDeepCapsuleSlotContentOffsetChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
+    {
+        if (d is not PaperWindow window || e.NewValue is not double offset || double.IsNaN(offset) || double.IsInfinity(offset))
+        {
+            return;
+        }
+
+        window.ApplyDeepCapsuleSlotContentOffset(window.RoundToDevicePixelX(offset));
     }
 
     private void UpdateTransitionVisuals(double progress)
@@ -5135,14 +5204,66 @@ public sealed partial class PaperWindow : Window
         BeginAnimation(Window.TopProperty, null);
     }
 
+    private void ClearDeepCapsuleSlotContentOffsetAnimation()
+    {
+        BeginAnimation(DeepCapsuleSlotContentOffsetProperty, null);
+    }
+
     private static Rect DeepCapsuleWorkArea()
     {
         return DeepCapsuleLayout.WorkArea;
     }
 
+    private void ApplyDeepCapsuleSlotHostViewport(double viewportWidth, double contentOffset)
+    {
+        if (_deepCapsuleSlotHost == null)
+        {
+            return;
+        }
+
+        var fullWidth = CapsuleWindowWidth(usesDeepCapsulePresentation: true);
+        viewportWidth = Math.Clamp(viewportWidth, 1, fullWidth);
+        _deepCapsuleSlotHost.Width = viewportWidth;
+        _deepCapsuleSlotHost.Height = PaperLayoutDefaults.CapsuleHeight;
+
+        if (_deepCapsuleSlotChrome != null)
+        {
+            _deepCapsuleSlotChrome.Width = Math.Max(0, fullWidth - WindowChromeInset);
+        }
+        if (_deepCapsuleSlotShell != null)
+        {
+            _deepCapsuleSlotShell.Width = CapsuleShellLayoutWidth(usesDeepCapsulePresentation: true);
+        }
+        if (_deepCapsuleSlotOutline != null)
+        {
+            _deepCapsuleSlotOutline.Width = Math.Max(0, fullWidth - (2 * (WindowChromeMargin - DeepCapsuleSlotOutlineThickness + DeepCapsuleSlotOutlineOverlap)));
+        }
+
+        ApplyDeepCapsuleSlotContentOffset(contentOffset);
+    }
+
+    private void ApplyDeepCapsuleSlotContentOffset(double contentOffset)
+    {
+        var viewportWidth = _deepCapsuleSlotHost?.Width ?? ExpandedDeepCapsuleVisibleWidth();
+        contentOffset = Math.Clamp(contentOffset, 0, Math.Max(0, viewportWidth - 1));
+
+        if (_deepCapsuleSlotChromeOffset != null)
+        {
+            _deepCapsuleSlotChromeOffset.X = contentOffset;
+        }
+        if (_deepCapsuleSlotShellOffset != null)
+        {
+            _deepCapsuleSlotShellOffset.X = contentOffset;
+        }
+        if (_deepCapsuleSlotOutlineOffset != null)
+        {
+            _deepCapsuleSlotOutlineOffset.X = contentOffset;
+        }
+    }
+
     private double DeepCapsuleTopForIndex(int index)
     {
-        return DeepCapsuleLayout.TopForIndex(index);
+        return DeepCapsuleLayout.TopForIndex(index, _controller.State.DeepCapsuleStartTopMargin);
     }
 
     private void MoveDeepCapsuleToCurrentTarget(
@@ -5162,15 +5283,16 @@ public sealed partial class PaperWindow : Window
         var shouldUseActiveOffset = !keepHiding &&
             !forceRestingOffset &&
             (_deepCapsuleVisualState is DeepCapsuleVisualState.Hovered or DeepCapsuleVisualState.Active);
-        var targetLeft = RoundToDevicePixelX(shouldUseActiveOffset
-            ? area.Right - capsuleWidth + DeepCapsuleHoverOutsideOffset
-            : area.Right - deepCapsuleVisibleWidth);
+        var visibleWidth = shouldUseActiveOffset
+            ? ExpandedDeepCapsuleVisibleWidth()
+            : deepCapsuleVisibleWidth;
+        var targetLeft = RoundToDevicePixelX(area.Right - visibleWidth);
         var targetTop = RoundToDevicePixelY(DeepCapsuleTopForIndex(_deepCapsuleIndex + _deepCapsuleVisualOffset));
 
         MoveExpandedDeepCapsuleSlotHost(
             targetLeft,
             targetTop,
-            capsuleWidth,
+            visibleWidth,
             animate,
             durationMs,
             keepHiding);
@@ -5200,10 +5322,12 @@ public sealed partial class PaperWindow : Window
         }
 
         var area = DeepCapsuleWorkArea();
-        var leftEdgeThreshold = area.Right - capsuleWidth - DeepCapsuleHoverOutsideOffset - DeepCapsuleGap;
+        var minVisibleWidth = Math.Min(DeepCapsuleVisibleWidth(), ExpandedDeepCapsuleVisibleWidth());
+        var leftEdgeThreshold = area.Right - capsuleWidth - DeepCapsuleGap;
+        var rightEdgeThreshold = area.Right - minVisibleWidth + DeepCapsuleGap;
         var withinVerticalStack = Top >= area.Top + DeepCapsuleTopMargin - DeepCapsuleGap
             && Top <= area.Bottom - PaperLayoutDefaults.CapsuleHeight + DeepCapsuleGap;
-        return withinVerticalStack && Left >= leftEdgeThreshold && Left <= area.Right;
+        return withinVerticalStack && Left >= leftEdgeThreshold && Left <= rightEdgeThreshold;
     }
 
     // Shared position animator for every deep-capsule move (slot placement, hover peek,
@@ -5362,11 +5486,11 @@ public sealed partial class PaperWindow : Window
         RefreshEffectiveTopmost();
 
         var area = DeepCapsuleWorkArea();
-        var capsuleWidth = CapsuleWindowWidth(usesDeepCapsulePresentation: true);
-        var targetLeft = RoundToDevicePixelX(area.Right - capsuleWidth + DeepCapsuleHoverOutsideOffset);
+        var visibleWidth = ExpandedDeepCapsuleVisibleWidth();
+        var targetLeft = RoundToDevicePixelX(area.Right - visibleWidth);
         var targetTop = RoundToDevicePixelY(anchorTop);
 
-        MoveExpandedDeepCapsuleSlotHost(targetLeft, targetTop, capsuleWidth, animate);
+        MoveExpandedDeepCapsuleSlotHost(targetLeft, targetTop, visibleWidth, animate);
         if (_deepCapsuleSlotHost != null)
         {
             AnimateSlotHostOpacity(0.0, animate);
@@ -5458,7 +5582,6 @@ public sealed partial class PaperWindow : Window
         UpdateDeepCapsuleSlotHostTheme();
 
         var area = DeepCapsuleWorkArea();
-        var width = CapsuleWindowWidth(usesDeepCapsulePresentation: true);
         var visibleWidth = ExpandedDeepCapsuleVisibleWidth();
         var targetLeft = RoundToDevicePixelX(area.Right - visibleWidth);
         var targetTop = RoundToDevicePixelY(DeepCapsuleTopForIndex(index + visualOffset));
@@ -5467,11 +5590,11 @@ public sealed partial class PaperWindow : Window
         var firstShow = _deepCapsuleSlotHost?.IsVisible != true;
         if (firstShow)
         {
-            MoveExpandedDeepCapsuleSlotHost(targetLeft, targetTop, width, animate: false);
+            MoveExpandedDeepCapsuleSlotHost(targetLeft, targetTop, visibleWidth, animate: false);
         }
         else
         {
-            MoveExpandedDeepCapsuleSlotHost(targetLeft, targetTop, width, animate);
+            MoveExpandedDeepCapsuleSlotHost(targetLeft, targetTop, visibleWidth, animate);
         }
         UpdateDeepCapsuleSlotClosePlacement();
         AnimateSlotHostOpacity(1.0, animate);
@@ -5802,12 +5925,11 @@ public sealed partial class PaperWindow : Window
         _deepCapsuleSlotHost.BeginAnimation(Window.TopProperty, null);
 
         var area = DeepCapsuleWorkArea();
-        var capsuleWidth = CapsuleWindowWidth(usesDeepCapsulePresentation: true);
-        _deepCapsuleDragLeft = RoundToDevicePixelX(area.Right - capsuleWidth + DeepCapsuleHoverOutsideOffset);
+        var visibleWidth = ExpandedDeepCapsuleVisibleWidth();
+        _deepCapsuleDragLeft = RoundToDevicePixelX(area.Right - visibleWidth);
 
         _deepCapsuleSlotHost.Left = _deepCapsuleDragLeft;
-        _deepCapsuleSlotHost.Width = capsuleWidth;
-        _deepCapsuleSlotHost.Height = PaperLayoutDefaults.CapsuleHeight;
+        ApplyDeepCapsuleSlotHostViewport(visibleWidth, 0);
         _deepCapsuleSlotLeft = _deepCapsuleSlotHost.Left;
 
         Mouse.OverrideCursor = Cursors.SizeNS;
@@ -5878,7 +6000,7 @@ public sealed partial class PaperWindow : Window
         var centerY = (_deepCapsuleSlotHost?.Top ?? _deepCapsuleSlotTop) + (PaperLayoutDefaults.CapsuleHeight / 2);
         var area = DeepCapsuleWorkArea();
         // Real capsules start at slot _deepCapsuleVisualOffset when the master capsule occupies slot 0.
-        var firstCenterY = area.Top + DeepCapsuleStartTopMargin + _deepCapsuleVisualOffset * (PaperLayoutDefaults.CapsuleHeight + DeepCapsuleGap) + (PaperLayoutDefaults.CapsuleHeight / 2);
+        var firstCenterY = DeepCapsuleTopForIndex(_deepCapsuleVisualOffset) + (PaperLayoutDefaults.CapsuleHeight / 2);
         var slotHeight = PaperLayoutDefaults.CapsuleHeight + DeepCapsuleGap;
         var originalIndex = Math.Clamp(_deepCapsuleIndex, 0, count - 1);
         var rawIndex = (centerY - firstCenterY) / slotHeight;
@@ -5974,11 +6096,13 @@ public sealed partial class PaperWindow : Window
         {
             _closeButton.Content = "─";
             _closeButton.ToolTip = Strings.Get("ToolTipCollapseToCapsule");
+            _closeButton.Cursor = Cursors.Hand;
         }
         else
         {
             _closeButton.Content = "×";
             _closeButton.ToolTip = Strings.Get("ToolTipHideThisPaper");
+            _closeButton.Cursor = Cursors.Hand;
         }
     }
 
@@ -6109,8 +6233,7 @@ public sealed partial class PaperWindow : Window
 
         if (_deepCapsuleSlotHost != null && HasDeepCapsuleSlotPlacement)
         {
-            _deepCapsuleSlotHost.Width = CapsuleWindowWidth(usesDeepCapsulePresentation: true);
-            _deepCapsuleSlotHost.Height = PaperLayoutDefaults.CapsuleHeight;
+            ApplyDeepCapsuleSlotHostViewport(_deepCapsuleSlotHost.Width, _deepCapsuleSlotShellOffset?.X ?? 0);
         }
     }
 
@@ -6305,6 +6428,8 @@ public sealed partial class PaperWindow : Window
 
     public void SetCollapsedState(bool collapsed, bool animate = true, bool saveGeometry = true, bool alignExpandedToRight = false)
     {
+        animate = animate && _controller.State.EnableAnimations;
+
         if (collapsed && !CanDisplayAsCapsule())
         {
             if (_paper.IsCollapsed)
@@ -6657,8 +6782,44 @@ public sealed partial class PaperWindow : Window
         SetWindowLong(handle, GwlExStyle, exStyle | WsExNoActivate);
     }
 
+    private static void ApplyTopmostZOrder(Window window, bool topmost, IntPtr insertAfter)
+    {
+        var handle = new System.Windows.Interop.WindowInteropHelper(window).Handle;
+        if (handle == IntPtr.Zero)
+        {
+            return;
+        }
+
+        SetWindowPos(
+            handle,
+            topmost ? HwndTopmost : HwndNoTopmost,
+            0,
+            0,
+            0,
+            0,
+            SwpNoMove | SwpNoSize | SwpNoActivate | SwpNoOwnerZOrder);
+
+        if (!topmost && insertAfter != IntPtr.Zero)
+        {
+            SetWindowPos(
+                handle,
+                insertAfter,
+                0,
+                0,
+                0,
+                0,
+                SwpNoMove | SwpNoSize | SwpNoActivate | SwpNoOwnerZOrder);
+        }
+    }
+
     private const int GwlExStyle = -20;
     private const int WsExNoActivate = 0x08000000;
+    private static readonly IntPtr HwndTopmost = new(-1);
+    private static readonly IntPtr HwndNoTopmost = new(-2);
+    private const uint SwpNoSize = 0x0001;
+    private const uint SwpNoMove = 0x0002;
+    private const uint SwpNoActivate = 0x0010;
+    private const uint SwpNoOwnerZOrder = 0x0200;
     private const uint EventSystemForeground = 0x0003;
     private const uint WineventOutOfContext = 0x0000;
     private const int WhMouseLl = 14;
@@ -6700,6 +6861,16 @@ public sealed partial class PaperWindow : Window
 
     [System.Runtime.InteropServices.DllImport("user32.dll", EntryPoint = "SetWindowLongW")]
     private static extern int SetWindowLong(IntPtr hWnd, int nIndex, int dwNewLong);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool SetWindowPos(
+        IntPtr hWnd,
+        IntPtr hWndInsertAfter,
+        int X,
+        int Y,
+        int cx,
+        int cy,
+        uint uFlags);
 
     [DllImport("user32.dll")]
     private static extern IntPtr SetWinEventHook(

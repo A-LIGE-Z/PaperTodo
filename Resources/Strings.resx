@@ -81,6 +81,12 @@
   <data name="MarkdownRenderOff" xml:space="preserve">
     <value>不启用</value>
   </data>
+  <data name="FullscreenTopmostModeAvoid" xml:space="preserve">
+    <value>避让</value>
+  </data>
+  <data name="FullscreenTopmostModeStayOnTop" xml:space="preserve">
+    <value>不避让</value>
+  </data>
   <data name="MarkdownPreviewFailure" xml:space="preserve">
     <value>*预览失败，已保留原文。错误信息: {0}*</value>
   </data>
@@ -291,6 +297,9 @@
   <data name="TrayMarkdownRenderMode" xml:space="preserve">
     <value>MD 解析</value>
   </data>
+  <data name="SettingsFullscreenTopmostMode" xml:space="preserve">
+    <value>全屏置顶策略</value>
+  </data>
   <data name="TrayInlineConfirmDelete" xml:space="preserve">
     <value>⚠ 删除</value>
   </data>
@@ -347,6 +356,9 @@
   </data>
   <data name="TipMarkdownRender" xml:space="preserve">
     <value>笔记中 Markdown 的渲染方式。「增强」实时美化标题、列表、加粗等；「启用」仅做轻量处理。</value>
+  </data>
+  <data name="TipFullscreenTopmostMode" xml:space="preserve">
+    <value>检测到外部全屏窗口时，控制纸片和贴边胶囊是否临时降低层级。默认避让；不避让会保持在全屏画面之上。</value>
   </data>
   <data name="TipEnableTodoNoteLinks" xml:space="preserve">
     <value>开启后，可把笔记拖到待办项上建立关联，再通过待办项后的关联入口打开对应笔记。</value>

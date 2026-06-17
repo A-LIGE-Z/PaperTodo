@@ -163,6 +163,8 @@ public sealed class StateStore
         }
 
         state.ExternalMarkdownExtension = ExternalMarkdownFileExtensions.Normalize(state.ExternalMarkdownExtension);
+        state.FullscreenTopmostMode = FullscreenTopmostModes.Normalize(state.FullscreenTopmostMode);
+        state.TopBarHeight = 0;
 
         if (state.ShowTopBarNewPaperButtons is bool showTopBarNewPaperButtons)
         {
@@ -193,6 +195,10 @@ public sealed class StateStore
         {
             state.CapsuleCollapseAllActive = false;
         }
+
+        state.DeepCapsuleStartTopMargin = state.UseCapsuleMode && state.UseDeepCapsuleMode && state.UseCapsuleCollapseAll
+            ? NormalizeDeepCapsuleStartTopMargin(state.DeepCapsuleStartTopMargin)
+            : DeepCapsuleLayout.StartTopMargin;
 
         var usedPaperIds = new HashSet<string>(StringComparer.Ordinal);
         foreach (var paper in state.Papers)
@@ -304,4 +310,6 @@ public sealed class StateStore
             ? fallback
             : value;
     }
+
+    private static double NormalizeDeepCapsuleStartTopMargin(double value) => DeepCapsuleLayout.NormalizeStartTopMargin(value);
 }

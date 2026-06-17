@@ -22,6 +22,10 @@ public static class DeepCapsuleLayout
     public const double Gap = 4;
     // Shared pill corner radius for the real capsules and the master capsule.
     public const double CornerRadius = 12;
+    // Transparent outer chrome around the capsule body. The docked viewport must hide at
+    // least this margin plus the corner radius so the screen edge cuts through the straight
+    // body, not through the rounded cap.
+    public const double WindowChromeMargin = 8;
     // Top-level transparent windows are expensive to move; slightly longer durations give
     // the compositor more frames and make each frame's position delta smaller.
     public const int SlideOutMilliseconds = 220;
@@ -29,7 +33,8 @@ public static class DeepCapsuleLayout
     public const int SlotMoveMilliseconds = 200;
     public static double FocusVisibleWidth(double capsuleWindowWidth)
     {
-        return Math.Clamp(capsuleWindowWidth - HoverOutsideOffset, 54, capsuleWindowWidth);
+        var hiddenWidth = WindowChromeMargin + CornerRadius;
+        return Math.Clamp(capsuleWindowWidth - hiddenWidth, 54, capsuleWindowWidth);
     }
 
     // Display-weighted character count: CJK / fullwidth glyphs count as 2, everything
@@ -77,11 +82,31 @@ public static class DeepCapsuleLayout
 
     public static double SlotHeight => PaperLayoutDefaults.CapsuleHeight + Gap;
 
-    public static double TopForIndex(int index)
+    public static double TopForIndex(int index, double startTopMargin = StartTopMargin)
     {
         var area = WorkArea;
-        var desiredTop = area.Top + StartTopMargin + Math.Max(0, index) * SlotHeight;
+        var desiredTop = area.Top + NormalizeStartTopMargin(startTopMargin) + Math.Max(0, index) * SlotHeight;
         var maxTop = Math.Max(area.Top + TopMargin, area.Bottom - PaperLayoutDefaults.CapsuleHeight - TopMargin);
         return Math.Min(desiredTop, maxTop);
+    }
+
+    public static double MaxStartTopMarginForCount(int slotCount)
+    {
+        var area = WorkArea;
+        var count = Math.Max(1, slotCount);
+        var stackHeight = PaperLayoutDefaults.CapsuleHeight + (count - 1) * SlotHeight;
+        var maxMargin = area.Height - stackHeight - TopMargin;
+        return Math.Max(TopMargin, maxMargin);
+    }
+
+    public static double NormalizeStartTopMargin(double value, int slotCount = 1)
+    {
+        if (double.IsNaN(value) || double.IsInfinity(value))
+        {
+            value = StartTopMargin;
+        }
+
+        var max = MaxStartTopMarginForCount(slotCount);
+        return Math.Round(Math.Clamp(value, TopMargin, max), 1);
     }
 }

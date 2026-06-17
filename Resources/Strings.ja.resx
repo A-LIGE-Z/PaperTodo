@@ -81,6 +81,12 @@
   <data name="MarkdownRenderOff" xml:space="preserve">
     <value>無効</value>
   </data>
+  <data name="FullscreenTopmostModeAvoid" xml:space="preserve">
+    <value>避ける</value>
+  </data>
+  <data name="FullscreenTopmostModeStayOnTop" xml:space="preserve">
+    <value>最前面のまま</value>
+  </data>
   <data name="MarkdownPreviewFailure" xml:space="preserve">
     <value>*プレビューに失敗しました。原文は保持されました。エラー: {0}*</value>
   </data>
@@ -291,6 +297,9 @@
   <data name="TrayMarkdownRenderMode" xml:space="preserve">
     <value>MD 解析</value>
   </data>
+  <data name="SettingsFullscreenTopmostMode" xml:space="preserve">
+    <value>全画面時の最前面</value>
+  </data>
   <data name="TrayInlineConfirmDelete" xml:space="preserve">
     <value>⚠ 削除</value>
   </data>
@@ -347,6 +356,9 @@
   </data>
   <data name="TipMarkdownRender" xml:space="preserve">
     <value>ノートでの Markdown の表示方法。「拡張」は見出し・リスト・太字などをリアルタイムに装飾し、「基本」は軽い処理のみ行います。</value>
+  </data>
+  <data name="TipFullscreenTopmostMode" xml:space="preserve">
+    <value>他のアプリが全画面のとき、紙片と端のカプセルの重なり順を一時的に下げるかを選びます。初期設定は避けるで、最前面のままでは全画面表示の上に残ります。</value>
   </data>
   <data name="TipEnableTodoNoteLinks" xml:space="preserve">
     <value>オンにすると、ノートを ToDo 項目にドラッグして関連付けでき、その項目の関連ノートボタンからノートを開けます。</value>

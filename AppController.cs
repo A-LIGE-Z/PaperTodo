@@ -1,12 +1,14 @@
 using System.Globalization;
 using System.IO;
 using System.Reflection;
+using System.Text;
 using System.Threading;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Data;
 using System.Windows.Media;
+using System.Windows.Media.Effects;
 using System.Windows.Input;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
@@ -41,6 +43,10 @@ public sealed partial class AppController : IDisposable
     private long _saveVersion;
     private readonly Dictionary<string, int> _visibilityAnimationVersions = new();
     private bool _suppressTopmostForFullscreenForeground;
+    private IntPtr _fullscreenAvoidanceWindow;
+    private DateTimeOffset _lastFullscreenGlobalScanAt = DateTimeOffset.MinValue;
+    private DateTimeOffset _lastFullscreenDebugLogAt = DateTimeOffset.MinValue;
+    private bool? _lastFullscreenDebugSuppressState;
     private PaperWindow? _noteLinkTargetWindow;
     private string? _noteLinkTargetItemId;
     private MasterCapsuleWindow? _masterCapsule;
@@ -50,9 +56,13 @@ public sealed partial class AppController : IDisposable
     private static Brush TrayTextBrush => Theme.TextBrush;
     private static Brush TrayWeakTextBrush => Theme.WeakTextBrush;
     private static Brush TrayHoverBrush => Theme.HoverBrush;
+    private static readonly bool EnableFullscreenDebugLog = false;
+    private static string FullscreenDebugLogPath => Path.Combine(AppContext.BaseDirectory, "fullscreen-debug.log");
 
     public AppState State { get; private set; }
     public bool SuppressTopmostForFullscreenForeground => _suppressTopmostForFullscreenForeground;
+    public IntPtr FullscreenAvoidanceWindow => _fullscreenAvoidanceWindow;
+    private bool ShouldAvoidFullscreenTopmost => FullscreenTopmostModes.Normalize(State.FullscreenTopmostMode) == FullscreenTopmostModes.Avoid;
 
     public AppController()
     {
@@ -72,7 +82,7 @@ public sealed partial class AppController : IDisposable
 
         _topmostRefreshTimer = new DispatcherTimer
         {
-            Interval = TimeSpan.FromMilliseconds(800)
+            Interval = TimeSpan.FromMilliseconds(250)
         };
         _topmostRefreshTimer.Tick += (_, _) => RefreshTopmostForForegroundWindow();
 
@@ -122,7 +132,7 @@ public sealed partial class AppController : IDisposable
     {
         if (State.Papers.Count >= 100)
         {
-            MessageBox.Show(Strings.Get("PaperLimitMessage"), Strings.Get("PaperLimitTitle"), MessageBoxButton.OK, MessageBoxImage.Warning);
+            ShowPaperLimitDialog();
             return null;
         }
 
@@ -658,7 +668,7 @@ public sealed partial class AppController : IDisposable
 
     private static void ForceWindowToFront(Window window)
     {
-        if (FullscreenForegroundWindowDetector.IsForegroundFullscreen())
+        if (Current.ShouldAvoidFullscreenTopmost && FullscreenForegroundWindowDetector.IsForegroundFullscreen())
         {
             return;
         }
@@ -702,16 +712,107 @@ public sealed partial class AppController : IDisposable
 
     private void RefreshTopmostForForegroundWindow()
     {
-        var shouldSuppress = FullscreenForegroundWindowDetector.IsForegroundFullscreen();
-        if (shouldSuppress == _suppressTopmostForFullscreenForeground)
+        var shouldSuppress = false;
+        var avoidanceWindow = IntPtr.Zero;
+        if (ShouldAvoidFullscreenTopmost)
         {
+            var now = DateTimeOffset.UtcNow;
+            var allowGlobalScan = now - _lastFullscreenGlobalScanAt >= TimeSpan.FromSeconds(1);
+            if (allowGlobalScan)
+            {
+                _lastFullscreenGlobalScanAt = now;
+            }
+
+            if (FullscreenForegroundWindowDetector.TryGetFullscreenWindow(out var fullscreenWindow, allowGlobalScan))
+            {
+                shouldSuppress = true;
+                avoidanceWindow = fullscreenWindow;
+            }
+        }
+
+        var avoidanceWindowChanged = avoidanceWindow != _fullscreenAvoidanceWindow;
+        if (shouldSuppress == _suppressTopmostForFullscreenForeground && !avoidanceWindowChanged)
+        {
+            if (!shouldSuppress)
+            {
+                RefreshFloatingSurfaceZOrder();
+            }
+
+            if (ShouldAvoidFullscreenTopmost)
+            {
+                WriteFullscreenDebugSnapshot(shouldSuppress);
+            }
+
             return;
         }
 
         _suppressTopmostForFullscreenForeground = shouldSuppress;
+        _fullscreenAvoidanceWindow = avoidanceWindow;
         foreach (var window in _windows.Values)
         {
             window.RefreshEffectiveTopmost();
+        }
+        _masterCapsule?.RefreshEffectiveTopmost();
+
+        if (ShouldAvoidFullscreenTopmost)
+        {
+            WriteFullscreenDebugSnapshot(shouldSuppress);
+        }
+    }
+
+    private void WriteFullscreenDebugSnapshot(bool shouldSuppress)
+    {
+        if (!EnableFullscreenDebugLog)
+        {
+            return;
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        var stateChanged = _lastFullscreenDebugSuppressState != shouldSuppress;
+        if (!stateChanged && now - _lastFullscreenDebugLogAt < TimeSpan.FromSeconds(3))
+        {
+            return;
+        }
+
+        _lastFullscreenDebugLogAt = now;
+        _lastFullscreenDebugSuppressState = shouldSuppress;
+        try
+        {
+            TrimFullscreenDebugLogIfNeeded();
+            File.AppendAllText(
+                FullscreenDebugLogPath,
+                $"==== PaperTodo fullscreen debug shouldSuppress={shouldSuppress} ====" + Environment.NewLine +
+                FullscreenForegroundWindowDetector.BuildDebugSnapshot() +
+                Environment.NewLine,
+                Encoding.UTF8);
+        }
+        catch
+        {
+            // Debug logging must never affect normal window behavior.
+        }
+    }
+
+    private static void TrimFullscreenDebugLogIfNeeded()
+    {
+        var file = new FileInfo(FullscreenDebugLogPath);
+        if (!file.Exists || file.Length < 512 * 1024)
+        {
+            return;
+        }
+
+        File.WriteAllText(FullscreenDebugLogPath, string.Empty, Encoding.UTF8);
+    }
+
+    public void RefreshFloatingSurfaceZOrder()
+    {
+        if (_suppressTopmostForFullscreenForeground)
+        {
+            return;
+        }
+
+        foreach (var window in _windows.Values)
+        {
+            window.RefreshDeepCapsuleSlotTopmost();
         }
         _masterCapsule?.RefreshEffectiveTopmost();
     }
@@ -1019,6 +1120,8 @@ public sealed partial class AppController : IDisposable
 
         // The master pill, when shown, permanently occupies slot 0; real capsules shift to 1..N.
         var visualOffset = showMaster ? 1 : 0;
+        var slotCount = capsulePapers.Count + visualOffset;
+        State.DeepCapsuleStartTopMargin = DeepCapsuleLayout.NormalizeStartTopMargin(State.DeepCapsuleStartTopMargin, slotCount);
         var retracted = showMaster && State.CapsuleCollapseAllActive;
 
         var capsuleIndex = 0;
@@ -1033,7 +1136,7 @@ public sealed partial class AppController : IDisposable
             {
                 if (retracted)
                 {
-                    window.RetractIntoMaster(DeepCapsuleLayout.TopForIndex(0), animate);
+                    window.RetractIntoMaster(DeepCapsuleLayout.TopForIndex(0, State.DeepCapsuleStartTopMargin), animate);
                 }
                 else if (paper.IsCollapsed)
                 {
@@ -1126,6 +1229,7 @@ public sealed partial class AppController : IDisposable
         if (!State.UseCapsuleCollapseAll)
         {
             State.CapsuleCollapseAllActive = false;
+            State.DeepCapsuleStartTopMargin = DeepCapsuleLayout.StartTopMargin;
         }
 
         // Collapse-all rides on top of edge-aligned capsules; enabling it implies both prerequisites.
@@ -1333,6 +1437,92 @@ public sealed partial class AppController : IDisposable
         }
     }
 
+    private static void ShowPaperLimitDialog()
+    {
+        var dialog = new Window
+        {
+            Title = Strings.Get("PaperLimitTitle"),
+            Width = 340,
+            Height = 176,
+            MinWidth = 340,
+            MinHeight = 176,
+            WindowStartupLocation = WindowStartupLocation.CenterScreen,
+            WindowStyle = WindowStyle.None,
+            ResizeMode = ResizeMode.NoResize,
+            AllowsTransparency = true,
+            Background = Brushes.Transparent,
+            ShowInTaskbar = false,
+            Topmost = true
+        };
+
+        var root = new Border
+        {
+            Background = Theme.PaperBrush,
+            BorderBrush = Theme.PaperBorderBrush,
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(10),
+            Padding = new Thickness(18),
+            Effect = new DropShadowEffect
+            {
+                BlurRadius = 18,
+                ShadowDepth = 2,
+                Opacity = 0.22
+            }
+        };
+
+        var layout = new Grid();
+        layout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        layout.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+        layout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+        var title = new TextBlock
+        {
+            Text = Strings.Get("PaperLimitTitle"),
+            Foreground = Theme.TextBrush,
+            FontSize = 16,
+            FontWeight = FontWeights.SemiBold,
+            Margin = new Thickness(0, 0, 0, 8)
+        };
+
+        var message = new TextBlock
+        {
+            Text = Strings.Get("PaperLimitMessage"),
+            Foreground = Theme.WeakTextBrush,
+            FontSize = 13,
+            TextWrapping = TextWrapping.Wrap,
+            LineHeight = 20,
+            Margin = new Thickness(0, 2, 0, 0)
+        };
+
+        var buttons = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Margin = new Thickness(0, 16, 0, 0)
+        };
+
+        var ok = new Button
+        {
+            Content = Strings.Get("CommonOk"),
+            MinWidth = 72,
+            Style = BuildDialogButtonStyle()
+        };
+        ok.Click += (_, _) => dialog.Close();
+        buttons.Children.Add(ok);
+
+        Grid.SetRow(title, 0);
+        Grid.SetRow(message, 1);
+        Grid.SetRow(buttons, 2);
+
+        layout.Children.Add(title);
+        layout.Children.Add(message);
+        layout.Children.Add(buttons);
+
+        root.Child = layout;
+        dialog.Content = root;
+        dialog.ShowDialog();
+    }
+
     private bool IsPaperShown(PaperData paper)
     {
         return paper.IsVisible && _windows.TryGetValue(paper.Id, out var window) && window.HasVisibleSurface;
@@ -1351,7 +1541,7 @@ public sealed partial class AppController : IDisposable
 
     private static bool RescuePaperIfOffScreen(PaperData paper, int offsetIndex)
     {
-        var area = SystemParameters.WorkArea;
+        var area = WorkAreaForPaper(paper);
         var originalWidth = paper.Width;
         var originalHeight = paper.Height;
         paper.Width = ClampPaperDimension(
@@ -1367,15 +1557,14 @@ public sealed partial class AppController : IDisposable
         var resized = DimensionChanged(originalWidth, paper.Width) ||
             DimensionChanged(originalHeight, paper.Height);
 
-        if (IsPaperOnAnyScreen(paper))
+        var clamped = ClampPaperToWorkArea(paper, area);
+
+        if (IsPaperUsablyInsideWorkArea(paper, area))
         {
-            return resized;
+            return resized || clamped;
         }
 
-        var offset = Math.Min(Math.Max(offsetIndex, 0), 8) * 22;
-
-        paper.X = area.Left + 40 + offset;
-        paper.Y = area.Top + 40 + offset;
+        PlacePaperInWorkArea(paper, area, offsetIndex);
         return true;
     }
 
@@ -1399,21 +1588,34 @@ public sealed partial class AppController : IDisposable
         return Math.Abs(newValue - oldValue) > 0.001;
     }
 
-    private static bool IsPaperOnAnyScreen(PaperData paper)
+    private static bool ClampPaperToWorkArea(PaperData paper, Rect area)
     {
-        if (double.IsNaN(paper.X) ||
-            double.IsInfinity(paper.X) ||
-            double.IsNaN(paper.Y) ||
-            double.IsInfinity(paper.Y))
+        if (!IsFinite(paper.X) || !IsFinite(paper.Y) || area.Width <= 0 || area.Height <= 0)
         {
             return false;
         }
 
-        var virtualScreen = new Rect(
-            SystemParameters.VirtualScreenLeft,
-            SystemParameters.VirtualScreenTop,
-            SystemParameters.VirtualScreenWidth,
-            SystemParameters.VirtualScreenHeight);
+        const double margin = 8;
+        var minX = area.Left + margin;
+        var maxX = Math.Max(minX, area.Right - paper.Width - margin);
+        var minY = area.Top + margin;
+        var maxY = Math.Max(minY, area.Bottom - paper.Height - margin);
+
+        var newX = Math.Clamp(paper.X, minX, maxX);
+        var newY = Math.Clamp(paper.Y, minY, maxY);
+        var changed = Math.Abs(newX - paper.X) > 0.001 || Math.Abs(newY - paper.Y) > 0.001;
+
+        paper.X = newX;
+        paper.Y = newY;
+        return changed;
+    }
+
+    private static bool IsPaperUsablyInsideWorkArea(PaperData paper, Rect area)
+    {
+        if (!IsFinite(paper.X) || !IsFinite(paper.Y) || !IsFinite(paper.Width) || !IsFinite(paper.Height))
+        {
+            return false;
+        }
 
         var paperRect = new Rect(
             paper.X,
@@ -1421,7 +1623,43 @@ public sealed partial class AppController : IDisposable
             Math.Max(paper.Width, 80),
             Math.Max(paper.Height, 80));
 
-        return virtualScreen.IntersectsWith(paperRect);
+        return area.Contains(paperRect.TopLeft) &&
+               paperRect.Right <= area.Right + 0.001 &&
+               paperRect.Bottom <= area.Bottom + 0.001;
+    }
+
+    private static void PlacePaperInWorkArea(PaperData paper, Rect area, int offsetIndex)
+    {
+        const double margin = 40;
+        var offset = Math.Min(Math.Max(offsetIndex, 0), 8) * 22;
+
+        var minX = area.Left + margin;
+        var maxX = Math.Max(minX, area.Right - paper.Width - margin);
+        var minY = area.Top + margin;
+        var maxY = Math.Max(minY, area.Bottom - paper.Height - margin);
+
+        paper.X = Math.Round(Math.Clamp(area.Left + margin + offset, minX, maxX));
+        paper.Y = Math.Round(Math.Clamp(area.Top + margin + offset, minY, maxY));
+    }
+
+    private static bool IsFinite(double value)
+    {
+        return !double.IsNaN(value) && !double.IsInfinity(value);
+    }
+
+    private static Rect WorkAreaForPaper(PaperData paper)
+    {
+        if (IsFinite(paper.X) &&
+            IsFinite(paper.Y) &&
+            IsFinite(paper.Width) &&
+            IsFinite(paper.Height) &&
+            paper.Width > 0 &&
+            paper.Height > 0)
+        {
+            return WindowWorkAreaHelper.WorkAreaFor(new Rect(paper.X, paper.Y, paper.Width, paper.Height));
+        }
+
+        return SystemParameters.WorkArea;
     }
 
     private void CreateTrayIcon()
@@ -1552,8 +1790,16 @@ public sealed partial class AppController : IDisposable
         border.SetValue(Border.CornerRadiusProperty, new CornerRadius(10));
         border.SetValue(Border.PaddingProperty, new TemplateBindingExtension(Control.PaddingProperty));
 
+        var scrollViewer = new FrameworkElementFactory(typeof(ScrollViewer));
+        scrollViewer.SetValue(ScrollViewer.VerticalScrollBarVisibilityProperty, ScrollBarVisibility.Auto);
+        scrollViewer.SetValue(ScrollViewer.HorizontalScrollBarVisibilityProperty, ScrollBarVisibility.Disabled);
+        scrollViewer.SetValue(ScrollViewer.CanContentScrollProperty, false);
+        scrollViewer.SetValue(ScrollViewer.PanningModeProperty, PanningMode.VerticalOnly);
+        scrollViewer.SetValue(FrameworkElement.MaxHeightProperty, new TemplateBindingExtension(FrameworkElement.MaxHeightProperty));
+
         var presenter = new FrameworkElementFactory(typeof(ItemsPresenter));
-        border.AppendChild(presenter);
+        scrollViewer.AppendChild(presenter);
+        border.AppendChild(scrollViewer);
 
         return new ControlTemplate(typeof(ContextMenu))
         {
@@ -1750,10 +1996,16 @@ public sealed partial class AppController : IDisposable
             FontFamily = new FontFamily("Segoe UI"),
             FontSize = 13,
             MinWidth = 190,
+            MaxHeight = TrayMenuMaxHeight(),
             Template = SharedTrayMenuTemplate
         };
         UpdateTrayMenuResources(menu);
         return menu;
+    }
+
+    private static double TrayMenuMaxHeight()
+    {
+        return Math.Max(260, SystemParameters.WorkArea.Height - 72);
     }
 
     private void UpdateTrayMenuResources(ContextMenu menu)
@@ -1777,6 +2029,7 @@ public sealed partial class AppController : IDisposable
         _trayMenu.Background = TrayPaperBrush;
         _trayMenu.BorderBrush = TrayBorderBrush;
         _trayMenu.Foreground = TrayTextBrush;
+        _trayMenu.MaxHeight = TrayMenuMaxHeight();
 
         _trayMenu.Items.Clear();
 
@@ -1898,6 +2151,59 @@ public sealed partial class AppController : IDisposable
         };
 
         return CreateSegmentSelector(segments, State.MarkdownRenderMode, SetMarkdownRenderMode);
+    }
+
+    private void SetFullscreenTopmostMode(string mode)
+    {
+        var normalized = FullscreenTopmostModes.Normalize(mode);
+        if (State.FullscreenTopmostMode == normalized)
+        {
+            return;
+        }
+
+        State.FullscreenTopmostMode = normalized;
+        RefreshTopmostForForegroundWindow();
+        SaveNow();
+        RefreshSettingsWindowContent();
+    }
+
+    private UIElement CreateFullscreenTopmostModeSegmentSelector()
+    {
+        var segments = new[]
+        {
+            (FullscreenTopmostModes.Avoid, Strings.Get("FullscreenTopmostModeAvoid")),
+            (FullscreenTopmostModes.StayOnTop, Strings.Get("FullscreenTopmostModeStayOnTop"))
+        };
+
+        return CreateSegmentSelector(segments, FullscreenTopmostModes.Normalize(State.FullscreenTopmostMode), SetFullscreenTopmostMode);
+    }
+
+    public void SetDeepCapsuleStartTopMargin(double startTopMargin, bool commit = false)
+    {
+        if (!State.UseCapsuleMode || !State.UseDeepCapsuleMode)
+        {
+            return;
+        }
+
+        var slotCount = VisibleDeepCapsuleCount() + (State.UseCapsuleCollapseAll && VisibleDeepCapsuleCount() > 0 ? 1 : 0);
+        var normalized = DeepCapsuleLayout.NormalizeStartTopMargin(startTopMargin, slotCount);
+
+        if (Math.Abs(State.DeepCapsuleStartTopMargin - normalized) < 0.01)
+        {
+            return;
+        }
+
+        State.DeepCapsuleStartTopMargin = normalized;
+        ArrangeDeepCapsules(animate: false);
+
+        if (commit)
+        {
+            SaveNow();
+        }
+        else
+        {
+            MarkDirty();
+        }
     }
 
     private UIElement CreateExternalMarkdownExtensionEditor()
@@ -2288,6 +2594,8 @@ public sealed partial class AppController : IDisposable
         panel.Children.Add(CreateColorSchemeSegmentSelector());
         panel.Children.Add(WrapWithHint(SettingsFieldLabel(Strings.Get("TrayMarkdownRenderMode")), "TipMarkdownRender"));
         panel.Children.Add(CreateMarkdownRenderSegmentSelector());
+        panel.Children.Add(WrapWithHint(SettingsFieldLabel(Strings.Get("SettingsFullscreenTopmostMode")), "TipFullscreenTopmostMode"));
+        panel.Children.Add(CreateFullscreenTopmostModeSegmentSelector());
 
         // 待办与笔记：两个关联笔记选项归到一起（原先分散在「显示」和「行为」）。
         panel.Children.Add(SettingsSectionLabel(Strings.Get("SettingsTodoNote")));
@@ -3030,20 +3338,21 @@ public sealed partial class AppController : IDisposable
     {
         State.UseCapsuleMode = !State.UseCapsuleMode;
 
-        foreach (var window in _windows.Values)
-        {
-            window.UpdateCapsuleMode();
-        }
-
         if (!State.UseCapsuleMode)
         {
             State.UseDeepCapsuleMode = false;
             State.UseCapsuleCollapseAll = false;
             State.CapsuleCollapseAllActive = false;
+            State.DeepCapsuleStartTopMargin = DeepCapsuleLayout.StartTopMargin;
             foreach (var paper in State.Papers)
             {
                 paper.IsCollapsed = false;
             }
+        }
+
+        foreach (var window in _windows.Values)
+        {
+            window.UpdateCapsuleMode();
         }
 
         ArrangeDeepCapsules();
@@ -3133,6 +3442,7 @@ public sealed partial class AppController : IDisposable
         {
             State.UseCapsuleCollapseAll = false;
             State.CapsuleCollapseAllActive = false;
+            State.DeepCapsuleStartTopMargin = DeepCapsuleLayout.StartTopMargin;
         }
 
         foreach (var window in _windows.Values)

@@ -13,6 +13,7 @@ public static class PaperLayoutDefaults
 {
     public const double MinWidth = 220;
     public const double MinHeight = 160;
+    public const double TopBarHeight = 23.5;
 
     public const double CapsuleWidth = 92; // 包含阴影边框边距
     public const double CapsuleHeight = 46;
@@ -68,6 +69,17 @@ public static class ExternalMarkdownFileExtensions
     }
 }
 
+public static class FullscreenTopmostModes
+{
+    public const string Avoid = "avoid";
+    public const string StayOnTop = "stayOnTop";
+
+    public static string Normalize(string? mode)
+    {
+        return mode is StayOnTop ? StayOnTop : Avoid;
+    }
+}
+
 public sealed class AppState
 {
     public List<PaperData> Papers { get; set; } = new();
@@ -90,6 +102,11 @@ public sealed class AppState
     public bool ShowDeepCapsuleWhileExpanded { get; set; } = true;
     public bool EnableAnimations { get; set; } = true;
     public bool EnableToolTips { get; set; } = true;
+    public string FullscreenTopmostMode { get; set; } = FullscreenTopmostModes.Avoid;
+    public double DeepCapsuleStartTopMargin { get; set; } = DeepCapsuleLayout.StartTopMargin;
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public double TopBarHeight { get; set; }
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public bool? ShowTopBarNewPaperButtons { get; set; }

@@ -81,6 +81,12 @@
   <data name="MarkdownRenderOff" xml:space="preserve">
     <value>Off</value>
   </data>
+  <data name="FullscreenTopmostModeAvoid" xml:space="preserve">
+    <value>Avoid</value>
+  </data>
+  <data name="FullscreenTopmostModeStayOnTop" xml:space="preserve">
+    <value>Stay on top</value>
+  </data>
   <data name="MarkdownPreviewFailure" xml:space="preserve">
     <value>*Preview failed. The original text was kept. Error: {0}*</value>
   </data>
@@ -291,6 +297,9 @@
   <data name="TrayMarkdownRenderMode" xml:space="preserve">
     <value>MD parsing</value>
   </data>
+  <data name="SettingsFullscreenTopmostMode" xml:space="preserve">
+    <value>Fullscreen topmost</value>
+  </data>
   <data name="TrayInlineConfirmDelete" xml:space="preserve">
     <value>⚠ Delete</value>
   </data>
@@ -347,6 +356,9 @@
   </data>
   <data name="TipMarkdownRender" xml:space="preserve">
     <value>How Markdown is rendered in notes. "Enhanced" live-styles headings, lists, bold, etc.; "Basic" does light processing only.</value>
+  </data>
+  <data name="TipFullscreenTopmostMode" xml:space="preserve">
+    <value>When another app is fullscreen, choose whether papers and edge capsules temporarily lower their z-order. Avoid is the default; stay on top keeps them above fullscreen content.</value>
   </data>
   <data name="TipEnableTodoNoteLinks" xml:space="preserve">
     <value>When on, drag a note onto a to-do item to link them, then use the linked-note button on that item to open the note.</value>

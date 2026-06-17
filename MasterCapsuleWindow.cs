@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
 using System.Windows.Media.Effects;
@@ -24,12 +25,15 @@ public sealed class MasterCapsuleWindow : Window
 
     // Compact internal metrics controlling how tightly the glyph + label sit inside the pill.
     // The label is always shown in full; only the right padding is tucked past the screen edge.
+    private const double WindowChromeMargin = DeepCapsuleLayout.WindowChromeMargin;
+    private const double WindowChromeInset = WindowChromeMargin * 2;
     private const double MasterLeftPadding = 5;
     private const double MasterGlyphGap = 4;
     private const double MasterRightPadding = 10;
     private const double MasterGlyphFontSize = 12;
     private const double MasterLabelFontSize = 11;
-    // Gap shown after the label before the screen edge cuts off the trailing padding.
+    // Keep the label fully readable; only the trailing padding/chrome is clipped by the
+    // screen edge.
     private const double MasterPeekRightGap = 2;
 
     private readonly AppController _controller;
@@ -38,11 +42,16 @@ public sealed class MasterCapsuleWindow : Window
     private Border _hoverOverlay = null!;
     private TextBlock _glyph = null!;
     private TextBlock _label = null!;
+    private TranslateTransform _pillOffset = null!;
 
     private bool _isHovering;
     private bool _suppressGeometrySave = true; // master capsule position is always derived, never persisted
     private int _count;
     private bool _active;
+    private bool _isPointerDown;
+    private bool _isDraggingStartTop;
+    private Point _dragStartScreenPos;
+    private double _dragStartTopMargin;
 
     private static readonly DependencyProperty AnimatedLeftProperty =
         DependencyProperty.Register(
@@ -106,17 +115,19 @@ public sealed class MasterCapsuleWindow : Window
 
     private void BuildContent()
     {
-        var host = new Grid { Background = Brushes.Transparent, ClipToBounds = false };
+        var host = new Grid { Background = Brushes.Transparent, ClipToBounds = true };
 
+        _pillOffset = new TranslateTransform();
         _pill = new Border
         {
-            Margin = new Thickness(8),
+            Margin = new Thickness(WindowChromeMargin),
             CornerRadius = new CornerRadius(DeepCapsuleLayout.CornerRadius),
             BorderThickness = new Thickness(1),
             Background = Theme.PaperBrush,
             BorderBrush = Theme.PaperBorderBrush,
             SnapsToDevicePixels = true,
             Cursor = System.Windows.Input.Cursors.Hand,
+            RenderTransform = _pillOffset,
             Effect = new DropShadowEffect { BlurRadius = 14, ShadowDepth = 2, Opacity = 0.18 }
         };
 
@@ -177,9 +188,61 @@ public sealed class MasterCapsuleWindow : Window
             _hoverOverlay.Background = Brushes.Transparent;
             SetHover(false);
         };
+        _pill.PreviewMouseLeftButtonDown += (_, e) =>
+        {
+            _isPointerDown = true;
+            _isDraggingStartTop = false;
+            _dragStartScreenPos = PointToScreen(e.GetPosition(this));
+            _dragStartTopMargin = _controller.State.DeepCapsuleStartTopMargin;
+            _pill.CaptureMouse();
+            e.Handled = true;
+        };
+        _pill.PreviewMouseMove += (_, e) =>
+        {
+            if (!_isPointerDown || _pill.IsMouseCaptured != true || e.LeftButton != MouseButtonState.Pressed)
+            {
+                return;
+            }
+
+            var currentScreenPos = PointToScreen(e.GetPosition(this));
+            var deltaY = Math.Abs(currentScreenPos.Y - _dragStartScreenPos.Y);
+            if (!_isDraggingStartTop && deltaY < SystemParameters.MinimumVerticalDragDistance)
+            {
+                return;
+            }
+
+            _isDraggingStartTop = true;
+            var dpiScaleY = VisualTreeHelper.GetDpi(this).DpiScaleY;
+            var target = _dragStartTopMargin + (currentScreenPos.Y - _dragStartScreenPos.Y) / Math.Max(0.1, dpiScaleY);
+            _controller.SetDeepCapsuleStartTopMargin(target);
+            e.Handled = true;
+        };
+        _pill.PreviewMouseLeftButtonUp += (_, e) =>
+        {
+            var wasDragging = _isDraggingStartTop;
+            EndStartTopDrag();
+            if (wasDragging)
+            {
+                _controller.SaveNow();
+            }
+            else
+            {
+                _controller.ToggleCapsuleCollapseAllActive();
+            }
+
+            e.Handled = true;
+        };
+        _pill.LostMouseCapture += (_, _) =>
+        {
+            if (_isDraggingStartTop)
+            {
+                _controller.SaveNow();
+            }
+
+            EndStartTopDrag();
+        };
         _pill.MouseLeftButtonUp += (_, e) =>
         {
-            _controller.ToggleCapsuleCollapseAllActive();
             e.Handled = true;
         };
     }
@@ -201,7 +264,12 @@ public sealed class MasterCapsuleWindow : Window
 
     public void RefreshEffectiveTopmost()
     {
-        Topmost = !_controller.SuppressTopmostForFullscreenForeground;
+        var topmost = !_controller.SuppressTopmostForFullscreenForeground;
+        Topmost = topmost;
+        if (IsVisible)
+        {
+            ApplyTopmostZOrder(topmost, _controller.FullscreenAvoidanceWindow);
+        }
     }
 
     // count = number of real capsules behind the master; active = whether they are retracted.
@@ -211,8 +279,7 @@ public sealed class MasterCapsuleWindow : Window
         _active = active;
         ApplyStateVisuals();
 
-        Width = CapsuleWindowWidth();
-        Height = PaperLayoutDefaults.CapsuleHeight;
+        ApplyDockedWidth(MasterVisibleWidth());
 
         MoveToTarget(animate);
         RefreshEffectiveTopmost();
@@ -236,6 +303,16 @@ public sealed class MasterCapsuleWindow : Window
         _isHovering = hovering;
     }
 
+    private void EndStartTopDrag()
+    {
+        _isPointerDown = false;
+        _isDraggingStartTop = false;
+        if (_pill.IsMouseCaptured)
+        {
+            _pill.ReleaseMouseCapture();
+        }
+    }
+
     private double CapsuleWindowWidth()
     {
         // glyph + gap + label + left/right paddings + chrome margins. Both pieces are
@@ -243,7 +320,27 @@ public sealed class MasterCapsuleWindow : Window
         var glyphWidth = MeasureText(_glyph.Text, MasterGlyphFontSize, FontWeights.SemiBold);
         var textWidth = MeasureText(_label.Text, MasterLabelFontSize, FontWeights.Normal);
         var shellWidth = Math.Ceiling(MasterLeftPadding + glyphWidth + MasterGlyphGap + textWidth + MasterRightPadding);
-        return shellWidth + 16;
+        return shellWidth + WindowChromeInset;
+    }
+
+    private double MasterVisibleWidth()
+    {
+        var visibleWidth = WindowChromeMargin + MasterLeftPadding
+            + MeasureText(_glyph.Text, MasterGlyphFontSize, FontWeights.SemiBold)
+            + MasterGlyphGap
+            + MeasureText(_label.Text, MasterLabelFontSize, FontWeights.Normal)
+            + MasterPeekRightGap;
+        return Math.Clamp(visibleWidth, 1, CapsuleWindowWidth());
+    }
+
+    private void ApplyDockedWidth(double visibleWidth)
+    {
+        var fullWidth = CapsuleWindowWidth();
+        visibleWidth = Math.Clamp(visibleWidth, 1, fullWidth);
+        Width = visibleWidth;
+        Height = PaperLayoutDefaults.CapsuleHeight;
+        _pill.Width = Math.Max(0, fullWidth - WindowChromeInset);
+        _pillOffset.X = 0;
     }
 
     private double MeasureText(string text, double fontSize, FontWeight weight)
@@ -274,30 +371,20 @@ public sealed class MasterCapsuleWindow : Window
     private void MoveToTarget(bool animate)
     {
         var area = DeepCapsuleLayout.WorkArea;
-        var width = CapsuleWindowWidth();
-        // Master pill: the LABEL is never clipped, but the right padding + right chrome margin
-        // are tucked past the screen edge so it reads as "docked" like the real capsules. The
-        // screen edge cuts just after the text (+ a hair of breathing room), hiding only the
-        // trailing padding — never any glyph.
-        var visibleWidth = 8 + MasterLeftPadding
-            + MeasureText(_glyph.Text, MasterGlyphFontSize, FontWeights.SemiBold)
-            + MasterGlyphGap
-            + MeasureText(_label.Text, MasterLabelFontSize, FontWeights.Normal)
-            + MasterPeekRightGap;
+        var visibleWidth = MasterVisibleWidth();
         var targetLeft = RoundX(area.Right - visibleWidth);
-        var targetTop = RoundY(DeepCapsuleLayout.TopForIndex(0));
+        var targetTop = RoundY(DeepCapsuleLayout.TopForIndex(0, _controller.State.DeepCapsuleStartTopMargin));
 
         MoveWithoutSave(() =>
         {
-            Width = width;
-            Height = PaperLayoutDefaults.CapsuleHeight;
+            ApplyDockedWidth(visibleWidth);
+            Left = targetLeft;
             Top = targetTop;
         });
 
         if (!animate)
         {
             BeginAnimation(AnimatedLeftProperty, null);
-            MoveWithoutSave(() => Left = targetLeft);
             return;
         }
 
@@ -325,7 +412,7 @@ public sealed class MasterCapsuleWindow : Window
     }
 
     // The resting Top of the master, used as the retract/release anchor for real capsules.
-    public double AnchorTop => RoundY(DeepCapsuleLayout.TopForIndex(0));
+    public double AnchorTop => RoundY(DeepCapsuleLayout.TopForIndex(0, _controller.State.DeepCapsuleStartTopMargin));
 
     private static void OnAnimatedLeftChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
     {
@@ -381,8 +468,7 @@ public sealed class MasterCapsuleWindow : Window
         _active = active;
         ApplyStateVisuals();
 
-        Width = CapsuleWindowWidth();
-        Height = PaperLayoutDefaults.CapsuleHeight;
+        ApplyDockedWidth(MasterVisibleWidth());
         MoveToTarget(animate: false);
 
         Show();
@@ -411,10 +497,56 @@ public sealed class MasterCapsuleWindow : Window
 
     private const int GwlExStyle = -20;
     private const int WsExNoActivate = 0x08000000;
+    private static readonly IntPtr HwndTopmost = new(-1);
+    private static readonly IntPtr HwndNoTopmost = new(-2);
+    private const uint SwpNoSize = 0x0001;
+    private const uint SwpNoMove = 0x0002;
+    private const uint SwpNoActivate = 0x0010;
+    private const uint SwpNoOwnerZOrder = 0x0200;
 
     [System.Runtime.InteropServices.DllImport("user32.dll", EntryPoint = "GetWindowLongW")]
     private static extern int GetWindowLong(IntPtr hWnd, int nIndex);
 
     [System.Runtime.InteropServices.DllImport("user32.dll", EntryPoint = "SetWindowLongW")]
     private static extern int SetWindowLong(IntPtr hWnd, int nIndex, int dwNewLong);
+
+    private void ApplyTopmostZOrder(bool topmost, IntPtr insertAfter)
+    {
+        var handle = new System.Windows.Interop.WindowInteropHelper(this).Handle;
+        if (handle == IntPtr.Zero)
+        {
+            return;
+        }
+
+        SetWindowPos(
+            handle,
+            topmost ? HwndTopmost : HwndNoTopmost,
+            0,
+            0,
+            0,
+            0,
+            SwpNoMove | SwpNoSize | SwpNoActivate | SwpNoOwnerZOrder);
+
+        if (!topmost && insertAfter != IntPtr.Zero)
+        {
+            SetWindowPos(
+                handle,
+                insertAfter,
+                0,
+                0,
+                0,
+                0,
+                SwpNoMove | SwpNoSize | SwpNoActivate | SwpNoOwnerZOrder);
+        }
+    }
+
+    [System.Runtime.InteropServices.DllImport("user32.dll", SetLastError = true)]
+    private static extern bool SetWindowPos(
+        IntPtr hWnd,
+        IntPtr hWndInsertAfter,
+        int X,
+        int Y,
+        int cx,
+        int cy,
+        uint uFlags);
 }

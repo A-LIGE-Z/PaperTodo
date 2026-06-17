@@ -81,6 +81,12 @@
   <data name="MarkdownRenderOff" xml:space="preserve">
     <value>사용 안 함</value>
   </data>
+  <data name="FullscreenTopmostModeAvoid" xml:space="preserve">
+    <value>피하기</value>
+  </data>
+  <data name="FullscreenTopmostModeStayOnTop" xml:space="preserve">
+    <value>위에 유지</value>
+  </data>
   <data name="MarkdownPreviewFailure" xml:space="preserve">
     <value>*미리 보기에 실패했습니다. 원문은 유지되었습니다. 오류: {0}*</value>
   </data>
@@ -291,6 +297,9 @@
   <data name="TrayMarkdownRenderMode" xml:space="preserve">
     <value>MD 파싱</value>
   </data>
+  <data name="SettingsFullscreenTopmostMode" xml:space="preserve">
+    <value>전체 화면 위 표시</value>
+  </data>
   <data name="TrayInlineConfirmDelete" xml:space="preserve">
     <value>⚠ 삭제</value>
   </data>
@@ -347,6 +356,9 @@
   </data>
   <data name="TipMarkdownRender" xml:space="preserve">
     <value>메모에서 Markdown을 표시하는 방식입니다. '확장'은 제목, 목록, 굵게 등을 실시간으로 꾸미고, '기본'은 가벼운 처리만 합니다.</value>
+  </data>
+  <data name="TipFullscreenTopmostMode" xml:space="preserve">
+    <value>다른 앱이 전체 화면일 때 종이와 가장자리 캡슐의 창 순서를 임시로 낮출지 선택합니다. 기본값은 피하기이며, 위에 유지는 전체 화면 콘텐츠 위에 남습니다.</value>
   </data>
   <data name="TipEnableTodoNoteLinks" xml:space="preserve">
     <value>켜면 메모를 할 일 항목으로 드래그해 연결할 수 있고, 해당 항목의 연결 메모 버튼으로 메모를 열 수 있습니다.</value>
