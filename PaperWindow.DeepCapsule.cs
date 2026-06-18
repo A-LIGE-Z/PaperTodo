@@ -907,9 +907,27 @@ public sealed partial class PaperWindow
 
     private bool IsDeepCapsuleSlotHorizontalAnimating => !double.IsNaN(DeepCapsuleSlotHorizontalProgress);
 
-    private static Rect DeepCapsuleWorkArea()
+    // ── This window's OWN queue identity. A queue is (monitor, edge); each docked capsule
+    // resolves its geometry against its own queue, not a single global anchor. This is what
+    // lets one capsule sit on the left edge of monitor A while another sits on the right of B.
+    private DeepCapsuleEdge MyDeepCapsuleEdge =>
+        _paper.CapsuleSide == DeepCapsuleSides.Left ? DeepCapsuleEdge.Left : DeepCapsuleEdge.Right;
+
+    private bool MyDeepCapsuleIsLeftEdge => MyDeepCapsuleEdge == DeepCapsuleEdge.Left;
+
+    private Rect DeepCapsuleWorkArea()
     {
-        return DeepCapsuleLayout.WorkArea;
+        return DeepCapsuleLayout.WorkAreaForQueue(_paper.CapsuleMonitorDeviceName);
+    }
+
+    private double MyDockedLeft(Rect area, double visibleWidth)
+    {
+        return DeepCapsuleLayout.DockedLeft(area, visibleWidth, MyDeepCapsuleEdge);
+    }
+
+    private double MyTopForIndex(int index)
+    {
+        return DeepCapsuleLayout.TopForIndex(index, _controller.DeepCapsuleStartTopMarginFor(_paper), DeepCapsuleWorkArea());
     }
 
     private void ApplyDeepCapsuleSlotHostViewport(double viewportWidth)
@@ -929,7 +947,7 @@ public sealed partial class PaperWindow
         ApplyDeepCapsuleSlotEdgeLayout();
         var fullWidth = CapsuleWindowWidth(usesDeepCapsulePresentation: true);
         var outlineMargin = WindowChromeMargin - DeepCapsuleSlotOutlineThickness + DeepCapsuleSlotOutlineOverlap;
-        var leftEdge = DeepCapsuleLayout.IsLeftEdge;
+        var leftEdge = MyDeepCapsuleIsLeftEdge;
 
         if (_deepCapsuleSlotChrome != null)
         {
@@ -1006,7 +1024,7 @@ public sealed partial class PaperWindow
         var viewportWidth = Lerp(_deepCapsuleSlotStartViewportWidth, _deepCapsuleSlotTargetViewportWidth, progress);
         // Right edge: pin the right side (target + width) and grow leftward.
         // Left edge:  the docked left is fixed at the screen edge; grow rightward.
-        var left = DeepCapsuleLayout.IsLeftEdge
+        var left = MyDeepCapsuleIsLeftEdge
             ? _deepCapsuleSlotTargetLeft
             : (_deepCapsuleSlotTargetLeft + _deepCapsuleSlotTargetViewportWidth) - viewportWidth;
         var right = left + viewportWidth;
@@ -1045,7 +1063,7 @@ public sealed partial class PaperWindow
 
     private double DeepCapsuleTopForIndex(int index)
     {
-        return DeepCapsuleLayout.TopForIndex(index, _controller.State.DeepCapsuleStartTopMargin);
+        return MyTopForIndex(index);
     }
 
     private void MoveDeepCapsuleToCurrentTarget(
@@ -1068,7 +1086,7 @@ public sealed partial class PaperWindow
         var visibleWidth = shouldUseActiveOffset
             ? ExpandedDeepCapsuleVisibleWidth()
             : deepCapsuleVisibleWidth;
-        var targetLeft = RoundToDevicePixelX(DeepCapsuleLayout.DockedLeft(area, visibleWidth));
+        var targetLeft = RoundToDevicePixelX(MyDockedLeft(area, visibleWidth));
         var targetTop = RoundToDevicePixelY(DeepCapsuleTopForIndex(_deepCapsuleIndex + _deepCapsuleVisualOffset));
 
         MoveExpandedDeepCapsuleSlotHost(
@@ -1126,7 +1144,7 @@ public sealed partial class PaperWindow
             !double.IsNaN(_deepCapsuleSlotHost!.Left) &&
             !double.IsInfinity(_deepCapsuleSlotHost.Left)
                 ? RoundToDevicePixelX(_deepCapsuleSlotHost.Left)
-                : RoundToDevicePixelX(DeepCapsuleLayout.DockedLeft(area, visibleWidth));
+                : RoundToDevicePixelX(MyDockedLeft(area, visibleWidth));
         var targetTop = RoundToDevicePixelY(anchorTop);
 
         MoveExpandedDeepCapsuleSlotHost(targetLeft, targetTop, visibleWidth, animate);
@@ -1222,7 +1240,7 @@ public sealed partial class PaperWindow
 
         var area = DeepCapsuleWorkArea();
         var visibleWidth = ExpandedDeepCapsuleVisibleWidth();
-        var targetLeft = RoundToDevicePixelX(DeepCapsuleLayout.DockedLeft(area, visibleWidth));
+        var targetLeft = RoundToDevicePixelX(MyDockedLeft(area, visibleWidth));
         var targetTop = RoundToDevicePixelY(DeepCapsuleTopForIndex(index + visualOffset));
         RefreshDeepCapsuleSlotLabel();
 
@@ -1574,7 +1592,7 @@ public sealed partial class PaperWindow
 
         var area = DeepCapsuleWorkArea();
         var visibleWidth = ExpandedDeepCapsuleVisibleWidth();
-        _deepCapsuleDragLeft = RoundToDevicePixelX(DeepCapsuleLayout.DockedLeft(area, visibleWidth));
+        _deepCapsuleDragLeft = RoundToDevicePixelX(MyDockedLeft(area, visibleWidth));
 
         _deepCapsuleSlotHost.Left = _deepCapsuleDragLeft;
         ApplyDeepCapsuleSlotHostViewport(visibleWidth);
@@ -1673,7 +1691,7 @@ public sealed partial class PaperWindow
             Math.Max(0, area.Width - width));
         var targetTop = Math.Clamp(Top, area.Top + DeepCapsuleTopMargin, Math.Max(area.Top + DeepCapsuleTopMargin, area.Bottom - height - DeepCapsuleTopMargin));
 
-        Left = RoundToDevicePixelX(DeepCapsuleLayout.IsLeftEdge
+        Left = RoundToDevicePixelX(MyDeepCapsuleIsLeftEdge
             ? area.Left + edgeInset
             : area.Right - width - edgeInset);
         Top = RoundToDevicePixelY(targetTop);

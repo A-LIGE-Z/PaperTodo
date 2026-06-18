@@ -168,7 +168,7 @@ public sealed partial class PaperWindow
     private void UpdateDeepCapsuleSlotClosePlacement(bool updateHostViewport = true)
     {
         var usesActivePresentation = _deepCapsuleVisualState is DeepCapsuleVisualState.Active or DeepCapsuleVisualState.Hovered;
-        var leftEdge = DeepCapsuleLayout.IsLeftEdge;
+        var leftEdge = MyDeepCapsuleIsLeftEdge;
         if (_deepCapsuleSlotCloseArea != null)
         {
             _deepCapsuleSlotCloseArea.Width = CapsuleCloseWidth;

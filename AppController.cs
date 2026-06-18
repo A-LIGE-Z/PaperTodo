@@ -1679,6 +1679,13 @@ public sealed partial class AppController : IDisposable
         DeepCapsuleLayout.SetAnchor(edge, State.DeepCapsuleMonitorDeviceName);
     }
 
+    // Per-queue vertical rest position. For now all queues share the legacy global margin;
+    // Stage 4 will key this by (monitor, edge). Centralized here so callers don't read State.
+    public double DeepCapsuleStartTopMarginFor(PaperData paper)
+    {
+        return State.DeepCapsuleStartTopMargin;
+    }
+
     // Commit a new dock anchor (monitor + edge) chosen by dragging the master pill, then relayout.
     // startTopMargin is the vertical rest position resolved against the NEW monitor's work area.
     public void SetDeepCapsuleAnchor(string monitorDeviceName, string side, double startTopMargin)
