@@ -105,8 +105,58 @@ internal static class WindowWorkAreaHelper
         return null;
     }
 
+    // Convert a PointToScreen point (physical screen pixels) into the app's screen DIP space.
+    // Most persisted/window geometry in this app uses the system-DPI coordinate space, so callers
+    // should use this when comparing a raw Win32 screen point with DeviceRectToDip rectangles.
+    public static Point DeviceScreenPointToDip(Point screenPoint)
+    {
+        try
+        {
+            var (scaleX, scaleY) = SystemDpiScale();
+            return new Point(screenPoint.X / scaleX, screenPoint.Y / scaleY);
+        }
+        catch
+        {
+            return screenPoint;
+        }
+    }
+
+    // The device name + DIP work-area of the monitor under a PointToScreen point (physical
+    // screen pixels). Falls back to the nearest monitor. Used when dropping a capsule across
+    // edges/monitors; using the raw device point avoids mixed-DPI monitor misidentification.
+    public static (string DeviceName, Rect WorkArea)? MonitorAtDeviceScreenPoint(Point screenPoint)
+    {
+        try
+        {
+            var nativePoint = new NativePoint
+            {
+                X = (int)Math.Round(screenPoint.X),
+                Y = (int)Math.Round(screenPoint.Y)
+            };
+            var monitor = MonitorFromPoint(nativePoint, MonitorDefaultToNearest);
+            if (monitor == IntPtr.Zero)
+            {
+                return null;
+            }
+
+            var info = new MonitorInfoEx();
+            info.Size = Marshal.SizeOf<MonitorInfoEx>();
+            if (!GetMonitorInfoEx(monitor, ref info) || info.WorkArea.IsEmpty)
+            {
+                return null;
+            }
+
+            return (info.DeviceNameString, DeviceRectToDip(info.WorkArea));
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     // The device name + DIP work-area of the monitor under a screen point (in DIPs).
-    // Falls back to the nearest monitor. Used to snap the dragged master pill to a monitor.
+    // Falls back to the nearest monitor. Used by older callers that already have system-DPI
+    // screen coordinates, not raw PointToScreen pixels.
     public static (string DeviceName, Rect WorkArea)? MonitorAtScreenPoint(Point dipPoint)
     {
         try

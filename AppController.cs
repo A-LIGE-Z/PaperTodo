@@ -166,8 +166,10 @@ public sealed partial class AppController : IDisposable
             IsVisible = show,
             AlwaysOnTop = sourcePaper?.AlwaysOnTop ?? false
         };
+        InitializeNewPaperCapsuleQueue(paper, sourcePaper);
 
         RescuePaperIfOffScreen(paper, State.Papers.Count);
+        ClampNewPaperAwayFromDeepCapsuleStrip(paper);
 
         if (paper.Type == PaperTypes.Todo)
         {
@@ -201,6 +203,61 @@ public sealed partial class AppController : IDisposable
         RefreshTrayMenu();
         MarkDirty();
         return paper;
+    }
+
+    private void InitializeNewPaperCapsuleQueue(PaperData paper, PaperData? sourcePaper)
+    {
+        paper.CapsuleSide = string.IsNullOrWhiteSpace(sourcePaper?.CapsuleSide)
+            ? DeepCapsuleSides.Normalize(State.DeepCapsuleSide)
+            : DeepCapsuleSides.Normalize(sourcePaper.CapsuleSide);
+        paper.CapsuleMonitorDeviceName = string.IsNullOrWhiteSpace(sourcePaper?.CapsuleMonitorDeviceName)
+            ? (State.DeepCapsuleMonitorDeviceName ?? "")
+            : sourcePaper.CapsuleMonitorDeviceName.Trim();
+    }
+
+    private void ClampNewPaperAwayFromDeepCapsuleStrip(PaperData paper)
+    {
+        if (!paper.IsVisible ||
+            !State.UseCapsuleMode ||
+            !State.UseDeepCapsuleMode ||
+            !State.ShowDeepCapsuleWhileExpanded ||
+            !CanPaperDisplayAsCapsule(paper))
+        {
+            return;
+        }
+
+        var area = DeepCapsuleLayout.WorkAreaForQueue(paper.CapsuleMonitorDeviceName);
+        if (area.Width <= 0 || area.Height <= 0)
+        {
+            return;
+        }
+
+        const double margin = 8;
+        var width = Math.Max(paper.Width, PaperLayoutDefaults.MinWidth);
+        var height = Math.Max(paper.Height, PaperLayoutDefaults.MinHeight);
+        var edgeInset = Math.Min(
+            Math.Max(
+                DeepCapsuleLayout.ExpandedEdgeInset,
+                Math.Max(
+                    VisibleDeepCapsuleRestingWidthForQueue(paper) + DeepCapsuleLayout.Gap,
+                    PaperLayoutDefaults.CapsuleWidth + DeepCapsuleLayout.Gap)),
+            Math.Max(0, area.Width - width));
+
+        var minX = area.Left + margin;
+        var maxX = Math.Max(minX, area.Right - width - margin);
+        if (paper.CapsuleSide == DeepCapsuleSides.Left)
+        {
+            minX = Math.Min(maxX, Math.Max(minX, area.Left + edgeInset));
+        }
+        else
+        {
+            maxX = Math.Max(minX, Math.Min(maxX, area.Right - width - edgeInset));
+        }
+
+        var minY = area.Top + margin;
+        var maxY = Math.Max(minY, area.Bottom - height - margin);
+        paper.X = Math.Round(Math.Clamp(paper.X, minX, maxX));
+        paper.Y = Math.Round(Math.Clamp(paper.Y, minY, maxY));
     }
 
     private int NextTitleNumber(string paperType)
@@ -1161,13 +1218,15 @@ public sealed partial class AppController : IDisposable
 
         // Insertion index by drop height against the target queue's monitor work area.
         var area = DeepCapsuleLayout.WorkAreaForQueue(normalizedMonitor);
+        var targetRealCount = targetMembers.Count + 1;
+        var visualOffset = State.UseCapsuleCollapseAll && targetRealCount > 0 ? 1 : 0;
         var startTop = DeepCapsuleLayout.NormalizeStartTopMargin(
             DeepCapsuleStartTopMarginForQueue(normalizedMonitor,
                 normalizedSide == DeepCapsuleSides.Left ? DeepCapsuleEdge.Left : DeepCapsuleEdge.Right),
             area,
-            targetMembers.Count + 1);
+            targetRealCount + visualOffset);
         var slotHeight = PaperLayoutDefaults.CapsuleHeight + DeepCapsuleLayout.Gap;
-        var firstTop = DeepCapsuleLayout.TopForIndex(0, startTop, area);
+        var firstTop = DeepCapsuleLayout.TopForIndex(visualOffset, startTop, area);
         var rawIndex = (int)Math.Floor((dropDipY - firstTop) / slotHeight + 0.5);
         var insertAt = Math.Clamp(rawIndex, 0, targetMembers.Count);
 
@@ -1238,6 +1297,47 @@ public sealed partial class AppController : IDisposable
 
     private static string QueueKey(PaperData paper) => QueueKey(paper.CapsuleMonitorDeviceName, paper.CapsuleSide);
 
+    private bool IsCapsuleCollapseAllActiveForQueue(string queueKey)
+    {
+        return State.CapsuleCollapseAllActiveQueues.TryGetValue(queueKey, out var active) && active;
+    }
+
+    private void MigrateLegacyCollapseAllActiveQueues(IEnumerable<string> liveQueueKeys)
+    {
+        var liveKeys = liveQueueKeys.ToList();
+        if (!State.CapsuleCollapseAllActive ||
+            liveKeys.Any(key => State.CapsuleCollapseAllActiveQueues.ContainsKey(key)))
+        {
+            return;
+        }
+
+        foreach (var key in liveKeys)
+        {
+            State.CapsuleCollapseAllActiveQueues[key] = true;
+        }
+        SyncLegacyCollapseAllActiveSummary();
+    }
+
+    private void RemoveStaleCollapseAllActiveQueues(IEnumerable<string> liveQueueKeys)
+    {
+        if (State.CapsuleCollapseAllActiveQueues.Count == 0)
+        {
+            return;
+        }
+
+        var live = liveQueueKeys.ToHashSet(StringComparer.Ordinal);
+        foreach (var staleKey in State.CapsuleCollapseAllActiveQueues.Keys.Where(key => !live.Contains(key)).ToList())
+        {
+            State.CapsuleCollapseAllActiveQueues.Remove(staleKey);
+        }
+        SyncLegacyCollapseAllActiveSummary();
+    }
+
+    private void SyncLegacyCollapseAllActiveSummary()
+    {
+        State.CapsuleCollapseAllActive = State.CapsuleCollapseAllActiveQueues.Count > 0;
+    }
+
     public void ArrangeDeepCapsules(bool animate = false)
     {
         SyncDeepCapsuleAnchor();
@@ -1268,6 +1368,8 @@ public sealed partial class AppController : IDisposable
             }
             list.Add(paper);
         }
+        RemoveStaleCollapseAllActiveQueues(queueOrder);
+        MigrateLegacyCollapseAllActiveQueues(queueOrder);
 
         var showMasterGlobally = State.UseCapsuleCollapseAll;
         var perQueueIndex = new Dictionary<string, int>(StringComparer.Ordinal);
@@ -1287,7 +1389,7 @@ public sealed partial class AppController : IDisposable
                 var slotCount = (queues.TryGetValue(key, out var ql) ? ql.Count : 0) + visualOffset;
                 var area = DeepCapsuleLayout.WorkAreaForQueue(paper.CapsuleMonitorDeviceName);
                 var startTop = DeepCapsuleLayout.NormalizeStartTopMargin(DeepCapsuleStartTopMarginFor(paper), area, slotCount);
-                var retracted = queueShowMaster && State.CapsuleCollapseAllActive;
+                var retracted = queueShowMaster && IsCapsuleCollapseAllActiveForQueue(key);
 
                 var idx = perQueueIndex.TryGetValue(key, out var v) ? v : 0;
                 if (retracted)
@@ -1328,7 +1430,6 @@ public sealed partial class AppController : IDisposable
             return;
         }
 
-        var retracted = State.CapsuleCollapseAllActive;
         var liveKeys = new HashSet<string>(StringComparer.Ordinal);
 
         foreach (var key in queueOrder)
@@ -1343,6 +1444,7 @@ public sealed partial class AppController : IDisposable
             var sample = papers[0];
             var edge = sample.CapsuleSide == DeepCapsuleSides.Left ? DeepCapsuleEdge.Left : DeepCapsuleEdge.Right;
             var monitor = sample.CapsuleMonitorDeviceName;
+            var retracted = IsCapsuleCollapseAllActiveForQueue(key);
 
             if (!_masterCapsules.TryGetValue(key, out var master))
             {
@@ -1357,25 +1459,34 @@ public sealed partial class AppController : IDisposable
             }
         }
 
+        if (liveKeys.Count == 0)
+        {
+            DestroyAllMasterCapsules();
+            return;
+        }
+
         // Close masters for queues that no longer exist.
         foreach (var staleKey in _masterCapsules.Keys.Where(k => !liveKeys.Contains(k)).ToList())
         {
+            State.CapsuleCollapseAllActiveQueues.Remove(staleKey);
             _masterCapsules[staleKey].CloseForReal();
             _masterCapsules.Remove(staleKey);
         }
+        SyncLegacyCollapseAllActiveSummary();
     }
 
     private void DestroyAllMasterCapsules()
     {
+        // Collapsing the masters must never strand retracted capsules off-screen at Opacity 0.
+        if (State.CapsuleCollapseAllActive || State.CapsuleCollapseAllActiveQueues.Count > 0)
+        {
+            State.CapsuleCollapseAllActive = false;
+            State.CapsuleCollapseAllActiveQueues.Clear();
+        }
+
         if (_masterCapsules.Count == 0)
         {
             return;
-        }
-
-        // Collapsing the masters must never strand retracted capsules off-screen at Opacity 0.
-        if (State.CapsuleCollapseAllActive)
-        {
-            State.CapsuleCollapseAllActive = false;
         }
 
         foreach (var master in _masterCapsules.Values)
@@ -1386,14 +1497,25 @@ public sealed partial class AppController : IDisposable
     }
 
     // Toggle whether the real capsules are retracted behind the master pill.
-    public void ToggleCapsuleCollapseAllActive()
+    public void ToggleCapsuleCollapseAllActive(string monitorDeviceName, DeepCapsuleEdge edge)
     {
         if (!State.UseCapsuleMode || !State.UseDeepCapsuleMode || !State.UseCapsuleCollapseAll)
         {
             return;
         }
 
-        State.CapsuleCollapseAllActive = !State.CapsuleCollapseAllActive;
+        var side = edge == DeepCapsuleEdge.Left ? DeepCapsuleSides.Left : DeepCapsuleSides.Right;
+        var key = QueueKey(monitorDeviceName, side);
+        var active = !IsCapsuleCollapseAllActiveForQueue(key);
+        if (active)
+        {
+            State.CapsuleCollapseAllActiveQueues[key] = true;
+        }
+        else
+        {
+            State.CapsuleCollapseAllActiveQueues.Remove(key);
+        }
+        SyncLegacyCollapseAllActiveSummary();
         ArrangeDeepCapsules(animate: true);
         SaveNow();
     }
@@ -1405,7 +1527,8 @@ public sealed partial class AppController : IDisposable
         if (!State.UseCapsuleCollapseAll)
         {
             State.CapsuleCollapseAllActive = false;
-            State.DeepCapsuleStartTopMargin = DeepCapsuleLayout.StartTopMargin;
+            State.CapsuleCollapseAllActiveQueues.Clear();
+            ResetDeepCapsuleStartTopMargins();
         }
 
         // Collapse-all rides on top of edge-aligned capsules; enabling it implies both prerequisites.
@@ -1863,6 +1986,16 @@ public sealed partial class AppController : IDisposable
         return State.DeepCapsuleQueueStartTopMargins.TryGetValue(key, out var m)
             ? m
             : State.DeepCapsuleStartTopMargin;
+    }
+
+    // Reset ALL deep-capsule start heights to the default — both the legacy global scalar AND the
+    // per-queue dictionary. Must clear the dict too: layout reads per-queue values first, so
+    // leaving stale entries would resurrect old queue heights when the mode is re-enabled (and
+    // persist them to data.json). Single chokepoint so no reset path forgets the dict again.
+    private void ResetDeepCapsuleStartTopMargins()
+    {
+        State.DeepCapsuleStartTopMargin = DeepCapsuleLayout.StartTopMargin;
+        State.DeepCapsuleQueueStartTopMargins.Clear();
     }
 
     // Live-adjust the stack's vertical rest position while the master pill is dragged within its

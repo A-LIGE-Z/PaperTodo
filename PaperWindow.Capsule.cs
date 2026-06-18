@@ -167,11 +167,29 @@ public sealed partial class PaperWindow
 
     private void UpdateDeepCapsuleSlotClosePlacement(bool updateHostViewport = true)
     {
+        if (_deepCapsuleCrossQueueDragVisualActive)
+        {
+            if (_deepCapsuleSlotCloseArea != null)
+            {
+                _deepCapsuleSlotCloseArea.Width = 0;
+                _deepCapsuleSlotCloseArea.Margin = new Thickness(0);
+                _deepCapsuleSlotCloseArea.IsHitTestVisible = false;
+            }
+
+            if (_deepCapsuleSlotCloseGlyphOffset != null)
+            {
+                _deepCapsuleSlotCloseGlyphOffset.X = 0;
+            }
+
+            return;
+        }
+
         var usesActivePresentation = _deepCapsuleVisualState is DeepCapsuleVisualState.Active or DeepCapsuleVisualState.Hovered;
         var leftEdge = MyDeepCapsuleIsLeftEdge;
         if (_deepCapsuleSlotCloseArea != null)
         {
             _deepCapsuleSlotCloseArea.Width = CapsuleCloseWidth;
+            _deepCapsuleSlotCloseArea.IsHitTestVisible = true;
             // Breathing gap sits on the interior side of the close button (right edge: right;
             // left edge: left), and only when the close is actually revealed.
             _deepCapsuleSlotCloseArea.Margin = usesActivePresentation

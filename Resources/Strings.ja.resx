@@ -384,6 +384,9 @@
   <data name="TipShowLinkedNoteName" xml:space="preserve">
     <value>ノートが関連付けられた ToDo 項目の後ろに、そのノートのタイトルを表示します。</value>
   </data>
+  <data name="TipHideLinkedNotesFromCapsules" xml:space="preserve">
+    <value>オンにすると、ToDo 項目に関連付け済みのノートはカプセル一覧に表示されず、エッジのカプセルと ToDo 入口の重複を避けます。オフにすると、それらのノートも通常の紙片と同じようにカプセルへ折りたためます。</value>
+  </data>
   <data name="TipNewTodoButton" xml:space="preserve">
     <value>ペーパー上部のバーに「新規 ToDo」ボタンを表示します。</value>
   </data>
@@ -440,6 +443,9 @@
   </data>
   <data name="SettingsShowLinkedNoteName" xml:space="preserve">
     <value>関連メモ名を表示</value>
+  </data>
+  <data name="SettingsHideLinkedNotesFromCapsules" xml:space="preserve">
+    <value>関連済みメモをカプセルに表示しない</value>
   </data>
   <data name="SettingsResetNoteZoom" xml:space="preserve">
     <value>ノートのズームをリセット</value>

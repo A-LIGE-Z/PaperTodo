@@ -1065,7 +1065,8 @@ public sealed partial class AppController
             State.UseDeepCapsuleMode = false;
             State.UseCapsuleCollapseAll = false;
             State.CapsuleCollapseAllActive = false;
-            State.DeepCapsuleStartTopMargin = DeepCapsuleLayout.StartTopMargin;
+            State.CapsuleCollapseAllActiveQueues.Clear();
+            ResetDeepCapsuleStartTopMargins();
             foreach (var paper in State.Papers)
             {
                 paper.IsCollapsed = false;
@@ -1164,7 +1165,8 @@ public sealed partial class AppController
         {
             State.UseCapsuleCollapseAll = false;
             State.CapsuleCollapseAllActive = false;
-            State.DeepCapsuleStartTopMargin = DeepCapsuleLayout.StartTopMargin;
+            State.CapsuleCollapseAllActiveQueues.Clear();
+            ResetDeepCapsuleStartTopMargins();
         }
 
         foreach (var window in _windows.Values)

@@ -258,7 +258,7 @@ public sealed class MasterCapsuleWindow : Window
             }
             else
             {
-                _controller.ToggleCapsuleCollapseAllActive();
+                _controller.ToggleCapsuleCollapseAllActive(_queueMonitorDeviceName, _queueEdge);
             }
 
             e.Handled = true;

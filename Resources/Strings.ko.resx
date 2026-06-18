@@ -384,6 +384,9 @@
   <data name="TipShowLinkedNoteName" xml:space="preserve">
     <value>메모가 연결된 할 일 항목 뒤에 그 메모의 제목을 표시합니다.</value>
   </data>
+  <data name="TipHideLinkedNotesFromCapsules" xml:space="preserve">
+    <value>켜면 할 일 항목에 이미 연결된 메모는 캡슐 목록에 표시되지 않아, 가장자리 캡슐과 할 일 진입점이 중복되지 않습니다. 끄면 해당 메모도 일반 종이처럼 캡슐로 접을 수 있습니다.</value>
+  </data>
   <data name="TipNewTodoButton" xml:space="preserve">
     <value>페이퍼 상단 바에 '새 할 일' 버튼을 표시합니다.</value>
   </data>
@@ -440,6 +443,9 @@
   </data>
   <data name="SettingsShowLinkedNoteName" xml:space="preserve">
     <value>연결된 메모 이름 표시</value>
+  </data>
+  <data name="SettingsHideLinkedNotesFromCapsules" xml:space="preserve">
+    <value>연결된 메모를 캡슐에 표시하지 않음</value>
   </data>
   <data name="SettingsResetNoteZoom" xml:space="preserve">
     <value>노트 확대/축소 재설정</value>

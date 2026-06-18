@@ -9,6 +9,8 @@ using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using System.Windows.Interop;
+using System.Windows.Threading;
 using Hardcodet.Wpf.TaskbarNotification;
 using Application = System.Windows.Application;
 
@@ -349,12 +351,35 @@ public sealed partial class AppController
             HasDropShadow = true,
             FontFamily = new FontFamily("Segoe UI"),
             FontSize = 13,
+            Focusable = true,
             MinWidth = 190,
             MaxHeight = TrayMenuMaxHeight(),
             Template = SharedTrayMenuTemplate
         };
         UpdateTrayMenuResources(menu);
+        menu.Opened += (_, _) => ActivateTrayContextMenu(menu);
         return menu;
+    }
+
+    private static void ActivateTrayContextMenu(ContextMenu menu)
+    {
+        void Activate()
+        {
+            if (!menu.IsOpen)
+            {
+                return;
+            }
+
+            _ = menu.Focus();
+            _ = Keyboard.Focus(menu);
+            if (PresentationSource.FromVisual(menu) is HwndSource source)
+            {
+                WindowNative.TrySetForegroundWindow(source.Handle);
+            }
+        }
+
+        Activate();
+        _ = menu.Dispatcher.InvokeAsync(Activate, DispatcherPriority.Input);
     }
 
     private static double TrayMenuMaxHeight()
@@ -428,7 +453,7 @@ public sealed partial class AppController
         }
     }
 
-    private static MenuItem TrayItem(string text, Action action)
+    private MenuItem TrayItem(string text, Action action)
     {
         var item = new MenuItem
         {
@@ -436,7 +461,14 @@ public sealed partial class AppController
             Style = SharedTrayMenuItemStyle
         };
 
-        item.Click += (_, _) => Application.Current.Dispatcher.Invoke(action);
+        item.Click += (_, _) =>
+        {
+            if (_trayMenu != null)
+            {
+                _trayMenu.IsOpen = false;
+            }
+            _ = Application.Current.Dispatcher.InvokeAsync(action, DispatcherPriority.Background);
+        };
         return item;
     }
 
@@ -508,12 +540,19 @@ public sealed partial class AppController
         };
 
         bool confirmMode = false;
+        bool suppressRowClick = false;
 
         static void ResetActionArea(Border area, TextBlock text, Brush foreground)
         {
             area.Background = Brushes.Transparent;
             area.Opacity = 1.0;
             text.Foreground = foreground;
+        }
+
+        void SuppressRowClick()
+        {
+            suppressRowClick = true;
+            _ = item.Dispatcher.InvokeAsync(() => suppressRowClick = false, DispatcherPriority.Background);
         }
 
         void ResetDeleteVisual()
@@ -548,7 +587,7 @@ public sealed partial class AppController
             confirmArea.Visibility = Visibility.Visible;
         }
 
-        static void AttachActionVisual(Border area, TextBlock text, Func<Brush> normalForeground, Brush hoverForeground)
+        void AttachActionVisual(Border area, TextBlock text, Func<Brush> normalForeground, Brush hoverForeground)
         {
             area.MouseEnter += (_, _) =>
             {
@@ -556,8 +595,9 @@ public sealed partial class AppController
                 text.Foreground = hoverForeground;
             };
             area.MouseLeave += (_, _) => ResetActionArea(area, text, normalForeground());
-            area.MouseLeftButtonDown += (_, e) =>
+            area.PreviewMouseLeftButtonDown += (_, e) =>
             {
+                SuppressRowClick();
                 area.Opacity = 0.72;
                 e.Handled = true;
             };
@@ -566,8 +606,9 @@ public sealed partial class AppController
         AttachActionVisual(deleteArea, deleteText, () => confirmMode ? TrayTextBrush : TrayWeakTextBrush, TrayTextBrush);
         AttachActionVisual(confirmArea, confirmText, () => System.Windows.Media.Brushes.Red, System.Windows.Media.Brushes.Red);
 
-        deleteArea.MouseLeftButtonUp += (_, e) =>
+        deleteArea.PreviewMouseLeftButtonUp += (_, e) =>
         {
+            SuppressRowClick();
             deleteArea.Opacity = 1.0;
             if (!confirmMode)
             {
@@ -579,12 +620,13 @@ public sealed partial class AppController
             }
             e.Handled = true;
         };
-        confirmArea.MouseLeftButtonUp += (_, e) =>
+        confirmArea.PreviewMouseLeftButtonUp += (_, e) =>
         {
+            SuppressRowClick();
             confirmArea.Opacity = 1.0;
             if (confirmMode)
             {
-                DeletePaper(paper);
+                _ = Application.Current.Dispatcher.InvokeAsync(() => DeletePaper(paper), DispatcherPriority.Background);
             }
             e.Handled = true;
         };
@@ -597,18 +639,20 @@ public sealed partial class AppController
         grid.Children.Add(deleteArea);
 
         item.Header = grid;
-        item.Click += (_, _) =>
+        item.Click += (_, e) =>
         {
-            if (confirmMode)
+            if (suppressRowClick || confirmMode)
             {
+                e.Handled = true;
                 return;
             }
 
-            Application.Current.Dispatcher.Invoke(() => TogglePaperVisibility(paper));
             if (_trayMenu != null)
             {
                 _trayMenu.IsOpen = false;
             }
+            _ = Application.Current.Dispatcher.InvokeAsync(() => TogglePaperVisibility(paper), DispatcherPriority.Background);
+            e.Handled = true;
         };
 
         return item;

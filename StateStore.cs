@@ -202,8 +202,28 @@ public sealed class StateStore
         {
             state.CapsuleCollapseAllActive = false;
         }
+        state.CapsuleCollapseAllActiveQueues ??= new Dictionary<string, bool>();
+        if (!state.UseCapsuleCollapseAll)
+        {
+            state.CapsuleCollapseAllActiveQueues.Clear();
+        }
+        else
+        {
+            foreach (var key in state.CapsuleCollapseAllActiveQueues.Keys.ToList())
+            {
+                if (!state.CapsuleCollapseAllActiveQueues[key])
+                {
+                    state.CapsuleCollapseAllActiveQueues.Remove(key);
+                }
+            }
+            if (state.CapsuleCollapseAllActiveQueues.Count > 0)
+            {
+                state.CapsuleCollapseAllActive = true;
+            }
+        }
 
-        state.DeepCapsuleStartTopMargin = state.UseCapsuleMode && state.UseDeepCapsuleMode && state.UseCapsuleCollapseAll
+        var keepDeepCapsuleStartTopMargins = state.UseCapsuleMode && state.UseDeepCapsuleMode && state.UseCapsuleCollapseAll;
+        state.DeepCapsuleStartTopMargin = keepDeepCapsuleStartTopMargins
             ? NormalizeDeepCapsuleStartTopMargin(state.DeepCapsuleStartTopMargin)
             : DeepCapsuleLayout.StartTopMargin;
 
@@ -211,12 +231,19 @@ public sealed class StateStore
         // done at layout time (monitor set can change between sessions, so we don't over-normalize
         // here). A null dict (older config) becomes empty => every queue falls back to the global.
         state.DeepCapsuleQueueStartTopMargins ??= new Dictionary<string, double>();
-        foreach (var key in state.DeepCapsuleQueueStartTopMargins.Keys.ToList())
+        if (!keepDeepCapsuleStartTopMargins)
         {
-            var v = state.DeepCapsuleQueueStartTopMargins[key];
-            if (double.IsNaN(v) || double.IsInfinity(v))
+            state.DeepCapsuleQueueStartTopMargins.Clear();
+        }
+        else
+        {
+            foreach (var key in state.DeepCapsuleQueueStartTopMargins.Keys.ToList())
             {
-                state.DeepCapsuleQueueStartTopMargins.Remove(key);
+                var v = state.DeepCapsuleQueueStartTopMargins[key];
+                if (double.IsNaN(v) || double.IsInfinity(v))
+                {
+                    state.DeepCapsuleQueueStartTopMargins.Remove(key);
+                }
             }
         }
 

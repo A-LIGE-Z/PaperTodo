@@ -147,6 +147,7 @@ public sealed class AppState
     public int MaxTitleLength { get; set; } = PaperTitles.DefaultMaxTitleLength;
     public bool UseCapsuleCollapseAll { get; set; }
     public bool CapsuleCollapseAllActive { get; set; }
+    public Dictionary<string, bool> CapsuleCollapseAllActiveQueues { get; set; } = new();
     public bool ShowDeepCapsuleWhileExpanded { get; set; } = true;
     public bool EnableAnimations { get; set; } = true;
     public bool EnableToolTips { get; set; } = true;

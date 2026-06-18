@@ -58,6 +58,14 @@ internal static class WindowNative
         }
     }
 
+    public static void TrySetForegroundWindow(IntPtr handle)
+    {
+        if (handle != IntPtr.Zero)
+        {
+            _ = SetForegroundWindow(handle);
+        }
+    }
+
     [DllImport("user32.dll", EntryPoint = "GetWindowLongW")]
     private static extern int GetWindowLong(IntPtr hWnd, int nIndex);
 
@@ -73,4 +81,7 @@ internal static class WindowNative
         int cx,
         int cy,
         uint uFlags);
+
+    [DllImport("user32.dll")]
+    private static extern bool SetForegroundWindow(IntPtr hWnd);
 }

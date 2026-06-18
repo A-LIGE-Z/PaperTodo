@@ -89,6 +89,7 @@ public sealed partial class PaperWindow : Window
     private Grid _capsuleShell = null!;
     private Window? _deepCapsuleSlotHost;
     private Grid? _deepCapsuleSlotHostRoot;
+    private ScaleTransform? _deepCapsuleSlotDragScale;
     private Border? _deepCapsuleSlotChrome;
     private Border? _deepCapsuleSlotOutline;
     private Grid? _deepCapsuleSlotShell;
@@ -120,10 +121,15 @@ public sealed partial class PaperWindow : Window
     private bool _isCollapseAllRetracted;
     private double _deepCapsuleDragMouseOffsetY;
     private double _deepCapsuleDragLeft;
-    // Cross-edge/monitor drag: cursor offset inside the pill and last screen point (DIP), used on
-    // release to resolve which (monitor, edge) queue the capsule was dropped onto.
+    private bool _deepCapsuleCrossQueueDragUnlocked;
+    private bool _deepCapsuleCrossQueueDragVisualActive;
+    private double _deepCapsuleCrossQueueDragWidth = PaperLayoutDefaults.CapsuleHeight;
+    private Point _deepCapsuleDragStartDip;
+    // Cross-edge/monitor drag: cursor offset inside the pill, last DIP point for layout/drop
+    // ordering, and last raw PointToScreen point for Win32 monitor resolution.
     private double _deepCapsuleDragMouseOffsetX;
     private Point _deepCapsuleDragLastDip;
+    private Point _deepCapsuleDragLastScreenPos;
     private double _deepCapsuleSlotLeft;
     private double _deepCapsuleSlotTop;
     private int _deepCapsuleIndex = -1;
@@ -183,6 +189,9 @@ public sealed partial class PaperWindow : Window
     private const double DeepCapsuleSlotOutlineThickness = 2;
     private const double DeepCapsuleSlotOutlineOverlap = 1;
     private const double DeepCapsuleReorderDragExtraThreshold = 4;
+    private const double DeepCapsuleCrossQueueDragUnlockDistance = 56;
+    private const double DeepCapsuleCrossQueueDragScaleFrom = 0.97;
+    private const int DeepCapsuleCrossQueueDragMorphMilliseconds = 90;
     // Half-hidden (peek) cut-off, measured from the END of the title. Negative pulls the cut
     // INTO the title so the last glyph is roughly half-covered — the capsule reads as clearly
     // tucked away at the edge, yet enough text shows to identify it. ~half a CJK glyph at 11px,
@@ -232,7 +241,7 @@ public sealed partial class PaperWindow : Window
     //                single correct teardown is DetachFromDeepCapsuleStack().
     //
     //   VisualState — resting tag / hover-peek / fully-revealed (active). Independent of SlotState.
-    //   GestureState— pointer interaction: Idle / PendingClick / Reordering (vertical drag-reorder).
+    //   GestureState— pointer interaction: Idle / PendingClick / Reordering (edge-locked reorder or cross-queue drag).
     //   OpenOrigin  — whether the expanded window came from an edge slot (affects re-dock on collapse).
     private enum DeepCapsuleSlotState
     {
