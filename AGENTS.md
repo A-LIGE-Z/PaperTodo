@@ -86,6 +86,8 @@ dotnet build PaperTodo.csproj -c Release
 
 稳定正式版不要靠 tag push 自动发布；完成真实多屏 / 混合 DPI 等发布前手测后，用 GitHub Actions `workflow_dispatch` 并显式确认稳定版发布。`rc` / `alpha` / `beta` / `preview` 标签可以继续由 tag push 发布为预发布。
 
+推送或移动稳定版 tag 只会把 tag/commit 送到 GitHub；Actions 是后置检查，失败不会撤回这次 push。不要把稳定版 tag push 当作发布步骤，也不要为了正式发布制造必然失败的稳定版 tag push run；正式版发布只认成功的 `workflow_dispatch` run。
+
 ## 更新本文
 
 只有产品边界、持久化兼容、保存 / 单实例 / 托盘 / 胶囊 / 发布流程发生变化时才更新本文。普通 UI 微调、文案、颜色、间距、动画参数不需要同步。
