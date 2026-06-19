@@ -136,6 +136,9 @@ public sealed partial class PaperWindow : Window
     // Visual slot shift: when the "collapse-all" master capsule occupies slot 0, real
     // capsules render at slot index+offset while _deepCapsuleIndex stays the paper-list index.
     private int _deepCapsuleVisualOffset;
+    // Total visual slots in this capsule's queue, including the optional master slot. Top
+    // clamping must use the whole stack; clamping per capsule makes lower slots collapse together.
+    private int _deepCapsuleSlotCount = 1;
     // Monotonic tokens guarding superseded animations; a stale Completed handler bails when its
     // captured value no longer matches.
     private int _deepCapsuleSlotMoveGeneration;

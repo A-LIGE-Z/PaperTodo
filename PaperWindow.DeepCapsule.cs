@@ -217,6 +217,7 @@ public sealed partial class PaperWindow
             {
                 EndDeepCapsuleReorderDrag(commit: true);
                 leftArea.ReleaseMouseCapture();
+                WindowNative.ClearCurrentThreadKeyboardFocus();
                 e.Handled = true;
                 return;
             }
@@ -238,6 +239,7 @@ public sealed partial class PaperWindow
             if (IsDeepCapsuleReordering && Mouse.LeftButton != MouseButtonState.Pressed)
             {
                 EndDeepCapsuleReorderDrag(commit: false);
+                WindowNative.ClearCurrentThreadKeyboardFocus();
             }
         };
         leftArea.ContextMenu = BuildDeepCapsuleSlotContextMenu();
@@ -934,9 +936,13 @@ public sealed partial class PaperWindow
         return DeepCapsuleLayout.DockedLeft(area, visibleWidth, MyDeepCapsuleEdge);
     }
 
-    private double MyTopForIndex(int index)
+    private double MyTopForIndex(int index, int slotCount)
     {
-        return DeepCapsuleLayout.TopForIndex(index, _controller.DeepCapsuleStartTopMarginFor(_paper), DeepCapsuleWorkArea());
+        return DeepCapsuleLayout.TopForIndex(
+            index,
+            _controller.DeepCapsuleStartTopMarginFor(_paper),
+            DeepCapsuleWorkArea(),
+            slotCount);
     }
 
     private void ApplyDeepCapsuleSlotHostViewport(double viewportWidth, bool updateFixedLayout = true)
@@ -1283,7 +1289,7 @@ public sealed partial class PaperWindow
 
     private double DeepCapsuleTopForIndex(int index)
     {
-        return MyTopForIndex(index);
+        return MyTopForIndex(index, _deepCapsuleSlotCount);
     }
 
     private void MoveDeepCapsuleToCurrentTarget(
@@ -1394,7 +1400,7 @@ public sealed partial class PaperWindow
         MoveDeepCapsuleToCurrentTarget(animate: _controller.State.EnableAnimations);
     }
 
-    public void ApplyDeepCapsulePlacement(int index, bool animate = false, int visualOffset = 0)
+    public void ApplyDeepCapsulePlacement(int index, bool animate = false, int visualOffset = 0, int slotCount = 1)
     {
         if (!_paper.IsCollapsed || !_paper.IsVisible || !_controller.State.UseCapsuleMode || !_controller.State.UseDeepCapsuleMode)
         {
@@ -1418,6 +1424,7 @@ public sealed partial class PaperWindow
         _isCollapseAllRetracted = false;
         _deepCapsuleIndex = Math.Max(0, index);
         _deepCapsuleVisualOffset = Math.Max(0, visualOffset);
+        _deepCapsuleSlotCount = Math.Max(1, slotCount);
         RefreshCapsuleLabel();
         MoveDeepCapsuleToCurrentTarget(
             animate,
@@ -1435,7 +1442,7 @@ public sealed partial class PaperWindow
         RefreshEffectiveTopmost();
     }
 
-    public void ApplyExpandedDeepCapsuleSlotPlacement(int index, bool animate = false, int visualOffset = 0)
+    public void ApplyExpandedDeepCapsuleSlotPlacement(int index, bool animate = false, int visualOffset = 0, int slotCount = 1)
     {
         var shouldReserveWhileExpanded = _controller.State.ShowDeepCapsuleWhileExpanded &&
             _controller.CanPaperDisplayAsCapsule(_paper);
@@ -1455,6 +1462,7 @@ public sealed partial class PaperWindow
         _isCollapseAllRetracted = false;
         _deepCapsuleIndex = Math.Max(0, index);
         _deepCapsuleVisualOffset = Math.Max(0, visualOffset);
+        _deepCapsuleSlotCount = Math.Max(1, slotCount);
         RefreshCapsuleLabel();
         UpdateDeepCapsuleSlotHostTheme();
 
@@ -1672,6 +1680,7 @@ public sealed partial class PaperWindow
             _isCollapseAllRetracted = false;
             _deepCapsuleVisualOffset = 0;
             _deepCapsuleIndex = -1;
+            _deepCapsuleSlotCount = 1;
             UpdateDeepCapsuleSlotHostTheme();
             UpdateDeepCapsuleSlotClosePlacement();
             _deepCapsuleSlotHost.Hide();
@@ -1708,6 +1717,7 @@ public sealed partial class PaperWindow
             _isCollapseAllRetracted = false;
             _deepCapsuleVisualOffset = 0;
             _deepCapsuleIndex = -1;
+            _deepCapsuleSlotCount = 1;
             UpdateCapsuleClosePlacement();
             HideExpandedDeepCapsuleSlotHost(animate);
         }

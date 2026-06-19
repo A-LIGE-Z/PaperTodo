@@ -66,6 +66,11 @@ internal static class WindowNative
         }
     }
 
+    public static void ClearCurrentThreadKeyboardFocus()
+    {
+        _ = SetFocus(IntPtr.Zero);
+    }
+
     [DllImport("user32.dll", EntryPoint = "GetWindowLongW")]
     private static extern int GetWindowLong(IntPtr hWnd, int nIndex);
 
@@ -84,4 +89,7 @@ internal static class WindowNative
 
     [DllImport("user32.dll")]
     private static extern bool SetForegroundWindow(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr SetFocus(IntPtr hWnd);
 }

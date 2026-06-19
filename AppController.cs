@@ -1226,7 +1226,7 @@ public sealed partial class AppController : IDisposable
             area,
             targetRealCount + visualOffset);
         var slotHeight = PaperLayoutDefaults.CapsuleHeight + DeepCapsuleLayout.Gap;
-        var firstTop = DeepCapsuleLayout.TopForIndex(visualOffset, startTop, area);
+        var firstTop = DeepCapsuleLayout.TopForIndex(visualOffset, startTop, area, targetRealCount + visualOffset);
         var rawIndex = (int)Math.Floor((dropDipY - firstTop) / slotHeight + 0.5);
         var insertAt = Math.Clamp(rawIndex, 0, targetMembers.Count);
 
@@ -1400,15 +1400,15 @@ public sealed partial class AppController : IDisposable
                 var idx = perQueueIndex.TryGetValue(key, out var v) ? v : 0;
                 if (retracted)
                 {
-                    window.RetractIntoMaster(DeepCapsuleLayout.TopForIndex(0, startTop, area), animate);
+                    window.RetractIntoMaster(DeepCapsuleLayout.TopForIndex(0, startTop, area, slotCount), animate);
                 }
                 else if (paper.IsCollapsed)
                 {
-                    window.ApplyDeepCapsulePlacement(idx, animate, visualOffset);
+                    window.ApplyDeepCapsulePlacement(idx, animate, visualOffset, slotCount);
                 }
                 else
                 {
-                    window.ApplyExpandedDeepCapsuleSlotPlacement(idx, animate, visualOffset);
+                    window.ApplyExpandedDeepCapsuleSlotPlacement(idx, animate, visualOffset, slotCount);
                 }
                 perQueueIndex[key] = idx + 1;
             }

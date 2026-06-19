@@ -468,6 +468,7 @@ public sealed class MasterCapsuleWindow : Window
     private Rect QueueWorkArea => DeepCapsuleLayout.WorkAreaForQueue(_queueMonitorDeviceName);
     private bool QueueIsLeftEdge => _queueEdge == DeepCapsuleEdge.Left;
     private double QueueStartTopMargin => _controller.DeepCapsuleStartTopMarginForQueue(_queueMonitorDeviceName, _queueEdge);
+    private int QueueSlotCount => Math.Max(1, _count + 1);
 
     private void MoveToTarget(bool animate)
     {
@@ -475,7 +476,7 @@ public sealed class MasterCapsuleWindow : Window
         var area = QueueWorkArea;
         var visibleWidth = MasterVisibleWidth();
         var targetLeft = RoundX(DeepCapsuleLayout.DockedLeft(area, visibleWidth, _queueEdge));
-        var targetTop = RoundY(DeepCapsuleLayout.TopForIndex(0, QueueStartTopMargin, area));
+        var targetTop = RoundY(DeepCapsuleLayout.TopForIndex(0, QueueStartTopMargin, area, QueueSlotCount));
         var currentLeft = double.IsNaN(Left) || double.IsInfinity(Left) ? targetLeft : RoundX(Left);
         var currentTop = double.IsNaN(Top) || double.IsInfinity(Top) ? targetTop : RoundY(Top);
         var currentWidth = double.IsNaN(Width) || double.IsInfinity(Width) || Width <= 0 ? visibleWidth : RoundX(Width);
@@ -547,7 +548,7 @@ public sealed class MasterCapsuleWindow : Window
     }
 
     // The resting Top of the master, used as the retract/release anchor for real capsules.
-    public double AnchorTop => RoundY(DeepCapsuleLayout.TopForIndex(0, QueueStartTopMargin, QueueWorkArea));
+    public double AnchorTop => RoundY(DeepCapsuleLayout.TopForIndex(0, QueueStartTopMargin, QueueWorkArea, QueueSlotCount));
 
     private static void OnAnimatedLeftChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
     {

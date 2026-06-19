@@ -141,7 +141,7 @@ public static class DeepCapsuleLayout
             : area.Right - visibleWidth;
     }
 
-    public static double TopForIndex(int index, double startTopMargin, Rect area, int slotCount = 1)
+    public static double TopForIndex(int index, double startTopMargin, Rect area, int slotCount)
     {
         var desiredTop = area.Top + NormalizeStartTopMargin(startTopMargin, area, slotCount) + Math.Max(0, index) * SlotHeight;
         var maxTop = Math.Max(area.Top + TopMargin, area.Bottom - PaperLayoutDefaults.CapsuleHeight - TopMargin);
@@ -156,7 +156,7 @@ public static class DeepCapsuleLayout
         return Math.Max(TopMargin, maxMargin);
     }
 
-    public static double NormalizeStartTopMargin(double value, Rect area, int slotCount = 1)
+    public static double NormalizeStartTopMargin(double value, Rect area, int slotCount)
     {
         if (double.IsNaN(value) || double.IsInfinity(value))
         {
@@ -192,7 +192,7 @@ public static class DeepCapsuleLayout
 
     public static double TopForIndex(int index, double startTopMargin = StartTopMargin)
     {
-        return TopForIndex(index, startTopMargin, WorkArea);
+        return TopForIndex(index, startTopMargin, WorkArea, 1);
     }
 
     public static double MaxStartTopMarginForCount(int slotCount)

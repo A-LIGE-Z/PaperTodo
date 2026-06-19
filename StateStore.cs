@@ -446,6 +446,6 @@ public sealed class StateStore
     private static double NormalizeDeepCapsuleStartTopMargin(double value, string monitorDeviceName)
     {
         var area = DeepCapsuleLayout.WorkAreaForQueue(monitorDeviceName);
-        return DeepCapsuleLayout.NormalizeStartTopMargin(value, area);
+        return DeepCapsuleLayout.NormalizeStartTopMargin(value, area, 1);
     }
 }
