@@ -1134,6 +1134,7 @@ public sealed partial class AppController
             window.UpdateTodoLinkFeature();
         }
 
+        RefreshCapsuleEligibilityForLinkedNotes();
         SaveNow();
         RefreshSettingsWindowContent();
     }

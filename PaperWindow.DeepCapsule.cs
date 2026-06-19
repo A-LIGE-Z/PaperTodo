@@ -1793,10 +1793,7 @@ public sealed partial class PaperWindow
 
     private Point DeepCapsuleScreenPointToDip(Point screenPos)
     {
-        var dpi = VisualTreeHelper.GetDpi(this);
-        var dpiScaleX = Math.Max(0.1, dpi.DpiScaleX);
-        var dpiScaleY = Math.Max(0.1, dpi.DpiScaleY);
-        return new Point(screenPos.X / dpiScaleX, screenPos.Y / dpiScaleY);
+        return WindowWorkAreaHelper.DeviceScreenPointToDip(screenPos);
     }
 
     private void StartDeepCapsuleReorderDrag(Point currentScreenPos)

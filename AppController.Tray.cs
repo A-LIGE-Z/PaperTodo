@@ -541,6 +541,8 @@ public sealed partial class AppController
 
         bool confirmMode = false;
         bool suppressRowClick = false;
+        int suppressRowClickToken = 0;
+        ProcessInputEventHandler? rowClickSuppressionInputHandler = null;
 
         static void ResetActionArea(Border area, TextBlock text, Brush foreground)
         {
@@ -549,10 +551,74 @@ public sealed partial class AppController
             text.Foreground = foreground;
         }
 
-        void SuppressRowClick()
+        void RemoveRowClickSuppressionInputHandler()
+        {
+            if (rowClickSuppressionInputHandler == null)
+            {
+                return;
+            }
+
+            InputManager.Current.PostProcessInput -= rowClickSuppressionInputHandler;
+            rowClickSuppressionInputHandler = null;
+        }
+
+        void QueueClearRowClickSuppression(int token)
+        {
+            _ = item.Dispatcher.InvokeAsync(() =>
+            {
+                if (token == suppressRowClickToken && Mouse.LeftButton != MouseButtonState.Pressed)
+                {
+                    suppressRowClick = false;
+                }
+            }, DispatcherPriority.ContextIdle);
+        }
+
+        void BeginActionGesture(Border area)
         {
             suppressRowClick = true;
-            _ = item.Dispatcher.InvokeAsync(() => suppressRowClick = false, DispatcherPriority.Background);
+            suppressRowClickToken++;
+            RemoveRowClickSuppressionInputHandler();
+            var token = suppressRowClickToken;
+            rowClickSuppressionInputHandler = (_, _) =>
+            {
+                if (token != suppressRowClickToken)
+                {
+                    RemoveRowClickSuppressionInputHandler();
+                    return;
+                }
+
+                if (Mouse.LeftButton != MouseButtonState.Pressed)
+                {
+                    RemoveRowClickSuppressionInputHandler();
+                    QueueClearRowClickSuppression(token);
+                }
+            };
+            InputManager.Current.PostProcessInput += rowClickSuppressionInputHandler;
+            area.CaptureMouse();
+        }
+
+        void EndActionGesture(Border area)
+        {
+            if (area.IsMouseCaptured)
+            {
+                area.ReleaseMouseCapture();
+            }
+
+            var token = suppressRowClickToken;
+            if (Mouse.LeftButton != MouseButtonState.Pressed)
+            {
+                RemoveRowClickSuppressionInputHandler();
+                QueueClearRowClickSuppression(token);
+            }
+        }
+
+        static bool PointerIsInside(FrameworkElement element)
+        {
+            var p = Mouse.GetPosition(element);
+            return p.X >= 0 &&
+                p.Y >= 0 &&
+                p.X <= element.ActualWidth &&
+                p.Y <= element.ActualHeight;
         }
 
         void ResetDeleteVisual()
@@ -597,9 +663,14 @@ public sealed partial class AppController
             area.MouseLeave += (_, _) => ResetActionArea(area, text, normalForeground());
             area.PreviewMouseLeftButtonDown += (_, e) =>
             {
-                SuppressRowClick();
+                BeginActionGesture(area);
                 area.Opacity = 0.72;
                 e.Handled = true;
+            };
+            area.LostMouseCapture += (_, _) =>
+            {
+                area.Opacity = 1.0;
+                EndActionGesture(area);
             };
         }
 
@@ -608,8 +679,15 @@ public sealed partial class AppController
 
         deleteArea.PreviewMouseLeftButtonUp += (_, e) =>
         {
-            SuppressRowClick();
+            var releasedInside = PointerIsInside(deleteArea);
             deleteArea.Opacity = 1.0;
+            EndActionGesture(deleteArea);
+            if (!releasedInside)
+            {
+                e.Handled = true;
+                return;
+            }
+
             if (!confirmMode)
             {
                 EnterConfirmMode();
@@ -622,9 +700,10 @@ public sealed partial class AppController
         };
         confirmArea.PreviewMouseLeftButtonUp += (_, e) =>
         {
-            SuppressRowClick();
+            var releasedInside = PointerIsInside(confirmArea);
             confirmArea.Opacity = 1.0;
-            if (confirmMode)
+            EndActionGesture(confirmArea);
+            if (confirmMode && releasedInside)
             {
                 _ = Application.Current.Dispatcher.InvokeAsync(() => DeletePaper(paper), DispatcherPriority.Background);
             }
