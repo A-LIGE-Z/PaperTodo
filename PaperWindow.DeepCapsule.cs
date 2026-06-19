@@ -507,6 +507,7 @@ public sealed partial class PaperWindow
         int durationMs = DeepCapsuleLayout.SlotMoveMilliseconds,
         bool keepHiding = false)
     {
+        animate = animate && _controller.State.EnableAnimations;
         var host = EnsureDeepCapsuleSlotHost();
         var rightEdge = targetLeft + visibleWidth;
         var viewportWidth = visibleWidth;
@@ -675,6 +676,7 @@ public sealed partial class PaperWindow
             return;
         }
 
+        animate = animate && _controller.State.EnableAnimations;
         if (!animate || Math.Abs(_deepCapsuleSlotHost.Opacity - to) < 0.001)
         {
             _deepCapsuleSlotHost.BeginAnimation(Window.OpacityProperty, null);
@@ -1389,7 +1391,7 @@ public sealed partial class PaperWindow
         }
 
         SetDeepCapsuleVisualState(hovering ? DeepCapsuleVisualState.Hovered : DeepCapsuleVisualState.Resting);
-        MoveDeepCapsuleToCurrentTarget(animate: true);
+        MoveDeepCapsuleToCurrentTarget(animate: _controller.State.EnableAnimations);
     }
 
     public void ApplyDeepCapsulePlacement(int index, bool animate = false, int visualOffset = 0)
@@ -1685,6 +1687,7 @@ public sealed partial class PaperWindow
 
     public void ClearDeepCapsulePlacement(bool restoreCollapsedPosition = true, bool animate = false)
     {
+        animate = animate && _controller.State.EnableAnimations;
         _deepCapsuleCrossQueueDragUnlocked = false;
         SetDeepCapsuleCrossQueueDragVisual(false, animate: false);
 

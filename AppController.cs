@@ -1340,6 +1340,7 @@ public sealed partial class AppController : IDisposable
 
     public void ArrangeDeepCapsules(bool animate = false)
     {
+        animate = animate && State.EnableAnimations;
         SyncDeepCapsuleAnchor();
         if (!State.UseCapsuleMode || !State.UseDeepCapsuleMode)
         {
@@ -1450,7 +1451,7 @@ public sealed partial class AppController : IDisposable
             {
                 master = new MasterCapsuleWindow(this, edge, monitor);
                 _masterCapsules[key] = master;
-                master.ShowPlaced(papers.Count, retracted);
+                master.ShowPlaced(papers.Count, retracted, animate);
             }
             else
             {

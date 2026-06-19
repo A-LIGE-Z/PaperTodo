@@ -32,7 +32,7 @@
 - [x] 阶段 3：跨模块不变量审查
 - [ ] 阶段 4：高风险专项攻击
 - [x] 阶段 5：性能审查
-- [ ] 阶段 6：交互、视觉、动画审查
+- [x] 阶段 6：交互、视觉、动画审查
 - [ ] 阶段 7：修复循环
 - [ ] 阶段 8：回归矩阵
 - [ ] 阶段 9：加载用户蒸馏层做最终产品复核
@@ -676,18 +676,31 @@
 
 补动画原则：状态去向不清楚、跳变让用户误解、左右侧不一致时补；如果动画拖慢操作、制造错觉或增加风险，就不补。
 
-- [ ] 普通纸片显示 / 隐藏
-- [ ] 普通胶囊折叠 / 展开
-- [ ] 贴边胶囊 hover 滑出 / 滑回
-- [ ] 展开后边缘胶囊激发态
-- [ ] 收起全部 retract / release
-- [ ] 单胶囊跨队列拖出、松手归位
-- [ ] 待办新增 / 删除 / 排序
-- [ ] 关联笔记入口变化
-- [ ] 托盘操作反馈
-- [ ] 设置切换后的即时反馈
-- [ ] 主题切换过渡
-- [ ] 关闭动画开关后所有动画立即完成
+- [x] 普通纸片显示 / 隐藏
+  - 证据：`ShowPaper()` 用 per-paper visibility version 取消过期淡入回调，恢复主窗口前先透明显示并在 Render 后淡入或直接恢复 opacity，见 `AppController.cs:641`；`HidePaper()` 淡出完成前再次显示会被 version 拦截，非动画路径直接隐藏并清折叠态，见 `AppController.cs:882`。
+- [x] 普通胶囊折叠 / 展开
+  - 证据：`SetCollapsedState()` 先用 `State.EnableAnimations` 裁剪动画开关，过渡期间 `_isApplyingCollapsedState` 阻止普通几何保存，完成回调用 `_collapseTransitionGeneration` 拦截旧动画，见 `PaperWindow.Capsule.cs:407`。
+- [x] 贴边胶囊 hover 滑出 / 滑回
+  - 证据：hover 只切换 `DeepCapsuleVisualState` 并调用当前目标移动；左右侧共用 `MoveExpandedDeepCapsuleSlotHost()` / `ApplyDeepCapsuleSlotHorizontalProgress()` 的“左右边界先取整、宽度由差值推导”规则，避免右侧漏白，见 `PaperWindow.DeepCapsule.cs:502`、`PaperWindow.DeepCapsule.cs:1237`、`PaperWindow.DeepCapsule.cs:1381`。
+- [x] 展开后边缘胶囊激发态
+  - 证据：展开时按 `ShowDeepCapsuleWhileExpanded` 保留 `ExpandedReserved` slot 并设置 `Active`，否则清 slot；失去胶囊资格会先恢复主窗口再展开，见 `PaperWindow.Capsule.cs:407`、`PaperWindow.DeepCapsule.cs:1440`。
+- [x] 收起全部 retract / release
+  - 证据：真实胶囊按 per-queue active 状态调用 `RetractIntoMaster()` 或 `ApplyDeepCapsulePlacement()`；master 更新和首次显示现在都使用控制器传入的动画门禁，见 `AppController.cs:1341`、`MasterCapsuleWindow.cs:472`、`MasterCapsuleWindow.cs:610`。
+- [x] 单胶囊跨队列拖出、松手归位
+  - 证据：普通拖动先保持边缘锁定，达到外拉阈值后才进入跨队列视觉；跨队列 visual 宽度按标题实测，不是纯球；松手按光标所在显示器最近边重建队列顺序，见 `PaperWindow.DeepCapsule.cs:1804`、`PaperWindow.DeepCapsule.cs:1956`、`AppController.cs:1191`。
+- [x] 待办新增 / 删除 / 排序
+  - 证据：新增、删除、清除完成动画均受 `State.EnableAnimations` 控制；批量清除用 generation 拦截旧 timer；排序拖拽结束时统一清 ghost、drop indicator、源行 opacity，再重建行，见 `PaperWindow.Todo.cs:585`、`PaperWindow.Todo.cs:778`、`PaperWindow.Todo.cs:846`、`PaperWindow.Todo.cs:1359`。
+- [x] 关联笔记入口变化
+  - 证据：开关关闭会取消笔记拖拽和 drop target，所有窗口 `UpdateTodoLinkFeature()` 后重建待办行；链接 / 取消链接会刷新胶囊资格，见 `AppController.Settings.cs:1129`、`PaperWindow.Todo.cs:739`、`PaperWindow.Todo.cs:1019`。
+- [x] 托盘操作反馈
+  - 证据：托盘继续使用 `TaskbarIcon.IconSource = LoadTrayIconSource()` 且打开前重建菜单；纸片行删除 / 确认区域使用 Preview mouse、mouse capture、`suppressRowClick` 和 input token 阻止父行 click 误触发，见 `AppController.Tray.cs:21`、`AppController.Tray.cs:475`。
+- [x] 设置切换后的即时反馈
+  - 证据：主题 / 配色 / Markdown / tooltip / 胶囊 / 关联入口设置都直接刷新对应窗口、master、托盘或设置页；贴边相关开关会重排胶囊并恢复缺失 surface，见 `AppController.Settings.cs:16`、`AppController.Settings.cs:1024`、`AppController.Settings.cs:1049`、`AppController.Settings.cs:1129`、`AppController.Settings.cs:1160`。
+- [x] 主题切换过渡
+  - 证据：窗口壳主题动画使用临时本地画刷，完成后恢复动态资源绑定；`_themeAnimationGeneration` 阻止旧主题动画完成回调覆盖新主题；master、托盘、设置页同步刷新，见 `PaperWindow.cs:712`、`AppController.Settings.cs:16`。
+- [x] 关闭动画开关后所有新触发动画立即完成
+  - 发现并修复：A008。`ArrangeDeepCapsules()`、master 移动、master 首次显示、贴边 slot 横向移动 / opacity、hover 滑出和清理路径现在都有 `State.EnableAnimations` 门禁，见 `AppController.cs:1341`、`MasterCapsuleWindow.cs:472`、`PaperWindow.DeepCapsule.cs:502`、`PaperWindow.DeepCapsule.cs:672`、`PaperWindow.DeepCapsule.cs:1381`、`PaperWindow.DeepCapsule.cs:1688`。
+  - 残余边界：本轮不强行中断“切换设置瞬间已经在跑”的所有行级 / 主题动画。强行全局收尾会触碰折叠状态机、窗口尺寸和几何保存；当前修复目标是禁用后不再启动新动画。
 
 ## 阶段 7：修复循环
 
@@ -765,6 +778,15 @@
   - 代价和风险：超长文本会在当前 dispatcher tick 内短暂存在；随后立即截断并触发正常 `TextChanged` 保存。正常粘贴路径仍先被 `OnPaste()` 限制。
   - 是否更新 `CHANGELOG.md`：已合并进 `### Unreleased` 的笔记大文本保护修复描述。
   - 验证结果：`dotnet build PaperTodo.csproj -c Release` -> 0 warning / 0 error；隔离运行 120000 字符 note，修复前有 crash log，修复后 `MainExitCode=0`、保存后 `content.Length=100000`、`crashLog=False`。
+
+- [x] A008：关闭动画后部分贴边胶囊路径仍会启动动画
+  - 问题描述：多个调用点直接传 `animate: true` 给 `ArrangeDeepCapsules()`；`SetDeepCapsuleHover()` 也直接请求滑动；`MasterCapsuleWindow.ShowPlaced()` 首次显示无条件淡入。关闭动画后，贴边队列重排、主胶囊首次出现或 hover 滑出仍可能播放动画。
+  - 影响范围：关闭动画设置后的贴边胶囊 hover、折叠 / 展开触发的队列重排、收起全部主胶囊创建和移动、标题长度变化触发的队列更新。
+  - 触发路径：`SetMaxTitleLength()` / `ReorderDeepCapsule()` / `MoveCapsuleToQueue()` / `ToggleCapsuleCollapseAllActive()` / `SetCollapsedState()` -> `ArrangeDeepCapsules(animate: true)`；`SetDeepCapsuleHover()` -> `MoveDeepCapsuleToCurrentTarget(animate: true)`；`SyncMasterCapsules()` -> `ShowPlaced()`。
+  - 修复方案：在 `ArrangeDeepCapsules()` 入口统一用 `State.EnableAnimations` 裁剪；master 移动和首次显示接收同一门禁；贴边 slot 横向移动、opacity、hover 和清理路径也在低层再次裁剪动画开关。
+  - 代价和风险：动画开启时行为不变；动画关闭时少掉贴边队列和主胶囊的过渡，只保留最终态。
+  - 是否更新 `CHANGELOG.md`：已写入 `### Unreleased`，描述为动画开关修正。
+  - 验证结果：`dotnet build PaperTodo.csproj -c Release` -> 0 warning / 0 error；代码复扫确认剩余直接动画调用要么在 `EnableAnimations` 条件内，要么走本次新增门禁。
 
 ## 阶段 8：回归矩阵
 

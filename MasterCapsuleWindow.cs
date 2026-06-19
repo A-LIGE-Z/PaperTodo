@@ -471,6 +471,7 @@ public sealed class MasterCapsuleWindow : Window
 
     private void MoveToTarget(bool animate)
     {
+        animate = animate && _controller.State.EnableAnimations;
         var area = QueueWorkArea;
         var visibleWidth = MasterVisibleWidth();
         var targetLeft = RoundX(DeepCapsuleLayout.DockedLeft(area, visibleWidth, _queueEdge));
@@ -606,7 +607,7 @@ public sealed class MasterCapsuleWindow : Window
 
     // First-time show: position at the final edge-aligned spot BEFORE becoming visible,
     // then fade in. This avoids both the top-left flash and the slide-in from the wrong place.
-    public void ShowPlaced(int count, bool active)
+    public void ShowPlaced(int count, bool active, bool animate)
     {
         _count = count;
         _active = active;
@@ -614,6 +615,15 @@ public sealed class MasterCapsuleWindow : Window
 
         ApplyDockedWidth(MasterVisibleWidth());
         MoveToTarget(animate: false);
+
+        if (!animate)
+        {
+            BeginAnimation(OpacityProperty, null);
+            Opacity = 1;
+            Show();
+            RefreshEffectiveTopmost();
+            return;
+        }
 
         Show();
         RefreshEffectiveTopmost();
