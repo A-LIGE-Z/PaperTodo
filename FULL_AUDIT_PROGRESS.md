@@ -176,28 +176,28 @@
 - [x] `PaperWindow.DeepCapsule.cs`
 - [x] `PaperWindow.Native.cs`
 - [x] `MasterCapsuleWindow.cs`
-- [ ] `DeepCapsuleLayout.cs`
+- [x] `DeepCapsuleLayout.cs`
 - [x] `WindowWorkAreaHelper.cs`
 - [x] `WindowNative.cs`
-- [ ] `PaperWindow.Todo.cs`
-- [ ] `TodoTextBox.cs`
-- [ ] `PaperWindow.Note.cs`
-- [ ] `MarkdownTextBox.cs`
-- [ ] `NoteTypography.cs`
-- [ ] `PaperTitles.cs`
-- [ ] `FullscreenForegroundWindowDetector.cs`
-- [ ] `Theme.cs`
-- [ ] `ToolTipPreferences.cs`
-- [ ] `SystemSettingsHelper.cs`
-- [ ] `Strings.cs`
-- [ ] `ClipboardHelper.cs`
-- [ ] `AnimationHelper.cs`
+- [x] `PaperWindow.Todo.cs`
+- [x] `TodoTextBox.cs`
+- [x] `PaperWindow.Note.cs`
+- [x] `MarkdownTextBox.cs`
+- [x] `NoteTypography.cs`
+- [x] `PaperTitles.cs`
+- [x] `FullscreenForegroundWindowDetector.cs`
+- [x] `Theme.cs`
+- [x] `ToolTipPreferences.cs`
+- [x] `SystemSettingsHelper.cs`
+- [x] `Strings.cs`
+- [x] `ClipboardHelper.cs`
+- [x] `AnimationHelper.cs`
 - [x] `App.xaml`
-- [ ] `Resources/*.resx`
-- [ ] `PaperTodo.csproj`
-- [ ] `CHANGELOG.md`
-- [ ] `README*.md`
-- [ ] `AGENTS.md`
+- [x] `Resources/*.resx`
+- [x] `PaperTodo.csproj`
+- [x] `CHANGELOG.md`
+- [x] `README*.md`
+- [x] `AGENTS.md`
 
 ### 逐文件深读记录
 
@@ -236,6 +236,7 @@
 - 保存证据：`_writeLock` + `_latestWrittenVersion` 防止旧异步保存覆盖新保存，见 `StateStore.cs:79`、`StateStore.cs:88`、`StateStore.cs:106`；写入前会把当前 `data.json` 复制到 `data.backup.json`，见 `StateStore.cs:137`。
 - 规范化证据：关闭胶囊 / 贴边 / 收起全部时清理 per-queue 起始高度，见 `StateStore.cs:225`；关联笔记失效时清空 `LinkedNoteId`，见 `StateStore.cs:321`；隐藏已关联笔记时强制取消其折叠，见 `StateStore.cs:330`。
 - 发现并修复：A001。若主 `data.json` 解析失败但 backup 能加载，旧逻辑后续第一次保存会先把解析失败的主文件复制覆盖 `data.backup.json`，再用从 backup 规范化后的状态覆盖 `data.json`。已改为记录 backup 恢复态，首次保存前复制保留失败主文件和本次使用的 backup，并跳过这一次 backup 轮换；证据见 `StateStore.cs:24`、`StateStore.cs:72`、`StateStore.cs:146`、`StateStore.cs:170`。
+- 发现并修复：A004。旧全局贴边起始高度现在按 `state.DeepCapsuleMonitorDeviceName` 对应的 work area 规范化，避免多显示器旧配置在加载时被默认主屏提前夹值；证据见 `StateStore.cs:300`、`StateStore.cs:446`。
 
 #### `App.xaml`
 
@@ -274,6 +275,18 @@
 - 关闭区证据：slot close area 点击只调用 `HidePaper(_paper)`，语义是隐藏不是删除，见 `PaperWindow.DeepCapsule.cs:248`；`CloseForReal()` 会先 `CloseExpandedDeepCapsuleSlotHostForReal()`，见 `PaperWindow.cs:608`。
 - 结论：本文件逐段深读完成。未在本文件内发现新的持久化状态混写、hook 残留、过期动画回调误清新状态或跨队列拖拽绕过磁吸阈值的问题。仍需在跨模块阶段继续验证它和 `PaperWindow.Capsule.cs` 的普通折叠 / 展开状态机边界。
 
+#### `DeepCapsuleLayout.cs`
+
+- 职责：贴边胶囊 / 主胶囊共享几何常量、标题显示宽度估算、work area 解析、队列显式几何计算、旧全局 anchor 兼容入口。
+- 纯几何证据：显式队列方法都接收 `Rect area` / `DeepCapsuleEdge edge`，包括 `DockedLeft(area, visibleWidth, edge)`、`TopForIndex(index, startTopMargin, area, slotCount)`、`MaxStartTopMarginForCount(slotCount, area)` 和 `NormalizeStartTopMargin(value, area, slotCount)`，见 `DeepCapsuleLayout.cs:137`、`DeepCapsuleLayout.cs:144`、`DeepCapsuleLayout.cs:151`、`DeepCapsuleLayout.cs:159`。这些方法不写 `AppState` 或窗口状态。
+- 多队列证据：`WorkAreaForQueue(monitorDeviceName)` 用 monitor device name 查工作区，缺失 / 拔屏时回退 `SystemParameters.WorkArea`，见 `DeepCapsuleLayout.cs:117`；`MasterCapsuleWindow`、`PaperWindow.DeepCapsule` 和 `AppController` 的高风险布局路径均调用显式队列方法，见 `MasterCapsuleWindow.cs:468`、`PaperWindow.DeepCapsule.cs:924`、`AppController.cs:1390`。
+- 左 / 右镜像证据：`DockedLeft(area, visibleWidth, edge)` 对左侧返回 `area.Left`，右侧返回 `area.Right - visibleWidth`，见 `DeepCapsuleLayout.cs:137`。主胶囊和纸片 slot 都复用该方法，避免左右边缘位置算法分叉。
+- 垂直边界证据：`NormalizeStartTopMargin()` 会把 NaN / Infinity 还原为默认值，并 clamp 到 `TopMargin..MaxStartTopMarginForCount()`；`TopForIndex()` 对负 index 归零并用底部最大 top 限制越界，见 `DeepCapsuleLayout.cs:144`、`DeepCapsuleLayout.cs:159`。
+- 标题宽度证据：`DisplayWidth()` 按 text element 枚举，CJK / 全角 / 韩文 / 日文等宽字符按 2 计，其他按 1 计，见 `DeepCapsuleLayout.cs:57`、`DeepCapsuleLayout.cs:72`。这只影响胶囊宽度估算，不改变标题文本。
+- 兼容观察：旧静态 `Edge` / `MonitorDeviceName` 和无 edge 参数的 `DockedLeft()` / `NormalizeStartTopMargin()` 仍保留；当前搜索结果显示生产布局路径基本已转向显式队列几何，剩余显式使用是 `StateStore.NormalizeDeepCapsuleStartTopMargin()` 对旧全局标量做兼容规范化，见 `DeepCapsuleLayout.cs:95`、`DeepCapsuleLayout.cs:104`、`StateStore.cs:446`。
+- 发现并修复：A004。旧全局高度在非主屏旧配置下可能被按主屏提前 clamp，已改为按保存的 `DeepCapsuleMonitorDeviceName` 解析 work area 后规范化，见 `StateStore.cs:448`。
+- 结论：本文件逐段深读完成。未发现它持有用户数据协议、写窗口几何、或让多队列高风险路径继续共享单一全局 anchor 的当前问题；A004 修复后，旧全局高度兼容路径也显式使用保存的显示器。
+
 #### `PaperWindow.Capsule.cs`
 
 - 职责：普通胶囊 UI、折叠 / 展开动画、普通胶囊关闭区、胶囊资格变化后的自动展开。
@@ -297,6 +310,161 @@
 - 关联笔记拖拽证据：拖动开始 / 更新 / 结束均委托给 `AppController.BeginNoteLinkDrag()` / `UpdateNoteLinkDrag()` / `EndNoteLinkDrag()`，本文件只负责视觉 ghost 和鼠标捕获，见 `PaperWindow.cs:1119`。
 - 主题证据：`UpdateTheme()` 刷新窗口动态资源、主壳画刷动画、标题 / 图标 / note box / todo rows、贴边 slot host theme，见 `PaperWindow.cs:712`。这覆盖 AGENTS 中“主题变化要刷新动态生成控件和 AvalonEdit”的窗口侧要求，托盘 / 设置侧仍在对应文件审。
 - 结论：本文件逐段深读完成。未发现关闭 / 删除语义混淆、窗口内部摆放直接写坏普通几何、或绕过控制器修改持久纸片状态的新问题。
+
+#### `PaperWindow.Note.cs`
+
+- 职责：笔记正文 UI 构建、编辑 / 预览切换、Markdown 渲染模式重建、内容保存、链接点击、文本缩放、外部编辑器打开。
+- 共用控件证据：`BuildNoteBody()` 创建单个 `MarkdownTextBox`，`ShowPreview()` / `ShowEditor()` 只通过 `SetPreviewMode(true/false)` 切换同一控件的只读、焦点和光标状态，没有拆成两套文本控件，见 `PaperWindow.Note.cs:136`、`PaperWindow.Note.cs:187`、`PaperWindow.Note.cs:199`。这符合 AGENTS 中“笔记编辑态和浏览态共用同一个 MarkdownTextBox”的约束。
+- 内容保存证据：`box.TextChanged` 直接写 `_paper.Content = box.Text` 并调用 `_controller.MarkDirty()`，见 `PaperWindow.Note.cs:256`；Markdown 渲染模式重建前会从旧控件取文本、光标和滚动偏移，并写回 `_paper.Content`，见 `PaperWindow.Note.cs:42`。
+- 发现并修复：A005。`BuildNoteBody()` 旧写法在对象初始化器里先设置 `Text` 再设置 `MaxLength`，导致超长旧笔记初次加载时绕过 `MarkdownTextBox.OnTextChanged()` 的长度保护。已把 `MaxLength=100000` 放到 `Text` 之前，见 `PaperWindow.Note.cs:142`。
+- 预览交互证据：预览态点击链接直接 `Process.Start(... UseShellExecute=true)`，失败被吞掉以免笔记崩溃；非链接点击会按点击点切回编辑并尝试恢复 caret，见 `PaperWindow.Note.cs:213`、`PaperWindow.Note.cs:241`、`PaperWindow.Note.cs:309`。
+- 失焦证据：`LostKeyboardFocus` 在菜单打开或预览点击进入编辑的过渡期会跳过，否则回到预览，见 `PaperWindow.Note.cs:288`。窗口层点击正文外退出编辑，见 `PaperWindow.cs:596`。
+- 缩放证据：Ctrl+滚轮只对笔记生效，委托 `AppController.SetPaperTextZoom()` 规范化并保存；窗口侧 `UpdateTextZoom()` 保持缩放提示，并在需要时重建正文保留滚动 / 光标，见 `PaperWindow.Note.cs:382`、`PaperWindow.Note.cs:420`、`AppController.cs:338`。
+- 外部打开证据：`WriteExternalMarkdownFile()` 使用 `ExternalMarkdownFileExtensions.Normalize()` 后的后缀写入 `%TEMP%\PaperTodo\paper-{id}.{ext}`，UTF-8 无 BOM，再交给系统默认程序打开；失败只弹警告，不影响主程序，见 `PaperWindow.Note.cs:437`、`PaperWindow.Note.cs:491`、`PaperWindow.Note.cs:496`。
+- 结论：本文件逐段深读完成。除 A005 外，未发现编辑 / 预览双控件漂移、内容变更不保存、外部打开绕过后缀规范化、链接打开失败导致崩溃或缩放不保存的新问题。
+
+#### `MarkdownTextBox.cs`
+
+- 职责：AvalonEdit 包装控件、Markdown 输入辅助、预览只读模式、轻量 Markdown/inline HTML 解析和渲染、链接命中、粘贴 / 长度保护。
+- AvalonEdit 初始化证据：构造函数关闭 AvalonEdit 内置 hyperlink，注册自有背景渲染器、列表 / 分隔线渲染器和行 colorizer，并应用 `NoteTypography` 的字体渲染设置，见 `MarkdownTextBox.cs:32`、`MarkdownTextBox.cs:49`、`MarkdownTextBox.cs:58`。
+- 长度保护证据：`MaxLength` 由窗口设为 100000；`OnTextChanged()` 超限时用 `_isTrimmingText` 防重入并截断控件文本 / caret，见 `MarkdownTextBox.cs:69`、`MarkdownTextBox.cs:453`。A005 修复后，初次设置正文时也会经过这条保护。
+- 粘贴保护证据：`OnPaste()` 只处理 Unicode 文本；`TryBuildSafePasteText()` 同时受剩余 `MaxLength`、单次 `MaxSafePasteLength=30000`、单行 `MaxSafePasteLineLength=6000` 限制，超限时改写粘贴数据或取消命令，见 `MarkdownTextBox.cs:494`、`MarkdownTextBox.cs:536`。
+- 渲染模式证据：`MarkdownRenderOptions.From()` 对 off/basic/enhanced 三种模式分别控制样式、语法淡化、列表 bullet、链接高亮和 block 背景，见 `MarkdownTextBox.cs:703`；`SetPreviewMode()` 只切只读 / focus / cursor，不复制文本，见 `MarkdownTextBox.cs:125`。
+- 性能证据：block/list/hr 渲染器和链接命中都只遍历 `TextArea.TextView.VisualLines`，不是每帧扫全文，见 `MarkdownTextBox.cs:407`、`MarkdownTextBox.cs:1571`、`MarkdownTextBox.cs:1656`、`MarkdownTextBox.cs:1766`；fenced code 状态有缓存并在文本变化时清空，见 `MarkdownTextBox.cs:1004`、`MarkdownTextBox.cs:453`。
+- Markdown 边界证据：块级识别只覆盖标题、引用、列表、任务列表、围栏代码、分隔线；inline 只覆盖 code、链接、加粗 / 斜体 / 删除线和受支持 HTML inline 标签，见 `MarkdownTextBox.cs:795`、`MarkdownTextBox.cs:1199`、`MarkdownTextBox.cs:1253`、`MarkdownTextBox.cs:1504`。
+- 链接安全证据：URL 只接受 `http`、`https`、`mailto`、`www.` 自动补 `https://`，以及 Windows 绝对本地路径 / UNC；设备路径 `\\.\` / `\\?\` 被拒绝，见 `MarkdownTextBox.cs:1062`、`MarkdownTextBox.cs:1128`、`MarkdownTextBox.cs:1183`。
+- 主题证据：`RefreshVisualStyle()` 刷新前景、caret、链接颜色、renderer / colorizer 和 text view layer；窗口主题切换会调用它，见 `MarkdownTextBox.cs:150`、`PaperWindow.cs:780`。
+- 结论：本文件逐段深读完成。除 A005 的初始加载保护顺序外，未发现渲染器扫全文造成明显性能风险、超出产品边界的块级 HTML / 嵌入内容支持、危险设备路径链接、或预览态复制文本导致滚动 / 选区漂移的新问题。
+
+#### `NoteTypography.cs`
+
+- 职责：笔记字体族、代码字体族、基础字号、语言和 WPF 文本渲染选项。
+- 证据：只暴露静态只读字体 / 渲染常量和 `ApplyTextRendering()` helper，见 `NoteTypography.cs:8`、`NoteTypography.cs:27`；不读写 `AppState`、`PaperData`、窗口几何或保存状态。
+- 结论：本文件逐段深读完成。它是纯排版工具，未发现持久化、Markdown 解析或交互状态风险。
+
+#### `PaperTitles.cs`
+
+- 职责：纸片标题默认名、用户设置的标题长度规范化、自定义标题清洗、按 text element 截断。
+- 状态证据：不直接写状态；调用方在创建、标题编辑、设置长度变化和加载规范化时使用它，见 `AppController.cs:161`、`AppController.cs:323`、`AppController.Settings.cs:391`、`StateStore.cs:347`。
+- 边界证据：持久标题硬上限 `MaxTitleLength=40`；用户可配范围 `2..20`，默认 6；`CleanCustomTitle()` 去掉控制字符并按 `StringInfo.ParseCombiningCharacters()` 截断，见 `PaperTitles.cs:7`、`PaperTitles.cs:15`、`PaperTitles.cs:36`。
+- 结论：本文件逐段深读完成。未发现标题设置越过硬上限、控制字符写入标题、或修改持久状态绕过控制器的问题。
+
+#### `ClipboardHelper.cs`
+
+- 职责：从系统剪贴板安全读取 Unicode 文本。
+- 证据：只在待办多行粘贴路径使用，见 `PaperWindow.Todo.cs:647`；内部通过 `Clipboard.GetDataObject()` 读取 `DataFormats.UnicodeText`，捕获所有剪贴板 / OLE 异常并返回 false，见 `ClipboardHelper.cs:8`。
+- 结论：本文件逐段深读完成。未发现剪贴板被其他进程占用时异常冒泡、读取非文本数据或写状态的问题。
+
+#### `ToolTipPreferences.cs`
+
+- 职责：统一普通 tooltip 开关，同时允许设置说明等控件标记 AlwaysEnabled。
+- 注册证据：`AppController` 启动时注册 provider，见 `AppController.cs:72`；设置说明图标通过 `SetAlwaysEnabled()` 标记，见 `AppController.Settings.cs:745`；窗口 / 主胶囊刷新 tooltip 时调用 `Apply()`，见 `PaperWindow.cs:617`、`MasterCapsuleWindow.cs:294`。
+- 语义证据：`OnToolTipOpening()` 在全局禁用且当前元素不在 AlwaysEnabled 链上时吞掉 opening；`ApplyCore()` 同时遍历 logical tree 和 visual tree，并用 visited set 避免重复 / 环，见 `ToolTipPreferences.cs:48`、`ToolTipPreferences.cs:64`、`ToolTipPreferences.cs:97`。
+- 结论：本文件逐段深读完成。未发现普通 tooltip 开关误关设置说明图标、或 visual-only / logical-only 控件未处理导致异常冒泡的问题。
+
+#### `Theme.cs`
+
+- 职责：主题明暗判断、配色族规范化、基色 palette、派生画刷、frozen brush 缓存。
+- 状态证据：不直接写 `AppState`；只读取 `AppController.Current?.State?.Theme` 和 `ColorScheme` 计算当前 palette，见 `Theme.cs:62`、`Theme.cs:75`。设置层修改主题 / 配色后调用 `Theme.Invalidate()`，再刷新窗口、master 和托盘，见 `AppController.Settings.cs:22`、`AppController.Settings.cs:55`。
+- 缓存证据：`_isDarkCache`、`_schemeCache`、`_paletteCache` 只缓存当前主题解析结果；`Invalidate()` 清三者但不清 `BrushCache`，因为颜色到 frozen brush 是纯映射，见 `Theme.cs:45`、`Theme.cs:52`、`Theme.cs:135`。
+- 系统主题证据：`IsSystemDark()` 只读 HKCU Personalize 的 `AppsUseLightTheme`，异常回退浅色；系统主题变化由 `OnUserPreferenceChanged` 调 `Theme.Invalidate()` 并刷新窗口，跨文件证据见 `Theme.cs:92`、`AppController.Settings.cs:989`。
+- 派生色证据：hover、危险色、Markdown 语法淡化、checkbox hover 等都从当前 palette 派生，见 `Theme.cs:110`、`Theme.cs:119`、`Theme.cs:122`、`Theme.cs:127`；窗口、托盘、Markdown、主胶囊均通过这些静态入口取画刷。
+- 结论：本文件逐段深读完成。未发现主题切换后 palette 缓存不失效、画刷被修改后污染全局、或主题层写持久状态的问题。阶段 6 仍需从视觉角度检查四套配色和动画过渡。
+
+#### `Strings.cs`
+
+- 职责：统一资源字符串读取和格式化。
+- 证据：`ResourceManager` 指向 `PaperTodo.Resources.Strings`；`Get()` 按 `CultureInfo.CurrentUICulture` 获取，缺 key 时回退 key 名；`Format()` 用 `CultureInfo.CurrentCulture` 格式化，见 `Strings.cs:7`、`Strings.cs:10`、`Strings.cs:15`。
+- 调用证据：托盘、设置、纸片菜单、错误弹窗、Markdown 默认链接文案等所有用户可见字符串都通过 `Strings.Get()` / `Strings.Format()`，代表调用见 `AppController.Tray.cs:416`、`AppController.Settings.cs:561`、`PaperWindow.cs:1391`、`PaperWindow.Note.cs:455`。
+- 结论：本文件逐段深读完成。未发现资源缺失会直接崩溃的问题；资源 key parity 和格式占位一致性留到 `Resources/*.resx` 专项继续验证。
+
+#### `Resources/*.resx`
+
+- 职责：中文默认资源和英文 / 日文 / 韩文本地化资源。
+- 文件证据：当前资源文件为 `Strings.resx`、`Strings.en.resx`、`Strings.ja.resx`、`Strings.ko.resx`；四个文件各 150 个 key。
+- key parity 证据：XML 解析比对结果：`Strings.en.resx` / `Strings.ja.resx` / `Strings.ko.resx` / `Strings.resx` 相对默认资源 `missing=0 extra=0`。
+- 占位符证据：对所有资源值提取 `{0}` / `{1}` 等格式占位符后，四语言占位符集合完全一致，`placeholder_mismatches=0`。这覆盖 `Strings.Format()` 的主要运行时风险。
+- 代码调用证据：扫描代码中的字面量 `Strings.Get/Format("...")` 得到 `literal_used=114`，相对默认资源 `missing=0`。未被字面量扫描命中的 36 个 key 包含通过 `tipKey` 动态读取的设置说明、`ResourceTextVersion` 人工检查标记和部分保留文案；本轮不做删除，以免制造无意义资源 churn。
+- 结论：本文件组逐段审计完成。未发现四语言 key 不一致、格式占位不一致、代码字面量 key 缺失的问题。`ResourceTextVersion` 仍只作为人工标记，不参与运行时逻辑。
+
+#### `PaperTodo.csproj`
+
+- 职责：项目 SDK、目标框架、WPF 开关、显式版本号、输出路径、资源语言和依赖。
+- 版本证据：`Version=2.0`、`AssemblyVersion/FileVersion=2.0.0.0`、`InformationalVersion=2.0` 显式维护，见 `PaperTodo.csproj:9`。这符合 AGENTS 中“不要恢复自动递增版本号”的约束。
+- WPF / 发布证据：`OutputType=WinExe`、`TargetFramework=net10.0-windows`、`UseWPF=true`；项目文件未设置 `PublishTrimmed` 或 Native AOT，见 `PaperTodo.csproj:3`。no-runtime / 单文件形态由发布命令控制。
+- 资源 / 输出证据：`SatelliteResourceLanguages=en;ja;ko`，默认中文资源留在主程序集；`OutputPath` 指向 `输出\PaperTodo-v$(Version)`；`DefaultItemExcludes` 排除输出目录和对比 / 调试目录，见 `PaperTodo.csproj:13`。
+- 依赖证据：只引用 `AvalonEdit 6.3.0.90` 和 `Hardcodet.NotifyIcon.Wpf 2.0.1`，见 `PaperTodo.csproj:23`。与当前笔记编辑器和托盘实现一致。
+- 结论：本文件逐段审计完成。未发现版本号自动化、WPF trim/AOT 风险、资源语言缺失或新增重型依赖的问题。
+
+#### `CHANGELOG.md`
+
+- 职责：用户态版本记录、计划 / 评估 / Unreleased。
+- 结构证据：顶部按 `### 计划 / 待办`、`### 评估`、`### Unreleased` 组织，见 `CHANGELOG.md:5`；本轮 A004 / A005 已以用户可感知语言写入 Unreleased，见 `CHANGELOG.md:19`、`CHANGELOG.md:20`。
+- 内容边界证据：Unreleased 不写文件名、状态机或实现细节；内部工具 / 文档审计未写入 changelog。rc2 条目仍保持重点项加粗、普通修复不强行加粗。
+- 结论：本文件逐段审计完成。未发现当前 Unreleased 和 AGENTS 的 changelog 约束冲突；后续若再做用户可见修复，仍需追加到 Unreleased。
+
+#### `README*.md`
+
+- 职责：中文 / 英文用户说明、功能边界、操作手册、下载 / 构建说明。
+- 产品边界证据：README 明确无账号、无管理器、无分类 / 标签 / 搜索 / 归档 / 同步等，见 `README.md:7`、`README.md:39`；英文版对应说明见 `README.en.md:7`、`README.en.md:38`。
+- Markdown 边界证据：README 明确笔记纸不是完整 Markdown 编辑器，只支持轻量 Markdown 和少量单行 inline HTML，不支持图片 / 表格 / 附件 / 嵌入 / 块级 HTML，见 `README.md:90`、`README.md:100`；英文版对应说明见 `README.en.md:88`、`README.en.md:98`。
+- 发现并修正文档漂移：README 仍把贴边胶囊描述为只靠右侧 / 右上角，已改为“屏幕边缘、多显示器和左右侧队列”；外部后缀说明也改为“由 Windows 关联程序处理临时文件”，避免暗示应用自身执行代码。
+- 构建 / 发布证据：README 的构建命令仍是 `dotnet build -c Release`；下载说明描述 Windows x64 单文件产物和 no-runtime 产物，见 `README.md:180`、`README.md:194`。
+- 结论：本文件组逐段审计完成。除上述文档漂移外，未发现 README 承诺账号 / 同步 / 管理器等超出产品边界的能力。
+
+#### `AGENTS.md`
+
+- 职责：记录项目级非显然约束，供后续 agent 工作遵守。
+- 约束证据：覆盖产品边界、数据协议、保存 / 单实例、托盘、胶囊高风险、待办 / 笔记、主题 / 资源、changelog 和发布流程，见 `AGENTS.md:9`、`AGENTS.md:17`、`AGENTS.md:27`、`AGENTS.md:33`、`AGENTS.md:36`、`AGENTS.md:49`、`AGENTS.md:57`、`AGENTS.md:63`、`AGENTS.md:77`。
+- 当前一致性证据：本轮修复没有改变产品边界、持久化协议字段、单实例规则、托盘图标入口或发布流程；因此无需更新 AGENTS。其新增的 changelog 约束“未提交 / 未发布且用户无感知的内部 bug 不写入更新日志”与当前 Unreleased 写法一致。
+- 结论：本文件逐段审计完成。未发现 AGENTS 与当前代码/流程直接冲突；后续如果改变胶囊协议、保存策略或发布流程才需要同步更新。
+
+#### `SystemSettingsHelper.cs`
+
+- 职责：读写 HKCU Run 启动项。
+- 证据：设置页启动开关只通过 `IsStartupEnabled()` 和 `ToggleStartup()`，见 `AppController.Settings.cs:579`、`AppController.Settings.cs:1010`；helper 只访问 `Software\Microsoft\Windows\CurrentVersion\Run` 下的 `PaperTodo` 值，见 `SystemSettingsHelper.cs:7`。
+- 异常证据：读写注册表均包 try/catch；权限受限时返回 false，设置调用方显示失败提示，见 `SystemSettingsHelper.cs:11`、`SystemSettingsHelper.cs:30`、`AppController.Settings.cs:1013`。
+- 结论：本文件逐段深读完成。未发现写 HKLM、写其他启动项、权限异常导致崩溃或启动项关闭误删其他值的问题。
+
+#### `AnimationHelper.cs`
+
+- 职责：共享 easing、RenderTransform 规范化、淡入淡出、缩放、平移、颜色过渡、停止动画和少量强调动画。
+- Transform 证据：`EnsureTransform()` 保证 `TransformGroup[0]` 是 `ScaleTransform`、`[1]` 是 `TranslateTransform`，保留已有非 identity transform 追加到后面，见 `AnimationHelper.cs:15`；待办新增 / 删除动画直接依赖这个顺序，见 `PaperWindow.Todo.cs:588`、`PaperWindow.Todo.cs:805`。
+- 动画证据：`FadeIn()` / `FadeOut()` / `ScaleTo()` / `TranslateTo()` 都只操作 UIElement 或 transform 动画，不写 `PaperData`；完成回调只挂在 Y 动画或 opacity 动画上，见 `AnimationHelper.cs:57`、`AnimationHelper.cs:68`、`AnimationHelper.cs:79`、`AnimationHelper.cs:91`。
+- 停止证据：`StopAllAnimations()` 会取消 opacity、scale、translate 动画；当前全局动画开关的关键胶囊动画多为本地状态机自管，后续阶段 6 还要做“关闭动画后立即完成”的专项验证，见 `AnimationHelper.cs:119`。
+- 结论：本文件逐段深读完成。未发现 helper 自己持有状态、保存几何、无限启动动画或覆盖业务状态的问题；动画完整性留到视觉 / 动画阶段做跨模块验证。
+
+#### `FullscreenForegroundWindowDetector.cs`
+
+- 职责：识别外部全屏窗口，给 AppController 的 topmost 避让策略提供目标 hwnd，并生成可选 debug snapshot。
+- 快速路径证据：`TryGetFullscreenWindow()` 每次先读取当前 foreground；若不是本进程窗口则记为 `_lastExternalForegroundWindow`，再优先检查该 tracked hwnd，见 `FullscreenForegroundWindowDetector.cs:25`、`FullscreenForegroundWindowDetector.cs:79`。
+- 性能证据：全局 `EnumWindows()` 只在调用方允许时发生；`AppController.RefreshTopmostForForegroundWindow()` 200ms timer 中只有距离上次全局扫描超过 1 秒才允许 `allowGlobalScan=true`，见 `FullscreenForegroundWindowDetector.cs:103`、`AppController.cs:775`。
+- 候选过滤证据：候选窗口必须非零、不是 shell、不是当前进程、可见且非最小化、不是 tool window、不是 DWM cloaked、不是 shell class，见 `FullscreenForegroundWindowDetector.cs:175`。这避免把 PaperTodo 自己的纸片 / 胶囊窗口和桌面 / 任务栏误判为外部全屏。
+- 全屏判定证据：先用 DWM extended frame bounds，失败再用 raw `GetWindowRect()`；矩形必须有足够尺寸并覆盖最近 monitor，容差 2 像素，见 `FullscreenForegroundWindowDetector.cs:132`、`FullscreenForegroundWindowDetector.cs:146`、`FullscreenForegroundWindowDetector.cs:170`。
+- AppController 联动证据：检测到外部全屏后写 `_suppressTopmostForFullscreenForeground` 和 `_fullscreenAvoidanceWindow`，逐窗口 / master 调 `RefreshEffectiveTopmost()`；关闭避让或状态不变时仍会刷新浮动层级，见 `AppController.cs:775`、`AppController.cs:811`、`AppController.cs:868`。
+- debug 证据：`BuildDebugSnapshot()` 会记录 foreground、last external、screen probe、foreground children 和 top windows；实际写日志受 `EnableFullscreenDebugLog=false` 控制，并限频 / 截断，见 `FullscreenForegroundWindowDetector.cs:41`、`AppController.cs:60`、`AppController.cs:825`。
+- 结论：本文件逐段深读完成。未发现 200ms timer 每次全量枚举、当前进程窗口被当成全屏、DWM bounds 失败无 fallback、或 debug 日志影响正常行为的新问题。后续阶段 4/5 仍需用真实全屏窗口手测和性能观察验证误判率。
+
+#### `PaperWindow.Todo.cs`
+
+- 职责：待办 body 构建、行重建、文本输入、勾选、追加 / 删除 / 清除完成项、多行粘贴、拖拽排序 / 拖到垃圾区删除、业务撤销 / 重做、关联笔记投放目标。
+- 持久状态证据：本文件只写 `_paper.Items`、`PaperItem.Text`、`PaperItem.Done`、`PaperItem.Order`、`PaperItem.LinkedNoteId`，并在文本、勾选、添加、删除、清除完成、移动、链接 / 解绑后调用 `_controller.MarkDirty()`；代表入口见 `PaperWindow.Todo.cs:333`、`PaperWindow.Todo.cs:369`、`PaperWindow.Todo.cs:756`、`PaperWindow.Todo.cs:778`、`PaperWindow.Todo.cs:846`、`PaperWindow.Todo.cs:1017`、`PaperWindow.Todo.cs:1419`。
+- 行重建证据：`RebuildTodoRows()` 先 `NormalizeTodoItems()` / `NormalizeOrders()`，清 `_todoEditors`、`_todoRows`、`_linkedNoteDropRow`，再按 `OrderedItems()` 重建 UI，见 `PaperWindow.Todo.cs:59`；`PaperItem` 默认有新 GUID，加载层也会修复空 / 重复 id，跨文件证据见 `Models.cs:204`、`StateStore.cs:381`。
+- 输入 / 撤销证据：文本框 `TextChanged` 直接写回当前 item 并触发防抖保存；`GotFocus` 记录原文，`LostFocus` 在文本变更时把原文快照压入业务撤销栈并清 redo，见 `PaperWindow.Todo.cs:333`、`PaperWindow.Todo.cs:343`、`PaperWindow.Todo.cs:348`。`PushUndoSnapshot()` 会先 `CommitFocusedTextIfNeeded()`，确保勾选 / 删除 / 移动前已有文本变更不会丢失撤销边界，见 `PaperWindow.Todo.cs:1631`、`PaperWindow.Todo.cs:1643`。
+- 多行粘贴证据：`HandleTodoPaste()` 只在清洗后行数大于 1 时接管，最多 200 行；它只调用一次 `PushUndoSnapshot()`，第一行替换当前选择，后续行通过 `AddItemAfter(..., pushUndo: false)` 添加，最后一次 `MarkDirty()`，见 `PaperWindow.Todo.cs:645`、`PaperWindow.Todo.cs:673`、`PaperWindow.Todo.cs:681`、`PaperWindow.Todo.cs:723`。这满足“多行粘贴只能形成一次撤销快照”的项目约束。
+- 删除 / 清理证据：空行 Backspace 删除会先压一次撤销快照，删除后若列表为空补一个空 item，并用 `_suppressTodoBackspaceUntilKeyUp` 防止按键重复删除，见 `PaperWindow.Todo.cs:600`；`ClearDoneItems()` 同样保证至少保留一个 item，见 `PaperWindow.Todo.cs:846`。
+- 拖拽证据：行拖拽只从拖动柄启动并捕获鼠标，见 `PaperWindow.Todo.cs:570`；开始拖拽后创建 ghost、源行半透明、追加区切换为垃圾区，见 `PaperWindow.Todo.cs:1098`；拖拽结束统一释放鼠标捕获、清 ghost、恢复源行透明度 / 背景 / 光标、清 drop indicator 和垃圾区状态，见 `PaperWindow.Todo.cs:1359`。窗口失焦和丢失鼠标捕获会取消拖拽，跨文件证据见 `PaperWindow.cs:580`、`PaperWindow.cs:1812`。
+- 拖拽语义证据：悬停追加区时 `DropAtEnd=true` 在结束时调用 `RemoveItem()`，语义是拖到垃圾区删除；否则按最近行边界 `MoveItem()` 排序，见 `PaperWindow.Todo.cs:1170`、`PaperWindow.Todo.cs:1388`、`PaperWindow.Todo.cs:1402`。`MoveItemToEnd()` 当前未被调用，属于死 helper，不影响行为。
+- 关联笔记证据：`TryHitTodoRow()` 只在关联功能启用、当前是可见未折叠 todo 时返回命中行，见 `PaperWindow.Todo.cs:959`；`LinkNoteToTodo()` / `UnlinkNoteFromTodoItem()` 会压撤销、改 `LinkedNoteId`、保存、重建行并刷新胶囊资格，见 `PaperWindow.Todo.cs:1017`、`PaperWindow.Todo.cs:1044`；`CloneItems()` 保留 `LinkedNoteId`，见 `PaperWindow.Todo.cs:1619`。
+- 动画 / 性能证据：新增、多行粘贴、删除、清除完成的动画都用 `_todoRowsGeneration` 或 `_clearDoneGeneration` 拦截过期回调，见 `PaperWindow.Todo.cs:691`、`PaperWindow.Todo.cs:803`、`PaperWindow.Todo.cs:895`；待办文本变更只触发 `MarkDirty()` 的 timer 防抖保存，跨文件证据见 `AppController.cs:1598`。
+- 结论：本文件逐段深读完成。未发现多行粘贴多次业务撤销、拖拽残留 ghost / 半透明源行、关联笔记不刷新胶囊资格、撤销克隆丢失 `LinkedNoteId`、或待办操作直接混写胶囊 / 普通窗口几何的新问题。
+
+#### `TodoTextBox.cs`
+
+- 职责：待办文本框完成态删除线绘制。
+- 状态证据：只定义 `IsDone` 依赖属性，metadata 带 `AffectsRender`，见 `TodoTextBox.cs:11`；`OnRender()` 在完成态按当前控件尺寸绘制一条删除线，不写 `_paper`、控制器、保存或撤销状态，见 `TodoTextBox.cs:27`。
+- 主题证据：删除线颜色优先取 `Theme.BrightWeakTextBrush` 的实体颜色，失败时有固定 fallback，见 `TodoTextBox.cs:36`。主题切换后待办行会重建 / 刷新，窗口侧证据见 `PaperWindow.cs:712`。
+- 结论：本文件逐段深读完成。它是纯显示控件，未发现数据协议、保存、拖拽或胶囊状态风险。
 
 #### `PaperWindow.Native.cs`
 
@@ -455,6 +623,24 @@
   - 是否更新 `CHANGELOG.md`：已合并进 `### Unreleased` 的待办关联设置修复描述。
   - 验证结果：代码路径核对 + `dotnet build PaperTodo.csproj -c Release` -> 0 warning / 0 error；`git diff --check` -> 无空白错误，仅 CRLF 提示。
 
+- [x] A004：旧全局贴边起始高度在非主屏旧配置下可能被提前按主屏夹值
+  - 问题描述：加载旧配置时，`DeepCapsuleStartTopMargin` 是单个全局标量；旧逻辑通过 `DeepCapsuleLayout.NormalizeStartTopMargin(value)` 使用静态全局 work area 规范化。若旧配置的全局贴边队列实际停在非主屏，且非主屏高度与主屏不同，加载时可能提前把用户拖过的起始高度夹到主屏范围。
+  - 影响范围：没有 per-queue 起始高度字典的旧配置、非主屏贴边队列、不同高度或不同任务栏工作区的多显示器环境。
+  - 触发路径：`StateStore.Normalize()` -> `NormalizeDeepCapsuleStartTopMargin()` -> `DeepCapsuleLayout.NormalizeStartTopMargin(value)`。
+  - 修复方案：`NormalizeDeepCapsuleStartTopMargin()` 增加 `monitorDeviceName` 参数，先用 `DeepCapsuleLayout.WorkAreaForQueue(monitorDeviceName)` 解析保存的全局显示器，再用显式 `NormalizeStartTopMargin(value, area)` 规范化。
+  - 代价和风险：只影响旧全局标量兼容路径；per-queue 字典仍按原设计保留原值并在布局时按实时显示器 clamp。
+  - 是否更新 `CHANGELOG.md`：已写入 `### Unreleased`，描述为贴边胶囊旧配置恢复修复。
+  - 验证结果：`dotnet build PaperTodo.csproj -c Release` -> 0 warning / 0 error；`git diff --check` -> 无空白错误，仅 CRLF 提示。
+
+- [x] A005：超长旧笔记初次加载可能绕过 MarkdownTextBox 长度保护
+  - 问题描述：`BuildNoteBody()` 对 `MarkdownTextBox` 的对象初始化顺序是先赋 `Text`，再赋 `MaxLength=100000`。`MarkdownTextBox` 的长度保护在 `OnTextChanged()` 中执行，因此超长旧笔记从 `data.json` 初次进入控件时可能没有被截断，增加 AvalonEdit 布局 / 渲染卡顿风险。
+  - 影响范围：手工修改或旧版本生成的超长笔记内容；正常编辑路径已有 `MaxLength` 和粘贴限制。
+  - 触发路径：`PaperWindow.BuildNoteBody()` -> `new MarkdownTextBox { Text = ..., MaxLength = 100000 }` -> `MarkdownTextBox.OnTextChanged()`。
+  - 修复方案：把 `MaxLength=100000` 放在 `Text` 赋值之前，确保初始正文也经过控件级长度保护。
+  - 代价和风险：只影响超长笔记的 UI 展示保护，不新增持久化字段；若用户继续编辑超长旧笔记，最终保存仍会按编辑器保护后的内容落盘。
+  - 是否更新 `CHANGELOG.md`：已写入 `### Unreleased`，描述为笔记大文本保护修复。
+  - 验证结果：`dotnet build PaperTodo.csproj -c Release` -> 0 warning / 0 error；`git diff --check` -> 无空白错误，仅 CRLF 提示。
+
 ## 阶段 8：回归矩阵
 
 - [ ] `dotnet build PaperTodo.csproj -c Release`
@@ -512,3 +698,13 @@
 - 本轮复验：`dotnet build PaperTodo.csproj -c Release` -> 0 warning / 0 error；`git diff --check` -> 无空白错误，仅 CRLF 提示。
 - 完成 `AppController.Settings.cs` 深读记录；覆盖设置窗口、主题刷新、tooltip 说明、胶囊模式关闭清理、关联笔记资格刷新和可见面恢复。
 - 完成 `AppController.Tray.cs` 深读记录；覆盖 Hardcodet `IconSource`、外部图标优先、菜单打开重建、首次菜单焦点、纸片行内删除确认和行点击抑制。
+- 完成 `PaperWindow.Todo.cs`、`TodoTextBox.cs` 深读记录；覆盖多行粘贴单次撤销、文本编辑撤销边界、拖拽排序 / 删除清理、关联笔记链接后胶囊资格刷新。
+- 完成 `DeepCapsuleLayout.cs` 深读记录；发现并修复 A004：旧全局贴边起始高度按保存的显示器 work area 规范化，减少多显示器旧配置重启后的高度漂移。
+- 验证 A004：Release 构建通过；空白检查无错误，仅 CRLF 提示。
+- 完成 `PaperWindow.Note.cs`、`MarkdownTextBox.cs`、`NoteTypography.cs` 深读记录；覆盖编辑 / 预览共用控件、Markdown 轻量边界、inline HTML 白名单、链接规范化、大文本 / 粘贴保护、外部打开临时文件。
+- 修复 A005：笔记正文初始加载时先设置 `MaxLength` 再设置 `Text`，避免超长旧笔记绕过编辑器长度保护；`CHANGELOG.md` 已记录用户可感知的大文本保护改进。
+- 验证 A005：Release 构建通过；空白检查无错误，仅 CRLF 提示。
+- 完成 `PaperTitles.cs`、`ClipboardHelper.cs`、`ToolTipPreferences.cs`、`SystemSettingsHelper.cs`、`AnimationHelper.cs` 深读记录；未发现需要代码修复的问题。
+- 完成 `Theme.cs`、`Strings.cs`、`FullscreenForegroundWindowDetector.cs` 深读记录；覆盖主题缓存 / 失效、资源缺 key fallback、全屏检测候选过滤和 200ms timer 的全局扫描节流。
+- 完成 `Resources/*.resx` 审计；四语言 key 数均为 150，key parity 缺失 / 多余为 0，格式占位符不一致为 0，代码字面量资源 key 缺失为 0。
+- 完成 `PaperTodo.csproj`、`CHANGELOG.md`、`README*.md`、`AGENTS.md` 深读记录；修正 README 中贴边胶囊仍写右侧单队列的过时描述，并把外部后缀说明改为系统关联程序处理。

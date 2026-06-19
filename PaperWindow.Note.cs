@@ -139,8 +139,8 @@ public sealed partial class PaperWindow
 
         _noteBox = new MarkdownTextBox
         {
-            Text = _paper.Content ?? "",
             MaxLength = 100000,
+            Text = _paper.Content ?? "",
             AcceptsReturn = true,
             AcceptsTab = true,
             TextWrapping = TextWrapping.Wrap,

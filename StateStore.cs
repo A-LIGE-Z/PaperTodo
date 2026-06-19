@@ -298,7 +298,7 @@ public sealed class StateStore
 
         var keepDeepCapsuleStartTopMargins = state.UseCapsuleMode && state.UseDeepCapsuleMode && state.UseCapsuleCollapseAll;
         state.DeepCapsuleStartTopMargin = keepDeepCapsuleStartTopMargins
-            ? NormalizeDeepCapsuleStartTopMargin(state.DeepCapsuleStartTopMargin)
+            ? NormalizeDeepCapsuleStartTopMargin(state.DeepCapsuleStartTopMargin, state.DeepCapsuleMonitorDeviceName)
             : DeepCapsuleLayout.StartTopMargin;
 
         // Per-queue margins: drop NaN/inf; final clamping against each queue's live work area is
@@ -443,5 +443,9 @@ public sealed class StateStore
             : value;
     }
 
-    private static double NormalizeDeepCapsuleStartTopMargin(double value) => DeepCapsuleLayout.NormalizeStartTopMargin(value);
+    private static double NormalizeDeepCapsuleStartTopMargin(double value, string monitorDeviceName)
+    {
+        var area = DeepCapsuleLayout.WorkAreaForQueue(monitorDeviceName);
+        return DeepCapsuleLayout.NormalizeStartTopMargin(value, area);
+    }
 }

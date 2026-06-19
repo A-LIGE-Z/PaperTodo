@@ -27,7 +27,7 @@ A minimal Windows desktop sticky-note app built with native WPF. No main window,
 | Capsule Mode | Advanced Capsules |
 | :---: | :---: |
 | ![Capsule mode](screenshots/Pill_Mode.gif) | ![Auto-docked capsules](screenshots/Pill_Plus.gif) |
-| Papers can collapse into small capsules to save desktop space. | Collapsed capsules dock to the right edge and slide out on hover. |
+| Papers can collapse into small capsules to save desktop space. | Collapsed capsules dock to screen edges and slide out on hover. |
 
 ---
 
@@ -50,7 +50,7 @@ A minimal Windows desktop sticky-note app built with native WPF. No main window,
   - **Todo paper**: one item per line. Check, edit, delete, and clear completed items.
   - **Note paper**: plain text with lightweight Markdown-style highlighting and three Markdown rendering modes.
 - **Capsule mode** enabled by default - Collapse papers into pinned mini capsules.
-- **Auto-docked capsules** enabled by default - Collapsed capsules line up near the top-right edge of the screen.
+- **Auto-docked capsules** enabled by default - Collapsed capsules line up on screen edges, with multi-monitor and left/right-side queues.
 - **Minimal interaction layers** - Fast, direct, lightweight controls.
 - **Link notes to todos** - Drag a note onto a todo item to link it, then open the linked note directly from that item.
 - **Theme switching** - Follow system, light, and dark modes.
@@ -101,7 +101,7 @@ Note paper is not a full Markdown editor. It only helps a sheet of paper stay a 
 
 **External editing**: The `MD` button in the title bar opens the current note as a temporary `.md` file with the system default editor.
 
-**Code launching**: The `MD` button can also use custom suffixes such as `bat` or `html`, letting the system open or run the temporary file with the associated handler.
+**Custom suffixes**: The `MD` button can use system-associated suffixes such as `.txt`, `.html`, or `.bat`; Windows handles the temporary file with the associated app.
 
 ---
 
