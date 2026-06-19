@@ -9,7 +9,7 @@
 - 审核起点日期：2026-06-19
 - 分支：`feature/multi-master-capsule`
 - 起点提交：`8e4fab8`
-- 当前变更范围相对 `main...HEAD`：17 个文件，1965 insertions / 665 deletions
+- 当前变更范围相对 `main...HEAD`：21 个文件，2789 insertions / 689 deletions
 - 纳入范围：全部 `.cs`、`.xaml`、`.resx`、`.csproj`、`.md`，以及发布相关目录和配置
 - 排除范围：`输出/`、`obj/`、缓存、截图、历史临时文件；除非它们影响发布结果
 
@@ -28,7 +28,7 @@
   - 证据：本文件已加入仓库根目录
 - [x] 阶段 0：冻结基线与审核边界
 - [x] 阶段 1：建立系统地图
-- [ ] 阶段 2：逐文件深读
+- [x] 阶段 2：逐文件深读
 - [ ] 阶段 3：跨模块不变量审查
 - [ ] 阶段 4：高风险专项攻击
 - [ ] 阶段 5：性能审查
@@ -168,7 +168,7 @@
 - [x] `App.xaml.cs`
 - [x] `SingleInstanceHelper.cs`
 - [x] `StartupCommand.cs`
-- [-] `AppController.cs`
+- [x] `AppController.cs`
 - [x] `AppController.Settings.cs`
 - [x] `AppController.Tray.cs`
 - [x] `PaperWindow.cs`
@@ -244,9 +244,9 @@
 - 证据：只定义资源和控件模板，不持有业务状态；`PaperScrollThumbStyle` 在 `App.xaml:10`，全局 `ScrollBar` 样式在 `App.xaml:34`，全局 `ScrollViewer` 模板在 `App.xaml:84`。
 - 结论：本轮未发现它参与数据、胶囊、托盘或启动状态；视觉细节留到阶段 6。
 
-#### `AppController.cs`（进行中）
+#### `AppController.cs`
 
-- 已读范围：启动命令分发、纸片创建、显示 / 隐藏 / 删除、关联笔记资格刷新、普通几何保存、贴边队列重排、收起全部每队列状态、保存入口。
+- 已读范围：启动命令分发、纸片创建、显示 / 隐藏 / 删除、关联笔记资格刷新、普通几何保存、贴边队列重排、收起全部每队列状态、全屏置顶避让、保存入口 / 失败 UI、离屏救援、队列高度持久化、退出释放。
 - 启动命令证据：`ExecuteStartupCommand()` 在 `AppController.cs:596`，`NewTodo/NewNote` 只创建纸片，`Exit` 直接走 `Exit()`；普通启动默认纸片创建在 `AppController.cs:93`。
 - 纸片创建证据：`CreatePaper()` 限制最多 100 张，初始化标题、几何、可见性和队列归属，见 `AppController.cs:132`；新纸片会继承来源纸片队列或全局队列，见 `AppController.cs:208`；显示前会避开贴边胶囊栏，见 `AppController.cs:218`。
 - 显示 / 隐藏证据：`ShowPaper()` 会在不可胶囊时取消折叠、设置 `IsVisible=true`、取消旧动画、按是否贴边折叠选择主窗口或 slot，见 `AppController.cs:641`；`HidePaper()` 会先 `IsVisible=false`，从贴边栈分离，隐藏后把折叠态清掉，见 `AppController.cs:882`。
@@ -255,7 +255,15 @@
 - 普通几何证据：`UpdateGeometry()` 遇到 `PaperWindow.SuppressGeometrySave` 直接返回，折叠时不写 `Width/Height`，见 `AppController.cs:1270`。此片段未发现把贴边半隐藏尺寸写回普通几何的直接路径，仍需继续交叉审 `PaperWindow.*`。
 - 收起全部证据：队列 key 由 `(monitorDeviceName, side)` 组成，见 `AppController.cs:1295`；`ToggleCapsuleCollapseAllActive()` 只切换当前 queue key 的 `CapsuleCollapseAllActiveQueues`，见 `AppController.cs:1500`；`MigrateLegacyCollapseAllActiveQueues()` 只在旧全局 active 且没有任一 live queue entry 时迁移，见 `AppController.cs:1305`。本片段未发现“点击一个主胶囊收起所有队列”的当前直接路径。
 - 关联笔记资格证据：`RefreshCapsuleEligibilityForLinkedNotes()` 自己只刷新 UI / 布局，不保存；设置调用方随后 `SaveNow()`，待办链接 / 解绑调用方先 `MarkDirty()`，见 `AppController.Settings.cs:1118`、`PaperWindow.Todo.cs:1017`。
-- 仍未完成：topmost / 全屏避让、master 胶囊窗口同步细节、`ArrangeDeepCapsules()` 内 slot 视觉状态、保存失败 UI、offscreen rescue、退出清理、与 `PaperWindow.DeepCapsule.cs` 的拖拽交叉路径。
+- 全屏 / 置顶证据：`RefreshTopmostForForegroundWindow()` 每 200ms 运行但全局扫描限频到 1 秒，并把 `_suppressTopmostForFullscreenForeground` / `_fullscreenAvoidanceWindow` 同步到所有纸片窗口和主胶囊，见 `AppController.cs:775`、`AppController.cs:785`、`AppController.cs:811`；普通浮动层级恢复走 `RefreshFloatingSurfaceZOrder()`，见 `AppController.cs:868`。
+- 贴边队列布局证据：`ArrangeDeepCapsules()` 按 `(monitor, edge)` 分组，slot index 在每个队列内独立递增，主胶囊占 slot 0 时用 `visualOffset` 推后真实纸片，见 `AppController.cs:1341`、`AppController.cs:1360`、`AppController.cs:1382`；主胶囊创建 / 更新 / 清理由 `SyncMasterCapsules()` 和 `DestroyAllMasterCapsules()` 收口，见 `AppController.cs:1425`、`AppController.cs:1478`。
+- 拖拽队列证据：队内排序只重排当前 queue 的成员，不动其他纸片位置，见 `AppController.cs:1136`；跨队列移动只改当前纸片的 `CapsuleSide` / `CapsuleMonitorDeviceName`，并按 drop 高度插入目标队列，见 `AppController.cs:1191`、`AppController.cs:1223`。
+- 保存证据：`MarkDirty()` 只重启 450ms timer，退出和 `_suppressDirty` 期间不排队保存，见 `AppController.cs:1598`；`SaveNow()` 先序列化当前状态，再用 `_saveVersion` 交给 `StateStore` 异步 / 同步保存，失败统一进 `HandleSaveFailure()`，见 `AppController.cs:1609`、`AppController.cs:1637`、`AppController.cs:1686`。
+- 离屏救援证据：启动 / 显示 / 创建都会走 `EnsurePapersOnScreen()` 或 `RescuePaperIfOffScreen()`，先按目标 work area 夹尺寸，再夹坐标，仍不可用时按偏移重新放入工作区，见 `AppController.cs:109`、`AppController.cs:171`、`AppController.cs:650`、`AppController.cs:1830`、`AppController.cs:1841`、`AppController.cs:1890`。
+- 队列高度证据：`SetDeepCapsuleStartTopMargin()` 对单个 `(monitor, edge)` key 写 `DeepCapsuleQueueStartTopMargins`，拖动中只重排并 `MarkDirty()`，释放时 `SaveNow()`；未再写全局高度污染其他队列，见 `AppController.cs:2004`、`AppController.cs:2021`、`AppController.cs:2031`。
+- 退出 / 释放证据：`Exit()` 先置 `_isExiting`、停止保存 timer、关闭设置 / 菜单、同步保存，再释放托盘和关闭所有窗口，见 `AppController.cs:2043`；`Dispose()` 解绑系统主题事件、停止 timer、清 slot reservation、关闭 master 和托盘，见 `AppController.cs:2068`。
+- 代码质量处理：删除 `SetDeepCapsuleStartTopMargin()` 前残留的旧全局队列注释，避免把 per-queue 行为误读为全局 stack 行为。纯注释清理，不写 `CHANGELOG.md`。
+- 结论：本文件逐段深读完成。未发现新的保存覆盖、普通几何 / 胶囊几何混写、单个主胶囊收起所有队列、全屏避让 200ms 全量扫描、退出不同步保存或 slot / master 释放遗漏的直接问题；跨模块不变量仍进入阶段 3 做组合验证。
 
 #### `PaperWindow.DeepCapsule.cs`
 
@@ -522,10 +530,10 @@
 
 ## 阶段 3：跨模块不变量审查
 
-- [ ] `data.json` 损坏时不能被空状态覆盖
-- [ ] 未知字段兼容和字段迁移不能破坏旧数据
-- [ ] `_saveVersion`、写锁、退出同步保存必须防止旧保存覆盖新状态
-- [ ] 普通纸片 `X/Y/Width/Height` 不能保存胶囊半隐藏坐标
+- [x] `data.json` 损坏时不能被空状态覆盖
+- [x] 未知字段兼容和字段迁移不能破坏旧数据
+- [x] `_saveVersion`、写锁、退出同步保存必须防止旧保存覆盖新状态
+- [x] 普通纸片 `X/Y/Width/Height` 不能保存胶囊半隐藏坐标
 - [ ] 删除、隐藏、折叠三种语义不能混
 - [ ] 关闭胶囊 / 贴边 / 收起全部必须清理临时 slot、激发态、动画态
 - [ ] `ShowDeepCapsuleWhileExpanded` 为真时展开纸片仍保留边缘胶囊槽位
@@ -537,6 +545,24 @@
 - [ ] 托盘必须使用 `TaskbarIcon.IconSource = LoadTrayIconSource()`
 - [ ] 主题变化必须刷新动态控件、托盘菜单、AvalonEdit
 - [ ] 四语言资源 key 必须一致
+
+### 阶段 3 记录
+
+#### 数据加载 / 恢复 / 保存顺序
+
+- `data.json` 损坏保护：主数据存在但解析失败时，`StateStore.Load()` 只会尝试 `data.backup.json`，不会返回空 `AppState`；主 / 备都失败才抛出启动失败，见 `StateStore.cs:28`、`StateStore.cs:61`、`StateStore.cs:87`。从 backup 恢复时会标记下一次保存需要保留失败主文件，见 `StateStore.cs:66`、`StateStore.cs:142`；首次保存跳过 backup 轮换并复制 `failed_load` / `used_for_recovery` 副本，见 `StateStore.cs:138`、`StateStore.cs:151`。
+- 未知字段兼容：`JsonOptions` 使用 `JsonSerializerOptions.Strict` 但显式 `UnmappedMemberHandling.Skip`，保留严格解析基本类型的同时跳过旧版 / 实验版遗留字段，见 `StateStore.cs:10`、`StateStore.cs:19`。字段迁移由 `Normalize()` 集中处理，例如 `ShowTopBarNewPaperButtons` 迁移到两个独立按钮，胶囊 side / monitor 缺失时继承旧全局 anchor，见 `StateStore.cs:250`、`StateStore.cs:340`。
+- 异步保存顺序：控制器每次 `SaveNow()` 先递增 `_saveVersion` 并序列化当前状态，再把版本号交给 `StateStore`，见 `AppController.cs:1609`、`AppController.cs:1614`。`StateStore.SaveJsonSync()` / `SaveJsonAsync()` 共用 `_writeLock`，且版本小于 `_latestWrittenVersion` 时直接丢弃，见 `StateStore.cs:102`、`StateStore.cs:120`。退出路径 `Exit()` 停止 timer 并调用 `SaveNow(sync: true)` 后才释放托盘和关闭窗口，见 `AppController.cs:2043`、`AppController.cs:2053`。
+- 崩溃兜底：全局异常处理只写 `data.crash_recovery.json`，不会直接覆盖 `data.json`，见 `App.xaml.cs:89`、`App.xaml.cs:99`。这不替代正常保存协议，但降低异常退出时的数据丢失风险。
+- 结论：当前跨模块证据支持前三个数据保存不变量；本组未发现会把损坏主文件静默替换为空状态、未知字段直接导致启动失败、或旧异步保存覆盖退出同步保存的新问题。
+
+#### 普通纸片几何与胶囊几何隔离
+
+- 写入入口证据：普通几何集中由 `AppController.UpdateGeometry()` 写入，遇到 `PaperWindow.SuppressGeometrySave` 直接返回；折叠态只写 `X/Y`，不写 `Width/Height`，见 `AppController.cs:1270`、`AppController.cs:1284`。窗口侧 `Loaded` / `LocationChanged` / `SizeChanged` 统一走 `SaveGeometryIfAllowed()`，该方法在折叠 / 展开转换中或 suppress 期间跳过，见 `PaperWindow.cs:568`、`PaperWindow.cs:2129`。
+- 贴边 slot 证据：贴边胶囊位置由独立 slot host 承担，`ApplyDeepCapsulePlacement()` / `ApplyExpandedDeepCapsuleSlotPlacement()` 设置 slot state、index、host left/top/width，不直接写 `paper.X/Y/Width/Height`，见 `PaperWindow.DeepCapsule.cs:1392`、`PaperWindow.DeepCapsule.cs:1433`。离开贴边栈统一 `DetachFromDeepCapsuleStack()` -> `ClearDeepCapsulePlacement()`，见 `PaperWindow.DeepCapsule.cs:1732`。
+- 展开对齐证据：从贴边 slot 展开为普通窗口时，最终窗口对齐边缘使用 `MoveWindowWithoutGeometrySave()` 包住 `AlignExpandedToDockedEdge()`，避免对齐过程中的中间尺寸 / 坐标写回普通几何，见 `PaperWindow.Capsule.cs:495`、`PaperWindow.DeepCapsule.cs:413`。
+- 发现并修复：A006。`ShowMainWindowForDeepCapsuleActivation()` 激活主窗口时会先把主窗口临时摆到 slot host 坐标再展开；虽然正常保存防抖会被后续最终几何覆盖，但这段临时摆放仍可能触发 `Loaded` / `LocationChanged` / `SizeChanged` 的几何写入链。已用 `MoveWindowWithoutGeometrySave()` 包住临时摆放和 `Show()`，见 `PaperWindow.DeepCapsule.cs:327`。
+- 结论：A006 修复后，贴边 slot 几何、跨队列拖拽几何和展开前临时几何都不再进入普通纸片几何写入链；最终展开后的普通窗口位置仍由既有 `UpdateGeometry()` 保存。
 
 ## 阶段 4：高风险专项攻击
 
@@ -641,6 +667,15 @@
   - 是否更新 `CHANGELOG.md`：已写入 `### Unreleased`，描述为笔记大文本保护修复。
   - 验证结果：`dotnet build PaperTodo.csproj -c Release` -> 0 warning / 0 error；`git diff --check` -> 无空白错误，仅 CRLF 提示。
 
+- [x] A006：贴边胶囊激活主窗口时临时 slot 坐标可能进入普通几何写入链
+  - 问题描述：从贴边胶囊激活纸片时，`ShowMainWindowForDeepCapsuleActivation()` 会把主窗口临时放到 slot host 的 `Left/Top`，然后 `SetCollapsedState(false)` 执行展开。正常情况下保存防抖会等最终展开几何覆盖后再落盘，但临时摆放仍会触发窗口 `Loaded` / `LocationChanged` / `SizeChanged` 的普通几何写入链，和“贴边半隐藏坐标不能写回普通几何”的不变量不够严格。
+  - 影响范围：贴边胶囊从边缘激活、贴边胶囊失去胶囊资格后恢复、程序化打开已折叠贴边纸片；主要风险是异常中断或额外保存时的位置恢复漂移。
+  - 触发路径：`PaperWindow.ActivateFromDeepCapsuleSlot()` / `ExpandForProgrammaticOpen()` -> `ShowMainWindowForDeepCapsuleActivation()` -> `Loaded/LocationChanged/SizeChanged` -> `SaveGeometryIfAllowed()` -> `AppController.UpdateGeometry()`。
+  - 修复方案：用 `MoveWindowWithoutGeometrySave()` 包住激活主窗口前的临时 `Width/Height/Left/Top` 设置和 `Show()`，让最终展开几何仍按原路径保存，但临时 slot 坐标不进入普通几何写入链。
+  - 代价和风险：只影响贴边激活的瞬时几何保存抑制，不改变最终展开位置、动画或持久化字段。
+  - 是否更新 `CHANGELOG.md`：已写入 `### Unreleased`，描述为贴边胶囊展开保护。
+  - 验证结果：`dotnet build PaperTodo.csproj -c Release` -> 0 warning / 0 error；`git diff --check` -> 无空白错误，仅 CRLF 提示。
+
 ## 阶段 8：回归矩阵
 
 - [ ] `dotnet build PaperTodo.csproj -c Release`
@@ -696,6 +731,9 @@
 - 完成 `PaperWindow.Capsule.cs` 深读，发现并修复 A003：贴边胶囊失去胶囊资格时先恢复主窗口再展开，避免纸片可见状态与实际表面不一致；Release 构建和空白检查通过。
 - 完成 `PaperWindow.cs`、`PaperWindow.Native.cs`、`WindowNative.cs`、`WindowWorkAreaHelper.cs` 深读记录；覆盖关闭语义、几何保存、topmost/no-activate、多屏工作区和混合 DPI 坐标转换。
 - 本轮复验：`dotnet build PaperTodo.csproj -c Release` -> 0 warning / 0 error；`git diff --check` -> 无空白错误，仅 CRLF 提示。
+- 启动阶段 3 跨模块不变量审查；完成数据加载 / 恢复 / 保存顺序组，覆盖损坏主数据、未知字段迁移、异步保存版本门闩和退出同步保存。
+- 阶段 3 普通纸片几何与胶囊几何隔离审查发现并修复 A006：贴边胶囊激活主窗口时，临时 slot 坐标不再进入普通几何写入链。
+- 验证 A006：Release 构建通过；空白检查无错误，仅 CRLF 提示。
 - 完成 `AppController.Settings.cs` 深读记录；覆盖设置窗口、主题刷新、tooltip 说明、胶囊模式关闭清理、关联笔记资格刷新和可见面恢复。
 - 完成 `AppController.Tray.cs` 深读记录；覆盖 Hardcodet `IconSource`、外部图标优先、菜单打开重建、首次菜单焦点、纸片行内删除确认和行点击抑制。
 - 完成 `PaperWindow.Todo.cs`、`TodoTextBox.cs` 深读记录；覆盖多行粘贴单次撤销、文本编辑撤销边界、拖拽排序 / 删除清理、关联笔记链接后胶囊资格刷新。
@@ -708,3 +746,6 @@
 - 完成 `Theme.cs`、`Strings.cs`、`FullscreenForegroundWindowDetector.cs` 深读记录；覆盖主题缓存 / 失效、资源缺 key fallback、全屏检测候选过滤和 200ms timer 的全局扫描节流。
 - 完成 `Resources/*.resx` 审计；四语言 key 数均为 150，key parity 缺失 / 多余为 0，格式占位符不一致为 0，代码字面量资源 key 缺失为 0。
 - 完成 `PaperTodo.csproj`、`CHANGELOG.md`、`README*.md`、`AGENTS.md` 深读记录；修正 README 中贴边胶囊仍写右侧单队列的过时描述，并把外部后缀说明改为系统关联程序处理。
+- 完成 `AppController.cs` 剩余深读记录；补齐全屏置顶避让、master 胶囊同步、离屏救援、保存失败 UI、队列高度持久化和退出释放证据。阶段 2 逐文件深读已全部打勾。
+- 清理 `AppController.cs` 中一段过时的全局队列高度注释；纯维护性注释变更，不写入用户态更新日志。
+- 本轮复验：`dotnet build PaperTodo.csproj -c Release` -> 0 warning / 0 error；`git diff --check` -> 无空白错误，仅 CRLF 提示。

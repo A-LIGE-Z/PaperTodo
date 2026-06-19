@@ -335,19 +335,22 @@ public sealed partial class PaperWindow
 
         BeginAnimation(Window.OpacityProperty, null);
         Opacity = 1.0;
-        Width = DesiredCapsuleWindowWidth;
-        Height = PaperLayoutDefaults.CapsuleHeight;
-        if (_deepCapsuleSlotHost != null)
+        MoveWindowWithoutGeometrySave(() =>
         {
-            Left = RoundToDevicePixelX(_deepCapsuleSlotHost.Left);
-            Top = RoundToDevicePixelY(_deepCapsuleSlotHost.Top);
-        }
-        else
-        {
-            Left = _paper.X;
-            Top = _paper.Y;
-        }
-        Show();
+            Width = DesiredCapsuleWindowWidth;
+            Height = PaperLayoutDefaults.CapsuleHeight;
+            if (_deepCapsuleSlotHost != null)
+            {
+                Left = RoundToDevicePixelX(_deepCapsuleSlotHost.Left);
+                Top = RoundToDevicePixelY(_deepCapsuleSlotHost.Top);
+            }
+            else
+            {
+                Left = _paper.X;
+                Top = _paper.Y;
+            }
+            Show();
+        });
     }
 
     private void HideMainWindowForDeepCapsuleRest()

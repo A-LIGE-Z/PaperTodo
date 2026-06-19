@@ -1998,9 +1998,6 @@ public sealed partial class AppController : IDisposable
         State.DeepCapsuleQueueStartTopMargins.Clear();
     }
 
-    // Live-adjust the stack's vertical rest position while the master pill is dragged within its
-    // magnetic X band. Relayouts every capsule immediately (cheap for a small stack); persists
-    // only when commit is set (drag release), so mid-drag frames don't thrash the save path.
     // Live-adjust ONE queue's vertical rest position while its master pill is dragged. Writes the
     // per-queue margin (keyed by monitor+edge) so other queues are untouched. Relayouts immediately;
     // persists only on commit (drag release) so mid-drag frames don't thrash the save path.
