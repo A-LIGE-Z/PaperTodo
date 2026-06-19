@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.Globalization;
 using System.Linq;
 using System.Windows;
@@ -16,6 +17,9 @@ namespace PaperTodo;
 
 public sealed partial class AppController
 {
+    private const string AuthorName = "Designed by trigger";
+    private const string AuthorGithubUrl = "https://github.com/snownico0722";
+
     private void SetTheme(string theme)
     {
         State.Theme = theme;
@@ -630,6 +634,11 @@ public sealed partial class AppController
             CanContentScroll = false,
             PanningMode = PanningMode.VerticalOnly
         };
+
+        var footer = BuildSettingsFooter();
+        DockPanel.SetDock(footer, Dock.Bottom);
+        root.Children.Add(footer);
+
         root.Children.Add(scrollViewer);
 
         return new Border
@@ -642,6 +651,56 @@ public sealed partial class AppController
             Padding = new Thickness(14, 12, 14, 14),
             Child = root
         };
+    }
+
+    private UIElement BuildSettingsFooter()
+    {
+        var signatureText = new TextBlock
+        {
+            Text = AuthorName,
+            Foreground = TrayWeakTextBrush,
+            FontSize = 11,
+            FontWeight = FontWeights.Medium,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+
+        var signature = new Border
+        {
+            Background = Brushes.Transparent,
+            Cursor = System.Windows.Input.Cursors.Hand,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Margin = new Thickness(0, 8, 2, 0),
+            Padding = new Thickness(6, 2, 0, 0),
+            Child = signatureText,
+            ToolTip = AuthorGithubUrl
+        };
+        ToolTipService.SetInitialShowDelay(signature, 300);
+        ToolTipService.SetShowDuration(signature, 12000);
+        signature.MouseEnter += (_, _) => signatureText.Foreground = TrayTextBrush;
+        signature.MouseLeave += (_, _) => signatureText.Foreground = TrayWeakTextBrush;
+        signature.MouseLeftButtonUp += (_, e) =>
+        {
+            OpenAuthorGithub();
+            e.Handled = true;
+        };
+
+        return signature;
+    }
+
+    private static void OpenAuthorGithub()
+    {
+        try
+        {
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = AuthorGithubUrl,
+                UseShellExecute = true
+            });
+        }
+        catch
+        {
+            // Opening an external browser should not affect settings interaction.
+        }
     }
 
     private static double SettingsWindowWidth()
@@ -663,7 +722,8 @@ public sealed partial class AppController
     {
         const double verticalPadding = 26;
         const double titleRowHeight = 34;
-        return Math.Max(180, SettingsWindowMaxHeight() - verticalPadding - titleRowHeight);
+        const double footerHeight = 24;
+        return Math.Max(180, SettingsWindowMaxHeight() - verticalPadding - titleRowHeight - footerHeight);
     }
 
     private static TextBlock SettingsSectionLabel(string text)
