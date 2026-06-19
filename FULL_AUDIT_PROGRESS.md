@@ -29,7 +29,7 @@
 - [x] 阶段 0：冻结基线与审核边界
 - [x] 阶段 1：建立系统地图
 - [x] 阶段 2：逐文件深读
-- [ ] 阶段 3：跨模块不变量审查
+- [x] 阶段 3：跨模块不变量审查
 - [ ] 阶段 4：高风险专项攻击
 - [ ] 阶段 5：性能审查
 - [ ] 阶段 6：交互、视觉、动画审查
@@ -534,17 +534,17 @@
 - [x] 未知字段兼容和字段迁移不能破坏旧数据
 - [x] `_saveVersion`、写锁、退出同步保存必须防止旧保存覆盖新状态
 - [x] 普通纸片 `X/Y/Width/Height` 不能保存胶囊半隐藏坐标
-- [ ] 删除、隐藏、折叠三种语义不能混
-- [ ] 关闭胶囊 / 贴边 / 收起全部必须清理临时 slot、激发态、动画态
-- [ ] `ShowDeepCapsuleWhileExpanded` 为真时展开纸片仍保留边缘胶囊槽位
-- [ ] `UseCapsuleCollapseAll` 使用 slot 0 主胶囊，真实纸片从后面开始
-- [ ] 每个 `(monitor, edge)` 队列独立排序、起始高度、收起状态
-- [ ] `HideLinkedNotesFromCapsules` 和待办关联状态变化后胶囊资格一致
-- [ ] 单实例主进程 Mutex 释放规则正确
-- [ ] `exit` / `quit` 在无主实例时保存并退出，不创建默认纸片
-- [ ] 托盘必须使用 `TaskbarIcon.IconSource = LoadTrayIconSource()`
-- [ ] 主题变化必须刷新动态控件、托盘菜单、AvalonEdit
-- [ ] 四语言资源 key 必须一致
+- [x] 删除、隐藏、折叠三种语义不能混
+- [x] 关闭胶囊 / 贴边 / 收起全部必须清理临时 slot、激发态、动画态
+- [x] `ShowDeepCapsuleWhileExpanded` 为真时展开纸片仍保留边缘胶囊槽位
+- [x] `UseCapsuleCollapseAll` 使用 slot 0 主胶囊，真实纸片从后面开始
+- [x] 每个 `(monitor, edge)` 队列独立排序、起始高度、收起状态
+- [x] `HideLinkedNotesFromCapsules` 和待办关联状态变化后胶囊资格一致
+- [x] 单实例主进程 Mutex 释放规则正确
+- [x] `exit` / `quit` 在无主实例时保存并退出，不创建默认纸片
+- [x] 托盘必须使用 `TaskbarIcon.IconSource = LoadTrayIconSource()`
+- [x] 主题变化必须刷新动态控件、托盘菜单、AvalonEdit
+- [x] 四语言资源 key 必须一致
 
 ### 阶段 3 记录
 
@@ -563,6 +563,43 @@
 - 展开对齐证据：从贴边 slot 展开为普通窗口时，最终窗口对齐边缘使用 `MoveWindowWithoutGeometrySave()` 包住 `AlignExpandedToDockedEdge()`，避免对齐过程中的中间尺寸 / 坐标写回普通几何，见 `PaperWindow.Capsule.cs:495`、`PaperWindow.DeepCapsule.cs:413`。
 - 发现并修复：A006。`ShowMainWindowForDeepCapsuleActivation()` 激活主窗口时会先把主窗口临时摆到 slot host 坐标再展开；虽然正常保存防抖会被后续最终几何覆盖，但这段临时摆放仍可能触发 `Loaded` / `LocationChanged` / `SizeChanged` 的几何写入链。已用 `MoveWindowWithoutGeometrySave()` 包住临时摆放和 `Show()`，见 `PaperWindow.DeepCapsule.cs:327`。
 - 结论：A006 修复后，贴边 slot 几何、跨队列拖拽几何和展开前临时几何都不再进入普通纸片几何写入链；最终展开后的普通窗口位置仍由既有 `UpdateGeometry()` 保存。
+
+#### 删除 / 隐藏 / 折叠语义和模式清理
+
+- 删除语义证据：`DeletePaper()` 关闭真实窗口、从 `State.Papers` 移除纸片、删除笔记时清理待办链接，之后重排胶囊并保存；当最后一张纸被删除时才创建新的默认待办纸，见 `AppController.cs:988`、`AppController.cs:997`、`AppController.cs:1000`、`AppController.cs:1005`。这是唯一会从 `Papers` 移除纸片的控制器路径。
+- 隐藏语义证据：普通窗口关闭事件默认 `e.Cancel=true` 并调用 `HidePaper()`，不删除数据，见 `PaperWindow.cs:1797`；`HidePaper()` 只把 `paper.IsVisible=false`，从贴边栈分离，隐藏窗口后取消折叠态，最后 `MarkDirty()`，见 `AppController.cs:882`、`AppController.cs:890`、`AppController.cs:909`。`HideAllPapers()` 同样只清 `IsVisible` 和 `IsCollapsed`，不移除 `Papers`，见 `AppController.cs:961`、`AppController.cs:980`。
+- 折叠语义证据：`SetCollapsedState()` 修改的是 `_paper.IsCollapsed`，保留 `paper.IsVisible`；贴边模式下折叠后由 `ArrangeDeepCapsules()` 分配 slot，普通窗口再休眠，见 `PaperWindow.Capsule.cs:407`、`PaperWindow.Capsule.cs:479`、`PaperWindow.Capsule.cs:690`。`PaperWindow.HasVisibleSurface` 把主窗口和贴边 slot 都算作可见表面，见 `PaperWindow.cs:211`。
+- 关闭胶囊模式证据：`ToggleCapsuleMode()` 关闭时同步关闭贴边和收起全部、清 `CapsuleCollapseAllActiveQueues`、重置全局 / per-queue 起始高度、把所有纸片 `IsCollapsed=false`，然后更新窗口、`ArrangeDeepCapsules()`、恢复缺失可见面并保存，见 `AppController.Settings.cs:1059`、`AppController.Settings.cs:1065`、`AppController.Settings.cs:1068`、`AppController.Settings.cs:1072`、`AppController.Settings.cs:1078`。
+- 关闭贴边模式证据：`ToggleDeepCapsuleMode()` 关闭时清收起全部和起始高度，逐窗口 `UpdateDeepCapsuleMode()`；该窗口方法在模式关闭时清 expanded reservation 并 `ClearDeepCapsulePlacement()`，见 `AppController.Settings.cs:1153`、`AppController.Settings.cs:1167`、`PaperWindow.DeepCapsule.cs:1740`。
+- 关闭收起全部证据：`ToggleCapsuleCollapseAll()` 关闭时清全局 / per-queue active、重置起始高度并重排；`DestroyAllMasterCapsules()` 会清 active 状态并关闭所有 master，见 `AppController.cs:1525`、`AppController.cs:1530`、`AppController.cs:1478`。被收起的真实胶囊在重新 `ApplyDeepCapsulePlacement()` 时清 `_isCollapseAllRetracted` 并恢复 opacity / slot host，见 `PaperWindow.DeepCapsule.cs:1392`。
+- slot / 激发态清理证据：`ClearDeepCapsulePlacement()` 清跨队列拖拽视觉、slot state、visual state、retracted 标记、visual offset 和 index，并隐藏 slot host；`DetachFromDeepCapsuleStack()` 是隐藏、模式关闭、表面恢复的统一清理入口，见 `PaperWindow.DeepCapsule.cs:1686`、`PaperWindow.DeepCapsule.cs:1700`、`PaperWindow.DeepCapsule.cs:1735`。
+- 结论：当前证据支持删除、隐藏、折叠三种语义独立；关闭胶囊 / 贴边 / 收起全部时会清 slot、激发态、收起态、主胶囊和 per-queue 起始高度。本组未发现“隐藏等于删除”或“关闭模式后残留 slot/master”的新问题。
+
+#### 展开保留槽位 / 收起全部 slot 0 / 多队列独立性
+
+- 展开保留槽位证据：`ShouldPaperOccupyDeepCapsuleSlot()` 对未折叠纸片在 `UseDeepCapsuleMode && ShowDeepCapsuleWhileExpanded && window.HasVisibleSurface` 时仍返回 true，见 `AppController.cs:1581`；布局时未折叠但应占槽位的纸片走 `ApplyExpandedDeepCapsuleSlotPlacement()`，该方法设置 `ExpandedReserved` 和 `Active`，并显示 slot host，见 `AppController.cs:1405`、`PaperWindow.DeepCapsule.cs:1433`、`PaperWindow.DeepCapsule.cs:1451`。
+- slot 0 主胶囊证据：`ArrangeDeepCapsules()` 对每个非空 queue 在 `UseCapsuleCollapseAll` 开启时设置 `visualOffset=1`，真实纸片的 `ApplyDeepCapsulePlacement(idx, ..., visualOffset)` / `ApplyExpandedDeepCapsuleSlotPlacement(idx, ..., visualOffset)` 会从 slot 1 开始；主胶囊位置使用 `TopForIndex(0, ...)`，见 `AppController.cs:1386`、`AppController.cs:1397`、`MasterCapsuleWindow.cs:476`。
+- 收起全部独立证据：`ToggleCapsuleCollapseAllActive(monitorDeviceName, edge)` 只切换当前 queue key 的 `CapsuleCollapseAllActiveQueues`，随后重排；`SyncMasterCapsules()` 为每个 live queue 创建 / 更新一个 `MasterCapsuleWindow`，见 `AppController.cs:1500`、`AppController.cs:1512`、`AppController.cs:1425`。这覆盖此前“收起全部会收起所有队列”的高风险回归。
+- 队列排序独立证据：`ReorderDeepCapsule()` 先过滤当前 queue 成员，只重填这些成员在 `State.Papers` 中原本占用的位置，其他队列和非胶囊纸片保持原位，见 `AppController.cs:1136`、`AppController.cs:1164`。`MoveCapsuleToQueue()` 只改拖动纸片的 `CapsuleSide` / `CapsuleMonitorDeviceName`，按目标队列 drop 高度插入目标 queue，见 `AppController.cs:1191`、`AppController.cs:1198`、`AppController.cs:1229`。
+- 起始高度独立证据：主胶囊拖动调用 `SetDeepCapsuleStartTopMargin(_queueMonitorDeviceName, _queueEdge, ...)`，控制器用同一个 queue key 写 `DeepCapsuleQueueStartTopMargins`，拖动中只重排，释放时保存，见 `MasterCapsuleWindow.cs:203`、`MasterCapsuleWindow.cs:243`、`AppController.cs:2004`、`AppController.cs:2030`。
+- 结论：当前代码把展开保留槽位、收起全部 slot 0 和多队列排序 / 起始高度 / 收起状态都绑定到 `(monitor, edge)` 队列；未发现主胶囊跨队列收起、其他队列长标题影响本队列展开 inset、或队内排序误重排全局列表的新问题。
+
+#### 关联笔记与胶囊资格
+
+- 资格判断证据：`CanPaperDisplayAsCapsule()` 只在胶囊模式开启、且“启用待办关联 + 隐藏已关联笔记 + 当前笔记被任一待办项引用”同时成立时排除该笔记胶囊，见 `AppController.cs:418`、`AppController.cs:423`。`IsNoteLinkedToAnyTodo()` 遍历所有 todo item 的 `LinkedNoteId`，见 `AppController.cs:390`。
+- 状态变化证据：link / unlink 待办项会压撤销、改 `LinkedNoteId`、`MarkDirty()`、重建行并调用 `RefreshCapsuleEligibilityForLinkedNotes()`，见 `PaperWindow.Todo.cs:1017`、`PaperWindow.Todo.cs:1044`。删除笔记时 `ClearTodoLinksToNote()` 清掉所有指向该 note 的 `LinkedNoteId` 并刷新受影响待办行，见 `AppController.cs:1000`、`AppController.cs:1023`。
+- 设置切换证据：`ToggleHideLinkedNotesFromCapsules()` 和 `ToggleTodoNoteLinks()` 都调用 `RefreshCapsuleEligibilityForLinkedNotes()` 后保存；关闭关联功能还会先清拖放目标并让窗口更新关联入口，见 `AppController.Settings.cs:1119`、`AppController.Settings.cs:1129`、`AppController.Settings.cs:1134`。
+- 刷新证据：`RefreshCapsuleEligibilityForLinkedNotes()` 对所有窗口调用 `RefreshCapsuleEligibility()`，然后 `ArrangeDeepCapsules()` 和 `RefreshTrayMenu()`；不可再显示为胶囊的贴边纸片会走 `RestoreFromCapsuleAfterEligibilityLoss()` 恢复为普通可见窗口，跨文件证据见 `AppController.cs:1052`、`PaperWindow.Capsule.cs:83`、`PaperWindow.Capsule.cs:96`。
+- 结论：关联状态变化、设置变化和删除笔记都会刷新胶囊资格；未发现已关联笔记继续残留在贴边胶囊队列，或取消关联后不回到胶囊资格池的新问题。
+
+#### 单实例 / exit / 托盘 / 主题 / 资源
+
+- 单实例证据：`SingleInstanceHelper.TryAcquire()` 只有 `createdNew` 时 `_ownsMutex=true`；拿不到主锁的后续实例只 `SignalPrimaryInstance()` 后 `Dispose()`，而 `Dispose()` 只有 `_ownsMutex` 为真才 `ReleaseMutex()`，见 `SingleInstanceHelper.cs:28`、`SingleInstanceHelper.cs:145`、`App.xaml.cs:20`。主实例 listener 对空参数用 `StartupCommandKind.Show`，见 `App.xaml.cs:64`。
+- `exit` / `quit` 首实例证据：`App.xaml.cs` 在 `_controller.Start()` 前识别 `StartupCommandKind.Exit` 并直接 `ExecuteStartupCommand()`；此时不会创建默认纸片，`Exit()` 会同步保存并退出，见 `App.xaml.cs:55`、`AppController.cs:623`、`AppController.cs:2043`。这覆盖“无主实例时 exit/quit 保存并退出，不恢复窗口、不创建默认待办纸”。
+- 托盘证据：`CreateTrayIcon()` 使用 Hardcodet `TaskbarIcon`，明确 `trayIcon.IconSource = LoadTrayIconSource()`；`LoadTrayIconSource()` 优先外部 `PaperTodo.ico`，失败再嵌入资源，最后 vector fallback，见 `AppController.Tray.cs:21`、`AppController.Tray.cs:28`、`AppController.Tray.cs:43`。菜单通过 `PreviewTrayContextMenuOpen` 重建，不走手动弹菜单，见 `AppController.Tray.cs:29`。
+- 主题证据：设置主题 / 配色时 `Theme.Invalidate()`、保存、逐窗口 `UpdateTheme()`、逐 master `UpdateTheme()`、重建托盘菜单并刷新设置窗口，见 `AppController.Settings.cs:16`、`AppController.Settings.cs:49`。系统主题变化在 `State.Theme=="system"` 时同样刷新这些目标，见 `AppController.Settings.cs:989`。窗口侧 `UpdateTheme()` 刷新动态资源、标题 / 图标 / deep slot theme，并对 note 调 `MarkdownTextBox.RefreshVisualStyle()`；该方法刷新 AvalonEdit 前景、caret、link brush、renderer / colorizer 和 visual layers，见 `PaperWindow.cs:712`、`PaperWindow.cs:782`、`MarkdownTextBox.cs:150`。
+- 资源证据：`Strings.Get()` 缺 key 时回退 key 本身，不会直接崩溃；当前重新解析四个 resx：`Strings.resx`、`Strings.en.resx`、`Strings.ja.resx`、`Strings.ko.resx` 均 `keys=150 missing=0 extra=0 placeholderMismatch=0`，见 `Strings.cs:8`。
+- 结论：单实例 Mutex、首实例 exit、托盘 `IconSource`、主题动态刷新和四语言资源 parity 均满足当前不变量。本阶段未发现相关新问题。
 
 ## 阶段 4：高风险专项攻击
 
@@ -734,6 +771,7 @@
 - 启动阶段 3 跨模块不变量审查；完成数据加载 / 恢复 / 保存顺序组，覆盖损坏主数据、未知字段迁移、异步保存版本门闩和退出同步保存。
 - 阶段 3 普通纸片几何与胶囊几何隔离审查发现并修复 A006：贴边胶囊激活主窗口时，临时 slot 坐标不再进入普通几何写入链。
 - 验证 A006：Release 构建通过；空白检查无错误，仅 CRLF 提示。
+- 完成阶段 3 剩余跨模块不变量记录：删除 / 隐藏 / 折叠语义、模式关闭清理、展开保留槽位、收起全部 slot 0、多队列独立性、关联笔记胶囊资格、单实例 / exit / 托盘 / 主题 / 资源。
 - 完成 `AppController.Settings.cs` 深读记录；覆盖设置窗口、主题刷新、tooltip 说明、胶囊模式关闭清理、关联笔记资格刷新和可见面恢复。
 - 完成 `AppController.Tray.cs` 深读记录；覆盖 Hardcodet `IconSource`、外部图标优先、菜单打开重建、首次菜单焦点、纸片行内删除确认和行点击抑制。
 - 完成 `PaperWindow.Todo.cs`、`TodoTextBox.cs` 深读记录；覆盖多行粘贴单次撤销、文本编辑撤销边界、拖拽排序 / 删除清理、关联笔记链接后胶囊资格刷新。
