@@ -611,12 +611,35 @@
 - [ ] 收起全部每队列独立收起 / 展开
 - [ ] 拖单个胶囊上下排序和跨边磁吸阈值
 - [ ] 拖拽中丢失捕获、Alt-Tab、释放到菜单外
-- [ ] 隐藏全部 / 显示全部 / 关闭模式 / 重启恢复
+- [-] 隐藏全部 / 显示全部 / 关闭模式 / 重启恢复
 - [ ] 托盘菜单首次点击、行点击、删除确认、菜单重建
-- [ ] 新建纸片位置和来源队列继承
+- [-] 新建纸片位置和来源队列继承
 - [ ] 待办多行粘贴、拖拽排序、撤销重做
-- [ ] 笔记 Markdown 大文本、链接、外部打开
+- [-] 笔记 Markdown 大文本、链接、外部打开
 - [ ] 全屏避让和 topmost 层级
+
+### 阶段 4 记录
+
+#### 当前测试环境
+
+- 屏幕环境：`System.Windows.Forms.Screen.AllScreens` -> 1 个主屏，`\\.\DISPLAY1`，Bounds `{X=0,Y=0,Width=2048,Height=1152}`，WorkingArea `{X=0,Y=0,Width=2048,Height=1104}`。
+- 限制：当前机器不能证明双屏同 DPI、双屏混合 DPI、跨屏拖拽和多屏左右队列的真实运行效果；这些项目保持未完成，后续需要用户环境或可控多屏环境继续实测。
+- 隔离方式：复制当前 Release 输出到 `.audit-runtime/stage4-*`，排除真实 `data.json` / `data.backup.json`；运行时只写隔离目录数据文件。
+
+#### 启动命令 / 显隐 / 重启恢复
+
+- `exit` 空数据：隔离目录 `stage4-exit-20260619-104307` 中运行 `PaperTodo.exe exit`，结果 `dataExists=True papers=0 crashLog=False`。结论：首实例 `exit` 会保存空状态并退出，但不会创建默认待办纸。
+- `new-todo` / `new-note`：隔离目录 `stage4-cmd-20260619-104221` 中依次启动主实例并用二次实例发 `exit`，结果 `afterNewTodo count=1 types=todo visible=True`，`afterNewNote count=2 types=todo,note`。
+- `hide` / `show` / `toggle`：同一隔离目录中运行，结果 `afterHide visible=False,False collapsed=False,False`，`afterShow visible=True,True`，`afterToggle visible=False,False collapsed=False,False`，`crashLog=False`。
+- 结论：命令类新建、隐藏、显示、切换、退出保存路径在当前构建下通过；“关闭胶囊 / 贴边模式”仍需设置 UI 或更强运行时注入验证，所以主清单保持进行中。
+
+#### 笔记大文本攻击
+
+- 攻击输入：隔离目录写入 1 张可见 note，`content` 长度 120000，启动 `PaperTodo.exe show` 后用二次实例 `exit`。
+- 首次结果：修复 A005 后仍触发新异常，`PaperTodo.crash.log` 记录 `System.InvalidOperationException: No undo group should be open at this point`，堆栈为 `MarkdownTextBox.OnTextChanged()` 中同步设置 `Text = Text[..MaxLength]`，经 `PaperWindow.BuildNoteBody()` 初始赋值触发。
+- 发现并修复：A007。长度截断改为排队到 dispatcher 下一轮执行，避开 AvalonEdit 初始文档更新期间打开的 undo group。
+- 复验结果：隔离目录 `stage4-fix-20260619-104133` 中同样输入 120000 字符，修复后 `MainExitCode=0`，`afterRun count=1 len=100000 visible=True`，`crashLog=False`。
+- 结论：大文本启动 / 截断攻击通过；Markdown 链接点击和外部打开还未在阶段 4 实测，因此该主项保持进行中。
 
 ## 阶段 5：性能审查
 
@@ -713,6 +736,15 @@
   - 是否更新 `CHANGELOG.md`：已写入 `### Unreleased`，描述为贴边胶囊展开保护。
   - 验证结果：`dotnet build PaperTodo.csproj -c Release` -> 0 warning / 0 error；`git diff --check` -> 无空白错误，仅 CRLF 提示。
 
+- [x] A007：超长旧笔记初始加载时同步截断会触发 AvalonEdit undo group 异常
+  - 问题描述：A005 把 `MaxLength` 放到初始 `Text` 之前后，超长旧笔记会在 `MarkdownTextBox.OnTextChanged()` 中同步执行 `Text = Text[..MaxLength]`。AvalonEdit 初始设置 `Text` 时文档 undo group 仍处于打开状态，同步重设 `Text` 会触发 `System.InvalidOperationException: No undo group should be open at this point`，导致启动异常。
+  - 影响范围：手工修改或旧版本留下的超长笔记，应用启动 / 显示该笔记时触发。
+  - 触发路径：`PaperWindow.BuildNoteBody()` -> `MarkdownTextBox.Text = oldContent` -> `MarkdownTextBox.OnTextChanged()` -> `Text = Text[..MaxLength]` -> AvalonEdit `UndoStack.ClearAll()`。
+  - 修复方案：超限时只排队 `TrimTextToMaxLength()` 到 dispatcher 下一轮，在文档更新事件结束后再截断文本、恢复 caret 和清 selection。
+  - 代价和风险：超长文本会在当前 dispatcher tick 内短暂存在；随后立即截断并触发正常 `TextChanged` 保存。正常粘贴路径仍先被 `OnPaste()` 限制。
+  - 是否更新 `CHANGELOG.md`：已合并进 `### Unreleased` 的笔记大文本保护修复描述。
+  - 验证结果：`dotnet build PaperTodo.csproj -c Release` -> 0 warning / 0 error；隔离运行 120000 字符 note，修复前有 crash log，修复后 `MainExitCode=0`、保存后 `content.Length=100000`、`crashLog=False`。
+
 ## 阶段 8：回归矩阵
 
 - [ ] `dotnet build PaperTodo.csproj -c Release`
@@ -772,6 +804,9 @@
 - 阶段 3 普通纸片几何与胶囊几何隔离审查发现并修复 A006：贴边胶囊激活主窗口时，临时 slot 坐标不再进入普通几何写入链。
 - 验证 A006：Release 构建通过；空白检查无错误，仅 CRLF 提示。
 - 完成阶段 3 剩余跨模块不变量记录：删除 / 隐藏 / 折叠语义、模式关闭清理、展开保留槽位、收起全部 slot 0、多队列独立性、关联笔记胶囊资格、单实例 / exit / 托盘 / 主题 / 资源。
+- 启动阶段 4 高风险专项攻击；记录当前环境为单主屏，双屏 / 混合 DPI 项暂不能证明完成。
+- 阶段 4 命令类运行时攻击通过：`exit` 空状态保存但不创建默认纸片，`new-todo` / `new-note` 创建正确类型，`hide` / `show` / `toggle` 持久状态符合预期。
+- 阶段 4 大文本攻击发现并修复 A007：超长旧笔记初始加载的截断改为 dispatcher 延后执行，避免 AvalonEdit undo group 异常；120000 字符 note 复验保存为 100000 且无 crash log。
 - 完成 `AppController.Settings.cs` 深读记录；覆盖设置窗口、主题刷新、tooltip 说明、胶囊模式关闭清理、关联笔记资格刷新和可见面恢复。
 - 完成 `AppController.Tray.cs` 深读记录；覆盖 Hardcodet `IconSource`、外部图标优先、菜单打开重建、首次菜单焦点、纸片行内删除确认和行点击抑制。
 - 完成 `PaperWindow.Todo.cs`、`TodoTextBox.cs` 深读记录；覆盖多行粘贴单次撤销、文本编辑撤销边界、拖拽排序 / 删除清理、关联笔记链接后胶囊资格刷新。

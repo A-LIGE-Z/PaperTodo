@@ -19,6 +19,7 @@ public sealed class MarkdownTextBox : TextEditor
     private const int MaxSafePasteLineLength = 6000;
 
     private bool _isTrimmingText;
+    private bool _isTrimQueued;
     private bool _acceptsReturn = true;
     private bool _acceptsTab = true;
     private bool _isPreviewMode;
@@ -455,6 +456,28 @@ public sealed class MarkdownTextBox : TextEditor
         base.OnTextChanged(e);
         _fencedCodeStateCache.Clear();
 
+        if (_isTrimmingText || MaxLength <= 0 || Text.Length <= MaxLength)
+        {
+            return;
+        }
+
+        QueueTrimToMaxLength();
+    }
+
+    private void QueueTrimToMaxLength()
+    {
+        if (_isTrimQueued)
+        {
+            return;
+        }
+
+        _isTrimQueued = true;
+        Dispatcher.BeginInvoke((Action)TrimTextToMaxLength, System.Windows.Threading.DispatcherPriority.Background);
+    }
+
+    private void TrimTextToMaxLength()
+    {
+        _isTrimQueued = false;
         if (_isTrimmingText || MaxLength <= 0 || Text.Length <= MaxLength)
         {
             return;
