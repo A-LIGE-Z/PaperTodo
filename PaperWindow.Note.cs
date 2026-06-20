@@ -1,6 +1,8 @@
 using System;
 using System.Diagnostics;
 using System.IO;
+using System.Text;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -10,6 +12,9 @@ namespace PaperTodo;
 
 public sealed partial class PaperWindow
 {
+    private static readonly object PersistentScriptProcessLock = new();
+    private static readonly Dictionary<string, Process> PersistentScriptProcesses = new(StringComparer.OrdinalIgnoreCase);
+
     public void UpdateMarkdownRenderMode()
     {
         if (_paper.Type == PaperTypes.Note && _noteBox != null)
@@ -255,7 +260,13 @@ public sealed partial class PaperWindow
 
         box.TextChanged += (_, _) =>
         {
+            var wasScriptCapsule = IsScriptCapsuleText(_paper.Content ?? "");
             _paper.Content = box.Text;
+            if (wasScriptCapsule != IsScriptCapsuleText(_paper.Content ?? ""))
+            {
+                RefreshCapsuleLabel();
+                RefreshPaperContextMenus();
+            }
             _controller.MarkDirty();
         };
 
@@ -504,5 +515,556 @@ public sealed partial class PaperWindow
         return path;
     }
 
+    private readonly record struct ScriptCapsuleSpec(string Engine, string Script, bool UsePersistentProcess);
+    private readonly record struct ScriptCapsuleMarkerSpec(string Engine, bool UsePersistentProcess);
+
+    private string CapsuleIconText()
+    {
+        if (IsScriptCapsule())
+        {
+            return "⚡";
+        }
+
+        return _paper.Type == PaperTypes.Note ? "✎" : "✓";
+    }
+
+    private double CapsuleIconFontSizeForCurrentPaper()
+    {
+        return IsScriptCapsule() ? CapsuleIconFontSize + 2 : CapsuleIconFontSize;
+    }
+
+    private bool IsScriptCapsule()
+    {
+        return TryGetScriptCapsule(out _);
+    }
+
+    private void ActivateFromCollapsedCapsule()
+    {
+        if (TryRunScriptCapsule())
+        {
+            return;
+        }
+
+        SetCollapsedState(false);
+    }
+
+    private void OpenCapsuleForEditing()
+    {
+        if (_paper.IsCollapsed)
+        {
+            if (HasDeepCapsuleSlotPlacement)
+            {
+                ShowMainWindowForDeepCapsuleActivation();
+                SetCollapsedState(false, alignExpandedToDockedEdge: true);
+            }
+            else
+            {
+                SetCollapsedState(false);
+            }
+
+            return;
+        }
+
+        EnsureExpandedSurfaceGeometry(alignToDockedEdge: HasDeepCapsuleSlotPlacement);
+        _controller.BringPaperToFront(_paper);
+    }
+
+    private bool TryRunScriptCapsule()
+    {
+        if (!TryGetScriptCapsule(out var spec))
+        {
+            return false;
+        }
+
+        _ = RunScriptCapsuleAsync(spec);
+        return true;
+    }
+
+    private bool TryGetScriptCapsule(out ScriptCapsuleSpec spec)
+    {
+        spec = default;
+        if (_paper.Type != PaperTypes.Note)
+        {
+            return false;
+        }
+
+        var text = _noteBox?.Text ?? _paper.Content ?? "";
+        if (string.IsNullOrEmpty(text))
+        {
+            return false;
+        }
+
+        var firstLineEnd = text.IndexOfAny(new[] { '\r', '\n' });
+        var firstLine = firstLineEnd >= 0 ? text[..firstLineEnd] : text;
+        if (!TryParseScriptCapsuleMarker(firstLine, out var markerSpec))
+        {
+            return false;
+        }
+
+        var scriptStart = firstLineEnd < 0 ? text.Length : firstLineEnd;
+        if (scriptStart < text.Length && text[scriptStart] == '\r')
+        {
+            scriptStart++;
+        }
+        if (scriptStart < text.Length && text[scriptStart] == '\n')
+        {
+            scriptStart++;
+        }
+
+        spec = new ScriptCapsuleSpec(
+            markerSpec.Engine,
+            NormalizeScriptCapsuleIndent(text[scriptStart..]),
+            markerSpec.UsePersistentProcess);
+        return true;
+    }
+
+    private static bool IsScriptCapsuleText(string text)
+    {
+        if (string.IsNullOrEmpty(text))
+        {
+            return false;
+        }
+
+        var firstLineEnd = text.IndexOfAny(new[] { '\r', '\n' });
+        var firstLine = firstLineEnd >= 0 ? text[..firstLineEnd] : text;
+        return TryParseScriptCapsuleMarker(firstLine, out _);
+    }
+
+    private static bool TryParseScriptCapsuleMarker(string firstLine, out ScriptCapsuleMarkerSpec spec)
+    {
+        spec = default;
+        var marker = firstLine.Trim().ToLowerInvariant().Split(' ', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? "";
+        spec = marker switch
+        {
+            "!!powerflash" => new ScriptCapsuleMarkerSpec("auto", true),
+            "!!power" or "!!powershell" or "!!ps" or "!!ps1" => new ScriptCapsuleMarkerSpec("auto", false),
+            "!!pwsh" or "!!powershell7" or "!!ps7" => new ScriptCapsuleMarkerSpec("pwsh", false),
+            "!!powershell5" or "!!ps5" or "!!winps" => new ScriptCapsuleMarkerSpec("powershell", false),
+            _ => default
+        };
+        return !string.IsNullOrEmpty(spec.Engine);
+    }
+
+    private async Task RunScriptCapsuleAsync(ScriptCapsuleSpec spec)
+    {
+        if (string.IsNullOrWhiteSpace(spec.Script))
+        {
+            ShowScriptCapsuleFailure(Strings.Get("ScriptCapsuleEmptyMessage"));
+            return;
+        }
+
+        if (spec.UsePersistentProcess && _controller.State.UsePersistentPowerShellProcess)
+        {
+            RunPersistentScriptCapsule(spec);
+            return;
+        }
+
+        string? path = null;
+        try
+        {
+            path = WriteScriptCapsuleFile(spec.Script);
+            var executable = ResolvePowerShellExecutable(spec.Engine);
+            var startInfo = new ProcessStartInfo
+            {
+                FileName = executable,
+                UseShellExecute = false,
+                CreateNoWindow = _controller.State.HideScriptRunWindow,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                StandardOutputEncoding = Encoding.UTF8,
+                StandardErrorEncoding = Encoding.UTF8
+            };
+            startInfo.ArgumentList.Add("-NoProfile");
+            startInfo.ArgumentList.Add("-NonInteractive");
+            startInfo.ArgumentList.Add("-ExecutionPolicy");
+            startInfo.ArgumentList.Add("Bypass");
+            startInfo.ArgumentList.Add("-EncodedCommand");
+            startInfo.ArgumentList.Add(EncodedPowerShellLaunchCommand(path));
+
+            using var process = new Process { StartInfo = startInfo };
+            if (!process.Start())
+            {
+                ShowScriptCapsuleFailure(Strings.Get("ScriptCapsuleStartFailureMessage"));
+                return;
+            }
+
+            var outputTask = process.StandardOutput.ReadToEndAsync();
+            var errorTask = process.StandardError.ReadToEndAsync();
+            await process.WaitForExitAsync();
+            var output = await outputTask;
+            var error = await errorTask;
+            if (process.ExitCode != 0)
+            {
+                var detail = CompactScriptCapsuleOutput(output, error);
+                ShowScriptCapsuleFailure(Strings.Format("ScriptCapsuleExitFailureMessage", process.ExitCode, detail));
+            }
+        }
+        catch (Exception ex)
+        {
+            ShowScriptCapsuleFailure(ex.Message);
+        }
+        finally
+        {
+            if (!string.IsNullOrWhiteSpace(path))
+            {
+                try
+                {
+                    File.Delete(path);
+                }
+                catch
+                {
+                    // Temporary script cleanup must not affect the user's note.
+                }
+            }
+        }
+    }
+
+    private void RunPersistentScriptCapsule(ScriptCapsuleSpec spec)
+    {
+        string? path = null;
+        var submitted = false;
+        try
+        {
+            path = WriteScriptCapsuleFile(spec.Script);
+            var executable = ResolvePowerShellExecutable(spec.Engine);
+            var process = EnsurePersistentScriptProcess(executable, _controller.State.HideScriptRunWindow);
+            var escapedPath = path.Replace("'", "''", StringComparison.Ordinal);
+            process.StandardInput.WriteLine("[Console]::OutputEncoding = [System.Text.Encoding]::UTF8");
+            process.StandardInput.WriteLine("$OutputEncoding = [System.Text.Encoding]::UTF8");
+            process.StandardInput.WriteLine($"try {{ & '{escapedPath}' }} finally {{ Remove-Item -LiteralPath '{escapedPath}' -ErrorAction SilentlyContinue }}");
+            process.StandardInput.Flush();
+            submitted = true;
+        }
+        catch (Exception ex)
+        {
+            ShowScriptCapsuleFailure(ex.Message);
+        }
+        finally
+        {
+            if (!submitted && !string.IsNullOrWhiteSpace(path))
+            {
+                DeleteScriptCapsuleFile(path);
+            }
+        }
+    }
+
+    private static Process EnsurePersistentScriptProcess(string executable, bool hideWindow)
+    {
+        var key = $"{executable}|{hideWindow}";
+        lock (PersistentScriptProcessLock)
+        {
+            if (PersistentScriptProcesses.TryGetValue(key, out var existing) && !existing.HasExited)
+            {
+                return existing;
+            }
+
+            if (existing != null)
+            {
+                existing.Dispose();
+                PersistentScriptProcesses.Remove(key);
+            }
+
+            var startInfo = new ProcessStartInfo
+            {
+                FileName = executable,
+                UseShellExecute = false,
+                CreateNoWindow = hideWindow,
+                RedirectStandardInput = true,
+                StandardInputEncoding = Encoding.UTF8
+            };
+            startInfo.ArgumentList.Add("-NoProfile");
+            startInfo.ArgumentList.Add("-ExecutionPolicy");
+            startInfo.ArgumentList.Add("Bypass");
+            startInfo.ArgumentList.Add("-NoExit");
+            startInfo.ArgumentList.Add("-Command");
+            startInfo.ArgumentList.Add("-");
+
+            var process = new Process { StartInfo = startInfo, EnableRaisingEvents = true };
+            process.Exited += (_, _) =>
+            {
+                lock (PersistentScriptProcessLock)
+                {
+                    if (PersistentScriptProcesses.TryGetValue(key, out var current) && ReferenceEquals(current, process))
+                    {
+                        PersistentScriptProcesses.Remove(key);
+                    }
+                }
+
+                process.Dispose();
+            };
+            process.Start();
+            PersistentScriptProcesses[key] = process;
+            return process;
+        }
+    }
+
+    private static string NormalizeScriptCapsuleIndent(string script)
+    {
+        if (string.IsNullOrEmpty(script))
+        {
+            return script;
+        }
+
+        var normalized = script.Replace("\r\n", "\n").Replace('\r', '\n');
+        var lines = normalized.Split('\n');
+        var commonIndent = int.MaxValue;
+        foreach (var line in lines)
+        {
+            if (string.IsNullOrWhiteSpace(line))
+            {
+                continue;
+            }
+
+            var indent = 0;
+            while (indent < line.Length && line[indent] is ' ' or '\t')
+            {
+                indent++;
+            }
+            commonIndent = Math.Min(commonIndent, indent);
+        }
+
+        if (commonIndent is int.MaxValue or <= 0)
+        {
+            return script;
+        }
+
+        for (var i = 0; i < lines.Length; i++)
+        {
+            var remove = Math.Min(commonIndent, LeadingWhitespaceLength(lines[i]));
+            lines[i] = lines[i][remove..];
+        }
+
+        return string.Join(Environment.NewLine, lines);
+    }
+
+    private static int LeadingWhitespaceLength(string text)
+    {
+        var length = 0;
+        while (length < text.Length && text[length] is ' ' or '\t')
+        {
+            length++;
+        }
+
+        return length;
+    }
+
+    private string WriteScriptCapsuleFile(string script)
+    {
+        var directory = ScriptCapsuleTempDirectory();
+        Directory.CreateDirectory(directory);
+        var path = Path.Combine(directory, $"script-{_paper.Id}-{Guid.NewGuid():N}.ps1");
+        File.WriteAllText(path, script, new UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
+        return path;
+    }
+
+    private static string ScriptCapsuleTempDirectory()
+    {
+        return Path.Combine(Path.GetTempPath(), "PaperTodo", "Scripts");
+    }
+
+    private static void DeleteScriptCapsuleFile(string path)
+    {
+        try
+        {
+            File.Delete(path);
+        }
+        catch
+        {
+            // Temporary script cleanup must not affect the user's note.
+        }
+    }
+
+    internal static void CleanupOldScriptCapsuleTempFiles()
+    {
+        try
+        {
+            var directory = ScriptCapsuleTempDirectory();
+            if (!Directory.Exists(directory))
+            {
+                return;
+            }
+
+            var cutoff = DateTime.UtcNow - TimeSpan.FromDays(1);
+            foreach (var path in Directory.EnumerateFiles(directory, "script-*.ps1"))
+            {
+                try
+                {
+                    if (File.GetLastWriteTimeUtc(path) < cutoff)
+                    {
+                        File.Delete(path);
+                    }
+                }
+                catch
+                {
+                    // Best-effort cleanup only.
+                }
+            }
+        }
+        catch
+        {
+            // Best-effort cleanup only.
+        }
+    }
+
+    private string ResolvePowerShellExecutable(string engine)
+    {
+        return ResolvePowerShellExecutable(_controller.State, engine);
+    }
+
+    internal static void EnsurePersistentScriptProcessForSettings(AppState state)
+    {
+        if (!state.UsePersistentPowerShellProcess)
+        {
+            return;
+        }
+
+        try
+        {
+            var executable = ResolvePowerShellExecutable(state, "auto");
+            EnsurePersistentScriptProcess(executable, state.HideScriptRunWindow);
+        }
+        catch
+        {
+            // Prewarming is best-effort; explicit script execution will report failures.
+        }
+    }
+
+    private static string ResolvePowerShellExecutable(AppState state, string engine)
+    {
+        if (engine == "pwsh")
+        {
+            return FindPowerShellExecutable("pwsh.exe")
+                ?? throw new InvalidOperationException(Strings.Get("ScriptCapsulePowerShell7NotFound"));
+        }
+
+        if (engine == "powershell")
+        {
+            return "powershell.exe";
+        }
+
+        if (state.PreferPowerShell7)
+        {
+            var pwsh = FindPowerShellExecutable("pwsh.exe");
+            if (!string.IsNullOrWhiteSpace(pwsh))
+            {
+                return pwsh;
+            }
+        }
+
+        return "powershell.exe";
+    }
+
+    private static string? FindPowerShellExecutable(string fileName)
+    {
+        var candidates = new List<string>();
+        if (!string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("PATH")))
+        {
+            candidates.AddRange(
+                (Environment.GetEnvironmentVariable("PATH") ?? "")
+                    .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries)
+                    .Select(path => Path.Combine(path.Trim(), fileName)));
+        }
+
+        var programFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
+        if (!string.IsNullOrWhiteSpace(programFiles))
+        {
+            candidates.Add(Path.Combine(programFiles, "PowerShell", "7", fileName));
+        }
+
+        return candidates.FirstOrDefault(File.Exists);
+    }
+
+    private static string EncodedPowerShellLaunchCommand(string path)
+    {
+        var escapedPath = path.Replace("'", "''", StringComparison.Ordinal);
+        var command = string.Join(
+            "; ",
+            "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8",
+            "$OutputEncoding = [System.Text.Encoding]::UTF8",
+            $"& '{escapedPath}'");
+        return Convert.ToBase64String(Encoding.Unicode.GetBytes(command));
+    }
+
+    private static string CompactScriptCapsuleOutput(string output, string error)
+    {
+        var text = string.Join(
+            Environment.NewLine,
+            new[] { error.Trim(), output.Trim() }.Where(s => !string.IsNullOrWhiteSpace(s)));
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return Strings.Get("ScriptCapsuleNoOutput");
+        }
+
+        const int maxLength = 1800;
+        return text.Length <= maxLength ? text : text[^maxLength..];
+    }
+
+    private void ShowScriptCapsuleFailure(string message)
+    {
+        MessageBox.Show(
+            message,
+            Strings.Get("ScriptCapsuleFailureTitle"),
+            MessageBoxButton.OK,
+            MessageBoxImage.Warning);
+    }
+
+    private void RefreshPaperContextMenus()
+    {
+        if (_capsuleLeftArea != null)
+        {
+            _capsuleLeftArea.ContextMenu = BuildPaperContextMenu();
+        }
+        if (_deepCapsuleSlotLeftArea != null)
+        {
+            _deepCapsuleSlotLeftArea.ContextMenu = BuildDeepCapsuleSlotContextMenu();
+        }
+        if (_paperChrome != null)
+        {
+            _paperChrome.ContextMenu = BuildPaperContextMenu();
+        }
+    }
+
+    internal static void StopPersistentScriptProcesses()
+    {
+        lock (PersistentScriptProcessLock)
+        {
+            foreach (var process in PersistentScriptProcesses.Values.ToList())
+            {
+                try
+                {
+                    if (!process.HasExited)
+                    {
+                        try
+                        {
+                            if (process.StartInfo.RedirectStandardInput)
+                            {
+                                process.StandardInput.Close();
+                            }
+                        }
+                        catch
+                        {
+                            // The process may already be exiting or the pipe may be broken.
+                        }
+
+                        if (!process.WaitForExit(250))
+                        {
+                            process.Kill(entireProcessTree: true);
+                            process.WaitForExit(1000);
+                        }
+                    }
+                }
+                catch
+                {
+                    // Persistent script sessions are optional and disposable.
+                }
+                finally
+                {
+                    process.Dispose();
+                }
+            }
+
+            PersistentScriptProcesses.Clear();
+        }
+    }
 
 }

@@ -247,7 +247,7 @@ public sealed class MasterCapsuleWindow : Window
         _pill.PreviewMouseLeftButtonUp += (_, e) =>
         {
             var wasDragging = _isDraggingMaster;
-            EndMasterDrag();
+            EndMasterDrag(clearFocus: false);
             if (wasDragging)
             {
                 // Vertical slide only: the live per-queue margin is already applied; persist it.
@@ -261,6 +261,7 @@ public sealed class MasterCapsuleWindow : Window
                 _controller.ToggleCapsuleCollapseAllActive(_queueMonitorDeviceName, _queueEdge);
             }
 
+            ClearCapsuleInteractionKeyboardFocus();
             e.Handled = true;
         };
         _pill.LostMouseCapture += (_, _) =>
@@ -336,14 +337,27 @@ public sealed class MasterCapsuleWindow : Window
         _isHovering = hovering;
     }
 
-    private void EndMasterDrag()
+    private void EndMasterDrag(bool clearFocus = true)
     {
         _isPointerDown = false;
         _isDraggingMaster = false;
+        var hadCapture = _pill.IsMouseCaptured;
         if (_pill.IsMouseCaptured)
         {
             _pill.ReleaseMouseCapture();
         }
+        if (hadCapture && clearFocus)
+        {
+            ClearCapsuleInteractionKeyboardFocus();
+        }
+    }
+
+    private void ClearCapsuleInteractionKeyboardFocus()
+    {
+        WindowNative.ClearCurrentThreadKeyboardFocus();
+        Dispatcher.BeginInvoke(
+            (Action)WindowNative.ClearCurrentThreadKeyboardFocus,
+            System.Windows.Threading.DispatcherPriority.Background);
     }
 
     private double CapsuleWindowWidth()

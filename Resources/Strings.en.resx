@@ -96,6 +96,27 @@
   <data name="OpenMarkdownFailureTitle" xml:space="preserve">
     <value>Markdown Open Failed</value>
   </data>
+  <data name="ScriptCapsuleEmptyMessage" xml:space="preserve">
+    <value>This script capsule has no script content to run.</value>
+  </data>
+  <data name="ScriptCapsuleEditMenu" xml:space="preserve">
+    <value>Edit script capsule</value>
+  </data>
+  <data name="ScriptCapsuleExitFailureMessage" xml:space="preserve">
+    <value>Script failed with exit code {0}.&#x0A;{1}</value>
+  </data>
+  <data name="ScriptCapsuleFailureTitle" xml:space="preserve">
+    <value>Script Capsule Failed</value>
+  </data>
+  <data name="ScriptCapsuleNoOutput" xml:space="preserve">
+    <value>No output.</value>
+  </data>
+  <data name="ScriptCapsuleStartFailureMessage" xml:space="preserve">
+    <value>Could not start PowerShell.</value>
+  </data>
+  <data name="ScriptCapsulePowerShell7NotFound" xml:space="preserve">
+    <value>PowerShell 7 (pwsh.exe) was not found.</value>
+  </data>
   <data name="MenuBold" xml:space="preserve">
     <value>Bold</value>
   </data>
@@ -348,6 +369,9 @@
   <data name="SettingsExternalOpen" xml:space="preserve">
     <value>External open</value>
   </data>
+  <data name="SettingsScriptCapsule" xml:space="preserve">
+    <value>Script capsule</value>
+  </data>
   <data name="SettingsTopBarButtons" xml:space="preserve">
     <value>Top-bar buttons</value>
   </data>
@@ -429,8 +453,26 @@
   <data name="TipEnableAnimations" xml:space="preserve">
     <value>When enabled, actions like completing, adding, or deleting todos will have smooth animations. Disable this to improve performance on low-end devices.</value>
   </data>
+  <data name="TipPersistentPowerShellProcess" xml:space="preserve">
+    <value>When enabled, script capsules using !!powerflash reuse one PowerShell process and return immediately. Variables, location, and loaded state may persist. Turning this off ends the persistent process.</value>
+  </data>
+  <data name="TipPreferPowerShell7" xml:space="preserve">
+    <value>When enabled, script capsules prefer PowerShell 7 (pwsh.exe) and fall back to Windows PowerShell when unavailable. Use !!pwsh or !!powershell5 to force one.</value>
+  </data>
+  <data name="TipHideScriptRunWindow" xml:space="preserve">
+    <value>When enabled, scripts run hidden in the background. When off, a PowerShell window may be shown. Normal !!power always waits and captures error output; !!powerflash only submits the script.</value>
+  </data>
   <data name="SettingsEnableTodoNoteLinks" xml:space="preserve">
     <value>Enable todo-note links</value>
+  </data>
+  <data name="SettingsPersistentPowerShellProcess" xml:space="preserve">
+    <value>Persistent PowerShell process</value>
+  </data>
+  <data name="SettingsPreferPowerShell7" xml:space="preserve">
+    <value>Prefer PowerShell 7</value>
+  </data>
+  <data name="SettingsHideScriptRunWindow" xml:space="preserve">
+    <value>Hide script window</value>
   </data>
   <data name="SettingsShowTopBarNewTodoButton" xml:space="preserve">
     <value>Show top-bar new todo button</value>

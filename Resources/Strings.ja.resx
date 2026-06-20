@@ -96,6 +96,27 @@
   <data name="OpenMarkdownFailureTitle" xml:space="preserve">
     <value>Markdown を開けません</value>
   </data>
+  <data name="ScriptCapsuleEmptyMessage" xml:space="preserve">
+    <value>このスクリプトカプセルには実行するスクリプトがありません。</value>
+  </data>
+  <data name="ScriptCapsuleEditMenu" xml:space="preserve">
+    <value>スクリプトカプセルを編集</value>
+  </data>
+  <data name="ScriptCapsuleExitFailureMessage" xml:space="preserve">
+    <value>スクリプトが終了コード {0} で失敗しました。&#x0A;{1}</value>
+  </data>
+  <data name="ScriptCapsuleFailureTitle" xml:space="preserve">
+    <value>スクリプトカプセルの実行に失敗</value>
+  </data>
+  <data name="ScriptCapsuleNoOutput" xml:space="preserve">
+    <value>出力はありません。</value>
+  </data>
+  <data name="ScriptCapsuleStartFailureMessage" xml:space="preserve">
+    <value>PowerShell を起動できません。</value>
+  </data>
+  <data name="ScriptCapsulePowerShell7NotFound" xml:space="preserve">
+    <value>PowerShell 7（pwsh.exe）が見つかりません。</value>
+  </data>
   <data name="MenuBold" xml:space="preserve">
     <value>太字</value>
   </data>
@@ -348,6 +369,9 @@
   <data name="SettingsExternalOpen" xml:space="preserve">
     <value>外部で開く</value>
   </data>
+  <data name="SettingsScriptCapsule" xml:space="preserve">
+    <value>スクリプトカプセル</value>
+  </data>
   <data name="SettingsTopBarButtons" xml:space="preserve">
     <value>上部バーのボタン</value>
   </data>
@@ -429,8 +453,26 @@
   <data name="TipEnableAnimations" xml:space="preserve">
     <value>有効にすると、ToDo の完了、追加、削除などの操作で滑らかなアニメーションが表示されます。低スペック PC ではパフォーマンス向上のため無効化できます。</value>
   </data>
+  <data name="TipPersistentPowerShellProcess" xml:space="preserve">
+    <value>有効にすると、!!powerflash のスクリプトカプセルは 1 つの PowerShell プロセスを再利用し、すぐに戻ります。変数、場所、読み込み状態が残る場合があります。無効にすると常駐プロセスを終了します。</value>
+  </data>
+  <data name="TipPreferPowerShell7" xml:space="preserve">
+    <value>有効にすると、スクリプトカプセルは PowerShell 7（pwsh.exe）を優先し、見つからない場合は Windows PowerShell に戻ります。!!pwsh または !!powershell5 で明示指定できます。</value>
+  </data>
+  <data name="TipHideScriptRunWindow" xml:space="preserve">
+    <value>有効にするとスクリプトはバックグラウンドで非表示実行されます。無効にすると PowerShell ウィンドウが表示される場合があります。通常の !!power は常に待機してエラー出力を取得し、!!powerflash はスクリプト投入のみ行います。</value>
+  </data>
   <data name="SettingsEnableTodoNoteLinks" xml:space="preserve">
     <value>ToDo とメモの関連付けを有効化</value>
+  </data>
+  <data name="SettingsPersistentPowerShellProcess" xml:space="preserve">
+    <value>PowerShell プロセスを常駐</value>
+  </data>
+  <data name="SettingsPreferPowerShell7" xml:space="preserve">
+    <value>PowerShell 7 を優先</value>
+  </data>
+  <data name="SettingsHideScriptRunWindow" xml:space="preserve">
+    <value>スクリプト実行ウィンドウを隠す</value>
   </data>
   <data name="SettingsShowTopBarNewTodoButton" xml:space="preserve">
     <value>上部バーの新規 ToDo ボタンを表示</value>

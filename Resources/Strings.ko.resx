@@ -96,6 +96,27 @@
   <data name="OpenMarkdownFailureTitle" xml:space="preserve">
     <value>Markdown 열기 실패</value>
   </data>
+  <data name="ScriptCapsuleEmptyMessage" xml:space="preserve">
+    <value>이 스크립트 캡슐에는 실행할 스크립트 내용이 없습니다.</value>
+  </data>
+  <data name="ScriptCapsuleEditMenu" xml:space="preserve">
+    <value>스크립트 캡슐 편집</value>
+  </data>
+  <data name="ScriptCapsuleExitFailureMessage" xml:space="preserve">
+    <value>스크립트가 종료 코드 {0}로 실패했습니다.&#x0A;{1}</value>
+  </data>
+  <data name="ScriptCapsuleFailureTitle" xml:space="preserve">
+    <value>스크립트 캡슐 실행 실패</value>
+  </data>
+  <data name="ScriptCapsuleNoOutput" xml:space="preserve">
+    <value>출력이 없습니다.</value>
+  </data>
+  <data name="ScriptCapsuleStartFailureMessage" xml:space="preserve">
+    <value>PowerShell을 시작할 수 없습니다.</value>
+  </data>
+  <data name="ScriptCapsulePowerShell7NotFound" xml:space="preserve">
+    <value>PowerShell 7(pwsh.exe)을 찾을 수 없습니다.</value>
+  </data>
   <data name="MenuBold" xml:space="preserve">
     <value>굵게</value>
   </data>
@@ -348,6 +369,9 @@
   <data name="SettingsExternalOpen" xml:space="preserve">
     <value>외부 열기</value>
   </data>
+  <data name="SettingsScriptCapsule" xml:space="preserve">
+    <value>스크립트 캡슐</value>
+  </data>
   <data name="SettingsTopBarButtons" xml:space="preserve">
     <value>상단 바 버튼</value>
   </data>
@@ -429,8 +453,26 @@
   <data name="TipEnableAnimations" xml:space="preserve">
     <value>활성화하면 할 일 완료, 추가, 삭제 등의 작업에서 부드러운 애니메이션 효과가 표시됩니다. 저사양 PC에서는 성능 향상을 위해 비활성화할 수 있습니다.</value>
   </data>
+  <data name="TipPersistentPowerShellProcess" xml:space="preserve">
+    <value>켜면 !!powerflash 스크립트 캡슐이 하나의 PowerShell 프로세스를 재사용하고 즉시 반환됩니다. 변수, 위치, 로드된 상태가 남을 수 있습니다. 끄면 상주 프로세스를 종료합니다.</value>
+  </data>
+  <data name="TipPreferPowerShell7" xml:space="preserve">
+    <value>켜면 스크립트 캡슐이 PowerShell 7(pwsh.exe)을 우선 사용하고, 없으면 Windows PowerShell로 돌아갑니다. !!pwsh 또는 !!powershell5로 강제 지정할 수 있습니다.</value>
+  </data>
+  <data name="TipHideScriptRunWindow" xml:space="preserve">
+    <value>켜면 스크립트가 백그라운드에서 숨겨져 실행됩니다. 끄면 PowerShell 창이 표시될 수 있습니다. 일반 !!power는 항상 기다리고 오류 출력을 캡처하며, !!powerflash는 스크립트만 전달합니다.</value>
+  </data>
   <data name="SettingsEnableTodoNoteLinks" xml:space="preserve">
     <value>할 일-메모 연결 사용</value>
+  </data>
+  <data name="SettingsPersistentPowerShellProcess" xml:space="preserve">
+    <value>PowerShell 프로세스 상주</value>
+  </data>
+  <data name="SettingsPreferPowerShell7" xml:space="preserve">
+    <value>PowerShell 7 우선 사용</value>
+  </data>
+  <data name="SettingsHideScriptRunWindow" xml:space="preserve">
+    <value>스크립트 실행 창 숨기기</value>
   </data>
   <data name="SettingsShowTopBarNewTodoButton" xml:space="preserve">
     <value>상단 바 새 할 일 버튼 표시</value>

@@ -95,6 +95,8 @@ public sealed partial class AppController : IDisposable
     public void Start(bool createDefaultPaper = true)
     {
         CreateTrayIcon();
+        PaperWindow.CleanupOldScriptCapsuleTempFiles();
+        PaperWindow.EnsurePersistentScriptProcessForSettings(State);
         RefreshTopmostForForegroundWindow();
         _topmostRefreshTimer.Start();
 
@@ -2077,14 +2079,22 @@ public sealed partial class AppController : IDisposable
         _settingsWindow = null;
         SaveNow(sync: true);
 
-        _trayIcon?.Dispose();
-        _trayIcon = null;
-        _trayMenu = null;
-
         foreach (var window in _windows.Values.ToList())
         {
             window.CloseForReal();
         }
+
+        foreach (var master in _masterCapsules.Values.ToList())
+        {
+            master.CloseForReal();
+        }
+        _masterCapsules.Clear();
+
+        PaperWindow.StopPersistentScriptProcesses();
+
+        _trayIcon?.Dispose();
+        _trayIcon = null;
+        _trayMenu = null;
 
         Application.Current.Shutdown();
         Environment.Exit(0);
@@ -2101,15 +2111,16 @@ public sealed partial class AppController : IDisposable
         }
         _settingsWindow?.Close();
         _settingsWindow = null;
-        foreach (var window in _windows.Values)
+        foreach (var window in _windows.Values.ToList())
         {
-            window.ClearDeepCapsuleSlotReservation();
+            window.CloseForReal();
         }
-        foreach (var m in _masterCapsules.Values)
+        foreach (var m in _masterCapsules.Values.ToList())
         {
             m.CloseForReal();
         }
         _masterCapsules.Clear();
+        PaperWindow.StopPersistentScriptProcesses();
         _trayIcon?.Dispose();
         _trayIcon = null;
         _trayMenu = null;

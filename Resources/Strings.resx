@@ -96,6 +96,27 @@
   <data name="OpenMarkdownFailureTitle" xml:space="preserve">
     <value>打开 Markdown 失败</value>
   </data>
+  <data name="ScriptCapsuleEmptyMessage" xml:space="preserve">
+    <value>脚本胶囊没有可运行的脚本内容。</value>
+  </data>
+  <data name="ScriptCapsuleEditMenu" xml:space="preserve">
+    <value>编辑脚本胶囊</value>
+  </data>
+  <data name="ScriptCapsuleExitFailureMessage" xml:space="preserve">
+    <value>脚本运行失败（退出码 {0}）。&#x0A;{1}</value>
+  </data>
+  <data name="ScriptCapsuleFailureTitle" xml:space="preserve">
+    <value>脚本胶囊运行失败</value>
+  </data>
+  <data name="ScriptCapsuleNoOutput" xml:space="preserve">
+    <value>没有输出。</value>
+  </data>
+  <data name="ScriptCapsuleStartFailureMessage" xml:space="preserve">
+    <value>无法启动 PowerShell。</value>
+  </data>
+  <data name="ScriptCapsulePowerShell7NotFound" xml:space="preserve">
+    <value>未找到 PowerShell 7（pwsh.exe）。</value>
+  </data>
   <data name="MenuBold" xml:space="preserve">
     <value>加粗</value>
   </data>
@@ -348,6 +369,9 @@
   <data name="SettingsExternalOpen" xml:space="preserve">
     <value>外部打开</value>
   </data>
+  <data name="SettingsScriptCapsule" xml:space="preserve">
+    <value>脚本胶囊</value>
+  </data>
   <data name="SettingsTopBarButtons" xml:space="preserve">
     <value>顶栏按钮</value>
   </data>
@@ -429,8 +453,26 @@
   <data name="TipEnableAnimations" xml:space="preserve">
     <value>开启后，待办完成、新增、删除等操作会有平滑动画效果。关闭可提升低配电脑的性能。</value>
   </data>
+  <data name="TipPersistentPowerShellProcess" xml:space="preserve">
+    <value>开启后，使用 !!powerflash 的脚本胶囊会复用一个 PowerShell 进程并立即返回；脚本变量、目录和加载状态可能保留。关闭此项会结束常驻进程。</value>
+  </data>
+  <data name="TipPreferPowerShell7" xml:space="preserve">
+    <value>开启后，脚本胶囊会优先使用 PowerShell 7（pwsh.exe），找不到时回退到 Windows PowerShell。也可用 !!pwsh 或 !!powershell5 强制指定。</value>
+  </data>
+  <data name="TipHideScriptRunWindow" xml:space="preserve">
+    <value>开启后脚本在后台隐藏运行；关闭后允许显示 PowerShell 窗口。普通 !!power 始终会等待并捕获错误输出，!!powerflash 只负责投递脚本。</value>
+  </data>
   <data name="SettingsEnableTodoNoteLinks" xml:space="preserve">
     <value>启用待办关联笔记</value>
+  </data>
+  <data name="SettingsPersistentPowerShellProcess" xml:space="preserve">
+    <value>常驻 PowerShell 进程</value>
+  </data>
+  <data name="SettingsPreferPowerShell7" xml:space="preserve">
+    <value>优先使用 PowerShell 7</value>
+  </data>
+  <data name="SettingsHideScriptRunWindow" xml:space="preserve">
+    <value>隐藏脚本运行窗口</value>
   </data>
   <data name="SettingsShowTopBarNewTodoButton" xml:space="preserve">
     <value>显示顶栏新建待办</value>

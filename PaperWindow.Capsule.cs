@@ -115,6 +115,8 @@ public sealed partial class PaperWindow
         _capsuleLabelText.ToolTip = _controller.PaperTitleText(_paper);
         if (_capsuleIconText != null)
         {
+            _capsuleIconText.Text = CapsuleIconText();
+            _capsuleIconText.FontSize = CapsuleIconFontSizeForCurrentPaper();
             _capsuleIconText.Foreground = BrightWeakTextBrush;
         }
         if (_capsuleShell != null)
@@ -256,11 +258,11 @@ public sealed partial class PaperWindow
 
         var iconText = new TextBlock
         {
-            Text = _paper.Type == PaperTypes.Note ? "✎" : "✓",
+            Text = CapsuleIconText(),
             Foreground = BrightWeakTextBrush,
             // Explicit font so the rendered glyph matches what MeasureCapsuleTextWidth measures.
             FontFamily = NoteTypography.FontFamily,
-            FontSize = CapsuleIconFontSize,
+            FontSize = CapsuleIconFontSizeForCurrentPaper(),
             FontWeight = FontWeights.SemiBold,
             VerticalAlignment = VerticalAlignment.Center
         };
@@ -321,6 +323,7 @@ public sealed partial class PaperWindow
                 finally
                 {
                     leftArea.Cursor = Cursors.Hand;
+                    ClearCapsuleInteractionKeyboardFocus();
                 }
 
                 e.Handled = true;
@@ -334,7 +337,14 @@ public sealed partial class PaperWindow
                 _isMaybeDragging = false;
                 leftArea.ReleaseMouseCapture();
 
-                SetCollapsedState(false);
+                try
+                {
+                    ActivateFromCollapsedCapsule();
+                }
+                finally
+                {
+                    ClearCapsuleInteractionKeyboardFocus();
+                }
                 e.Handled = true;
             }
         };
@@ -397,6 +407,7 @@ public sealed partial class PaperWindow
         {
             capsuleClose.Opacity = 1.0;
             _controller.HidePaper(_paper);
+            ClearCapsuleInteractionKeyboardFocus();
             e.Handled = true;
         };
 

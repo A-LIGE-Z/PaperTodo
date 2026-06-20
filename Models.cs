@@ -152,6 +152,9 @@ public sealed class AppState
     public bool EnableAnimations { get; set; } = true;
     public bool EnableToolTips { get; set; } = true;
     public string FullscreenTopmostMode { get; set; } = FullscreenTopmostModes.Avoid;
+    public bool UsePersistentPowerShellProcess { get; set; }
+    public bool PreferPowerShell7 { get; set; } = true;
+    public bool HideScriptRunWindow { get; set; } = true;
     public double DeepCapsuleStartTopMargin { get; set; } = DeepCapsuleLayout.StartTopMargin;
 
     // Per-queue vertical start margin, keyed by "monitorDevice|side". A missing key falls back to

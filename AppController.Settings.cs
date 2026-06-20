@@ -597,6 +597,11 @@ public sealed partial class AppController
         rightColumn.Children.Add(WrapWithHint(SettingsFieldLabel(Strings.Get("SettingsExternalMarkdownExtension")), "TipExternalExtension"));
         rightColumn.Children.Add(CreateExternalMarkdownExtensionEditor());
 
+        rightColumn.Children.Add(SettingsSectionLabel(Strings.Get("SettingsScriptCapsule")));
+        rightColumn.Children.Add(WrapWithHint(SettingsToggle(Strings.Get("SettingsPersistentPowerShellProcess"), State.UsePersistentPowerShellProcess, TogglePersistentPowerShellProcess), "TipPersistentPowerShellProcess"));
+        rightColumn.Children.Add(WrapWithHint(SettingsToggle(Strings.Get("SettingsPreferPowerShell7"), State.PreferPowerShell7, TogglePreferPowerShell7), "TipPreferPowerShell7"));
+        rightColumn.Children.Add(WrapWithHint(SettingsToggle(Strings.Get("SettingsHideScriptRunWindow"), State.HideScriptRunWindow, ToggleHideScriptRunWindow), "TipHideScriptRunWindow"));
+
         rightColumn.Children.Add(SettingsSectionLabel(Strings.Get("SettingsCapsule")));
         _settingsCapsuleModeCheckBox = SettingsToggle(Strings.Get("TrayCapsuleMode"), State.UseCapsuleMode, ToggleCapsuleMode);
         _settingsDeepCapsuleModeCheckBox = SettingsToggle(Strings.Get("TrayDeepCapsuleMode"), State.UseDeepCapsuleMode, ToggleDeepCapsuleMode);
@@ -1084,6 +1089,40 @@ public sealed partial class AppController
     private void ToggleAnimations()
     {
         State.EnableAnimations = !State.EnableAnimations;
+        SaveNow();
+        RefreshSettingsWindowContent();
+    }
+
+    private void TogglePersistentPowerShellProcess()
+    {
+        State.UsePersistentPowerShellProcess = !State.UsePersistentPowerShellProcess;
+        if (!State.UsePersistentPowerShellProcess)
+        {
+            PaperWindow.StopPersistentScriptProcesses();
+        }
+        else
+        {
+            PaperWindow.EnsurePersistentScriptProcessForSettings(State);
+        }
+
+        SaveNow();
+        RefreshSettingsWindowContent();
+    }
+
+    private void TogglePreferPowerShell7()
+    {
+        State.PreferPowerShell7 = !State.PreferPowerShell7;
+        PaperWindow.StopPersistentScriptProcesses();
+        PaperWindow.EnsurePersistentScriptProcessForSettings(State);
+        SaveNow();
+        RefreshSettingsWindowContent();
+    }
+
+    private void ToggleHideScriptRunWindow()
+    {
+        State.HideScriptRunWindow = !State.HideScriptRunWindow;
+        PaperWindow.StopPersistentScriptProcesses();
+        PaperWindow.EnsurePersistentScriptProcessForSettings(State);
         SaveNow();
         RefreshSettingsWindowContent();
     }

@@ -293,6 +293,14 @@ public sealed partial class PaperWindow : Window
     private void SetDeepCapsuleGestureState(DeepCapsuleGestureState state) => _deepCapsuleGestureState = state;
     private void SetDeepCapsuleOpenOrigin(DeepCapsuleOpenOrigin origin) => _deepCapsuleOpenOrigin = origin;
 
+    private void ClearCapsuleInteractionKeyboardFocus()
+    {
+        WindowNative.ClearCurrentThreadKeyboardFocus();
+        Dispatcher.BeginInvoke(
+            (Action)WindowNative.ClearCurrentThreadKeyboardFocus,
+            System.Windows.Threading.DispatcherPriority.Background);
+    }
+
     private sealed class TodoDragState
     {
         public TodoDragState(string itemId, Border sourceRow, FrameworkElement handle, Point startPoint)
@@ -1414,7 +1422,11 @@ public sealed partial class PaperWindow : Window
         {
             if (_paper.IsCollapsed)
             {
-                if (!forDeepCapsuleSlot)
+                if (IsScriptCapsule())
+                {
+                    menu.Items.Add(MenuItem(Strings.Get("ScriptCapsuleEditMenu"), (_, _) => OpenCapsuleForEditing()));
+                }
+                else if (!forDeepCapsuleSlot)
                 {
                     menu.Items.Add(MenuItem(Strings.Get("MenuRestoreWindow"), (_, _) => SetCollapsedState(false)));
                 }
@@ -2083,7 +2095,7 @@ public sealed partial class PaperWindow : Window
     // on the font and weight. Measure it with the same SemiBold weight it renders at.
     private double MeasureCapsuleIconWidth()
     {
-        return MeasureCapsuleTextWidth(_paper.Type == PaperTypes.Note ? "✎" : "✓", CapsuleIconFontSize, FontWeights.SemiBold);
+        return MeasureCapsuleTextWidth(CapsuleIconText(), CapsuleIconFontSizeForCurrentPaper(), FontWeights.SemiBold);
     }
 
     // Single source of truth for "how wide does this text actually render". Uses the same

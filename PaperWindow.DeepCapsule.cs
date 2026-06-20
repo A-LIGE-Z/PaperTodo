@@ -137,10 +137,10 @@ public sealed partial class PaperWindow
 
         _deepCapsuleSlotIconText = new TextBlock
         {
-            Text = _paper.Type == PaperTypes.Note ? "✎" : "✓",
+            Text = CapsuleIconText(),
             Foreground = BrightWeakTextBrush,
             FontFamily = NoteTypography.FontFamily,
-            FontSize = CapsuleIconFontSize,
+            FontSize = CapsuleIconFontSizeForCurrentPaper(),
             FontWeight = FontWeights.SemiBold,
             VerticalAlignment = VerticalAlignment.Center
         };
@@ -217,7 +217,7 @@ public sealed partial class PaperWindow
             {
                 EndDeepCapsuleReorderDrag(commit: true);
                 leftArea.ReleaseMouseCapture();
-                WindowNative.ClearCurrentThreadKeyboardFocus();
+                ClearCapsuleInteractionKeyboardFocus();
                 e.Handled = true;
                 return;
             }
@@ -226,7 +226,14 @@ public sealed partial class PaperWindow
             {
                 SetDeepCapsuleGestureState(DeepCapsuleGestureState.Idle);
                 leftArea.ReleaseMouseCapture();
-                ActivateFromDeepCapsuleSlot();
+                try
+                {
+                    ActivateFromDeepCapsuleSlot();
+                }
+                finally
+                {
+                    ClearCapsuleInteractionKeyboardFocus();
+                }
                 e.Handled = true;
             }
         };
@@ -239,7 +246,7 @@ public sealed partial class PaperWindow
             if (IsDeepCapsuleReordering && Mouse.LeftButton != MouseButtonState.Pressed)
             {
                 EndDeepCapsuleReorderDrag(commit: false);
-                WindowNative.ClearCurrentThreadKeyboardFocus();
+                ClearCapsuleInteractionKeyboardFocus();
             }
         };
         leftArea.ContextMenu = BuildDeepCapsuleSlotContextMenu();
@@ -291,6 +298,7 @@ public sealed partial class PaperWindow
         {
             _deepCapsuleSlotCloseArea.Opacity = 1.0;
             _controller.HidePaper(_paper);
+            ClearCapsuleInteractionKeyboardFocus();
             e.Handled = true;
         };
 
@@ -314,6 +322,11 @@ public sealed partial class PaperWindow
     private void ActivateFromDeepCapsuleSlot()
     {
         CloseDeepCapsuleSlotContextMenu();
+        if (TryRunScriptCapsule())
+        {
+            return;
+        }
+
         if (_paper.IsCollapsed)
         {
             ShowMainWindowForDeepCapsuleActivation();
@@ -491,6 +504,8 @@ public sealed partial class PaperWindow
 
         if (_deepCapsuleSlotIconText != null)
         {
+            _deepCapsuleSlotIconText.Text = CapsuleIconText();
+            _deepCapsuleSlotIconText.FontSize = CapsuleIconFontSizeForCurrentPaper();
             _deepCapsuleSlotIconText.Foreground = BrightWeakTextBrush;
         }
 
