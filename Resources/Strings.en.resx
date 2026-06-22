@@ -13,22 +13,22 @@
     <value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
   </resheader>
   <data name="AppStartupFailureMessage" xml:space="preserve">
-    <value>Startup failed: unable to load the data file. It may be in use or corrupted.&#x0A;To prevent your data from being overwritten with an empty state, the app has stopped safely.&#x0A;&#x0A;Error: {0}</value>
+    <value>Startup failed: the data file could not be loaded. It may be in use or corrupted.&#x0A;To avoid overwriting existing data, the app has stopped.&#x0A;&#x0A;Error: {0}</value>
   </data>
   <data name="ResourceTextVersion" xml:space="preserve">
     <value>2.0</value>
   </data>
   <data name="AppStartupFailureTitle" xml:space="preserve">
-    <value>PaperTodo - Error</value>
+    <value>PaperTodo - Startup Failed</value>
   </data>
   <data name="AppUnhandledExceptionMessage" xml:space="preserve">
-    <value>The app hit an unhandled error and saved the current data to data.crash_recovery.json.&#x0A;&#x0A;Please restart the app. If the problem continues, you can try restoring from that recovery file.&#x0A;&#x0A;Error: {0}</value>
+    <value>The app hit an unhandled error. Current data has been saved to data.crash_recovery.json.&#x0A;&#x0A;Restart the app; if the problem continues, you can try restoring from that file.&#x0A;&#x0A;Error: {0}</value>
   </data>
   <data name="AppUnhandledExceptionTitle" xml:space="preserve">
     <value>PaperTodo - Unexpected Exit</value>
   </data>
   <data name="AppendAreaToolTip" xml:space="preserve">
-    <value>Click to keep writing, or drag an item here to delete it</value>
+    <value>Click to add content; drag here to delete</value>
   </data>
   <data name="CapsuleNote" xml:space="preserve">
     <value>Note</value>
@@ -46,7 +46,7 @@
     <value>OK</value>
   </data>
   <data name="DeletePaperBody" xml:space="preserve">
-    <value>It will be removed from data.json and cannot be restored from the tray.</value>
+    <value>This paper will be permanently removed and cannot be restored from the tray.</value>
   </data>
   <data name="DeletePaperQuestion" xml:space="preserve">
     <value>Delete this paper?</value>
@@ -67,7 +67,7 @@
     <value>Link</value>
   </data>
   <data name="ToolTipDragNoteToTodo" xml:space="preserve">
-    <value>Drag to a todo item to link this note</value>
+    <value>Drag onto a todo item to link this note</value>
   </data>
   <data name="ToolTipOpenLinkedNote" xml:space="preserve">
     <value>Open linked note: {0}</value>
@@ -76,7 +76,7 @@
     <value>Run linked script: {0}</value>
   </data>
   <data name="MarkdownRenderBasic" xml:space="preserve">
-    <value>On</value>
+    <value>Basic</value>
   </data>
   <data name="MarkdownRenderEnhanced" xml:space="preserve">
     <value>Enhanced</value>
@@ -97,10 +97,10 @@
     <value>Could not open the default {0} editor:&#x0A;{1}</value>
   </data>
   <data name="OpenMarkdownFailureTitle" xml:space="preserve">
-    <value>Markdown Open Failed</value>
+    <value>Open externally failed</value>
   </data>
   <data name="ScriptCapsuleEmptyMessage" xml:space="preserve">
-    <value>This script capsule has no script content to run.</value>
+    <value>This script capsule has nothing to run.</value>
   </data>
   <data name="ScriptCapsuleEditMenu" xml:space="preserve">
     <value>Edit script capsule</value>
@@ -109,7 +109,7 @@
     <value>Script failed with exit code {0}.&#x0A;{1}</value>
   </data>
   <data name="ScriptCapsuleFailureTitle" xml:space="preserve">
-    <value>Script Capsule Failed</value>
+    <value>Script failed</value>
   </data>
   <data name="ScriptCapsuleNoOutput" xml:space="preserve">
     <value>No output.</value>
@@ -217,16 +217,16 @@
     <value>{0} {1} · {2}</value>
   </data>
   <data name="PaperLimitMessage" xml:space="preserve">
-    <value>You have reached the 100-paper limit.&#x0A;To keep the app stable and responsive, please remove papers you no longer need and try again.</value>
+    <value>You have reached the 100-paper limit.&#x0A;Delete papers you no longer need before creating more.</value>
   </data>
   <data name="PaperLimitTitle" xml:space="preserve">
-    <value>Paper Limit</value>
+    <value>Paper limit reached</value>
   </data>
   <data name="Pin" xml:space="preserve">
     <value>Pin on top</value>
   </data>
   <data name="SaveFailureIgnore" xml:space="preserve">
-    <value>Ignore for this run</value>
+    <value>Ignore this time</value>
   </data>
   <data name="SaveFailureMessage" xml:space="preserve">
     <value>Failed to save data:&#x0A;{0}&#x0A;Please check disk space or permissions.</value>
@@ -235,10 +235,10 @@
     <value>Save Failed</value>
   </data>
   <data name="StateLoadFailed" xml:space="preserve">
-    <value>Failed to load data. The file may be in use by another program or corrupted.</value>
+    <value>Failed to load data. The file may be in use or corrupted.</value>
   </data>
   <data name="StartupFailureMessage" xml:space="preserve">
-    <value>Failed to configure startup. Permissions may be insufficient or security software may have blocked it.</value>
+    <value>Failed to configure startup. Permissions may be insufficient or security software may be blocking it.</value>
   </data>
   <data name="StartupFailureTitle" xml:space="preserve">
     <value>Startup Setting Failed</value>
@@ -265,7 +265,7 @@
     <value>Light</value>
   </data>
   <data name="ThemeSystem" xml:space="preserve">
-    <value>System</value>
+    <value>Follow system</value>
   </data>
   <data name="ToolTipCollapseToCapsule" xml:space="preserve">
     <value>Collapse to capsule</value>
@@ -280,7 +280,7 @@
     <value>Open in default {0} editor</value>
   </data>
   <data name="ToolTipResetTextZoom" xml:space="preserve">
-    <value>Click to reset text zoom to 100%</value>
+    <value>Click to reset to 100%</value>
   </data>
   <data name="ToolTipNewNotePaper" xml:space="preserve">
     <value>New note paper</value>
@@ -289,31 +289,31 @@
     <value>New todo paper</value>
   </data>
   <data name="TrayCapsuleMode" xml:space="preserve">
-    <value>Enable capsule collapse mode</value>
+    <value>Capsule mode</value>
   </data>
   <data name="TrayDeepCapsuleMode" xml:space="preserve">
-    <value>Auto edge-align capsules</value>
+    <value>Edge capsule mode</value>
   </data>
   <data name="SettingsMaxTitleLength" xml:space="preserve">
-    <value>Max title length</value>
+    <value>Title length limit</value>
   </data>
   <data name="SettingsCapsuleCollapseAll" xml:space="preserve">
-    <value>Collapse-all capsule</value>
+    <value>Show main capsule</value>
   </data>
   <data name="SettingsShowDeepCapsuleWhileExpanded" xml:space="preserve">
     <value>Keep edge capsule when expanded</value>
   </data>
   <data name="SettingsCollapseExpandedDeepCapsuleOnClick" xml:space="preserve">
-    <value>Click edge capsule again to collapse</value>
+    <value>Click edge capsule again to retract paper</value>
   </data>
   <data name="CapsuleCollapseAllLabel" xml:space="preserve">
     <value>Collapse</value>
   </data>
   <data name="CapsuleCollapseAllExpandedTip" xml:space="preserve">
-    <value>Collapse all capsules</value>
+    <value>Collapse current capsule queue</value>
   </data>
   <data name="CapsuleCollapseAllCollapsedTip" xml:space="preserve">
-    <value>Restore capsules</value>
+    <value>Expand current capsule queue</value>
   </data>
   <data name="CapsuleCollapseAllCountFormat" xml:space="preserve">
     <value>{0}</value>
@@ -325,13 +325,13 @@
     <value>Hide all papers</value>
   </data>
   <data name="TrayMarkdownRenderMode" xml:space="preserve">
-    <value>MD parsing</value>
+    <value>Markdown display</value>
   </data>
   <data name="SettingsFullscreenTopmostMode" xml:space="preserve">
-    <value>Fullscreen topmost</value>
+    <value>Fullscreen handling</value>
   </data>
   <data name="SettingsTodoVisualSize" xml:space="preserve">
-    <value>Todo visual size</value>
+    <value>Todo size</value>
   </data>
   <data name="TodoVisualSizeSmall" xml:space="preserve">
     <value>Small</value>
@@ -367,7 +367,7 @@
     <value>Settings</value>
   </data>
   <data name="SettingsExternalMarkdownExtension" xml:space="preserve">
-    <value>External open extension</value>
+    <value>External open file type</value>
   </data>
   <data name="SettingsQuickActions" xml:space="preserve">
     <value>Quick actions</value>
@@ -394,67 +394,67 @@
     <value>To-dos &amp; notes</value>
   </data>
   <data name="SettingsRunLinkedScriptCapsulesOnClick" xml:space="preserve">
-    <value>Run linked scripts on click</value>
+    <value>Run linked scripts directly</value>
   </data>
   <data name="SettingsGeneral" xml:space="preserve">
     <value>General</value>
   </data>
   <data name="TipThemeMode" xml:space="preserve">
-    <value>Follow system, light, or dark. "Follow system" switches automatically with the Windows light/dark setting.</value>
+    <value>Choose light, dark, or follow the Windows system theme.</value>
   </data>
   <data name="TipColorScheme" xml:space="preserve">
-    <value>The overall color tone of the papers, affecting background and accent colors.</value>
+    <value>Switch the paper color tone, including backgrounds, accents, and muted text.</value>
   </data>
   <data name="TipMarkdownRender" xml:space="preserve">
-    <value>How Markdown is rendered in notes. "Enhanced" live-styles headings, lists, bold, etc.; "Basic" does light processing only.</value>
+    <value>Basic mode applies light highlighting; Enhanced also styles headings, lists, and emphasis.</value>
   </data>
   <data name="TipFullscreenTopmostMode" xml:space="preserve">
-    <value>When another app is fullscreen, choose whether papers and edge capsules temporarily lower their z-order. Avoid is the default; stay on top keeps them above fullscreen content.</value>
+    <value>When video, games, or other fullscreen windows are detected, papers and edge capsules can temporarily step aside. Stay on top keeps them visible.</value>
   </data>
   <data name="TipTodoVisualSize" xml:space="preserve">
-    <value>Adjust the visual size of todo items. Small is 12, medium keeps the current 13, large is 14, and XL is 15.5.</value>
+    <value>Adjust todo text, row height, and spacing.</value>
   </data>
   <data name="TipEnableTodoNoteLinks" xml:space="preserve">
-    <value>When on, drag a note onto a to-do item to link them, then use the linked-note button on that item to open the note.</value>
+    <value>Drag a note onto a todo item to link it, then open the note directly from that item.</value>
   </data>
   <data name="TipShowLinkedNoteName" xml:space="preserve">
-    <value>Show the linked note's title after a to-do item that has a note attached.</value>
+    <value>Show the linked note title after the todo item.</value>
   </data>
   <data name="TipHideLinkedNotesFromCapsules" xml:space="preserve">
-    <value>When enabled, notes already attached to a to-do item are removed from the capsule list, so the edge capsules do not duplicate that to-do entry point. When disabled, those notes can still collapse like any normal paper.</value>
+    <value>Notes linked to todo items no longer appear in the capsule list, avoiding duplicate entry points.</value>
   </data>
   <data name="TipRunLinkedScriptCapsulesOnClick" xml:space="preserve">
-    <value>When enabled, the linked-note button on a to-do item runs the linked script capsule on left-click. Right-click still opens it for editing. Off by default to prevent accidental script runs.</value>
+    <value>When a linked entry points to a script capsule, left-click runs it and right-click opens it for editing. Off by default to prevent accidental runs.</value>
   </data>
   <data name="TipNewTodoButton" xml:space="preserve">
-    <value>Show the "New to-do" button in the paper's top bar.</value>
+    <value>Show the new todo button in the paper top bar.</value>
   </data>
   <data name="TipNewNoteButton" xml:space="preserve">
-    <value>Show the "New note" button in the paper's top bar.</value>
+    <value>Show the new note button in the paper top bar.</value>
   </data>
   <data name="TipExternalOpenButton" xml:space="preserve">
-    <value>Show the "Open externally" button in the top bar, which writes the note to a temporary file and opens it in the default app.</value>
+    <value>Show the external open button in the top bar, writing the current note to a temporary file and handing it to the default app.</value>
   </data>
   <data name="TipExternalExtension" xml:space="preserve">
-    <value>File extension used when opening a note externally, e.g. .md or .txt.</value>
+    <value>Choose the file type used when handing the note to an external app, such as .md or .txt.</value>
   </data>
   <data name="TipCapsuleMode" xml:space="preserve">
-    <value>When on, a paper can collapse into a small capsule to save screen space. This is the master switch for the other capsule features.</value>
+    <value>Allow papers to collapse into small capsules to save desktop space. Edge capsule features require this first.</value>
   </data>
   <data name="TipDeepCapsuleMode" xml:space="preserve">
-    <value>Collapsed capsules dock to the right screen edge in a vertical stack and slide out on hover. Requires capsule collapse.</value>
+    <value>Capsules dock to the screen edge as a queue and slide out on hover.</value>
   </data>
   <data name="TipShowDeepCapsuleWhileExpanded" xml:space="preserve">
-    <value>When on, opening a paper from an edge capsule keeps a highlighted capsule in its slot. When off, that capsule is hidden and the slot is released until the paper returns to capsule form.</value>
+    <value>After opening a paper from an edge capsule, keep its edge entry visible. When off, that entry is hidden while the paper is open.</value>
   </data>
   <data name="TipCollapseExpandedDeepCapsuleOnClick" xml:space="preserve">
-    <value>When the edge capsule remains visible for an expanded paper, click it again to collapse the paper. When off, the click only brings the paper to front.</value>
+    <value>When a paper is open from an edge capsule, click the same capsule again to retract the paper.</value>
   </data>
   <data name="TipCapsuleCollapseAll" xml:space="preserve">
-    <value>Show a "Collapse" master capsule atop the docked stack; click it to collapse / expand all capsules at once. Requires edge-align.</value>
+    <value>Show a main capsule at the top of the capsule queue to collapse or expand the current queue.</value>
   </data>
   <data name="TipMaxTitleLength" xml:space="preserve">
-    <value>Maximum number of characters allowed in a paper title, which also caps the title length shown on the capsule.</value>
+    <value>Maximum number of characters shown in paper titles and capsules.</value>
   </data>
   <data name="TipStartup" xml:space="preserve">
     <value>Launch PaperTodo automatically when Windows starts.</value>
@@ -463,22 +463,22 @@
     <value>Show hover hints</value>
   </data>
   <data name="TipEnableToolTips" xml:space="preserve">
-    <value>When enabled, brief hints appear when the pointer rests on buttons or interactive areas. Setting info icons stay available either way.</value>
+    <value>Show brief hints when the pointer rests on buttons or interactive areas. Setting info icons stay available either way.</value>
   </data>
   <data name="SettingsEnableAnimations" xml:space="preserve">
     <value>Enable animations</value>
   </data>
   <data name="TipEnableAnimations" xml:space="preserve">
-    <value>When enabled, actions like completing, adding, or deleting todos will have smooth animations. Disable this to improve performance on low-end devices.</value>
+    <value>Enable transition animations for common actions. Turn off for a more direct response.</value>
   </data>
   <data name="TipPersistentPowerShellProcess" xml:space="preserve">
-    <value>When enabled, script capsules using !pf or !powerf reuse one PowerShell process and return immediately. Variables, location, and loaded state may persist. Turning this off ends the persistent process.</value>
+    <value>!pf / !powerf reuse a persistent process for faster startup, but variables and state may carry between scripts. Turning this off ends that process.</value>
   </data>
   <data name="TipPreferPowerShell7" xml:space="preserve">
-    <value>When enabled, script capsules prefer PowerShell 7 (pwsh.exe) and fall back to Windows PowerShell when unavailable. Use !pwsh or !ps5 to force one.</value>
+    <value>Prefer PowerShell 7 (pwsh.exe); fall back to Windows PowerShell when unavailable. Scripts can also use !pwsh or !ps5 to choose.</value>
   </data>
   <data name="TipHideScriptRunWindow" xml:space="preserve">
-    <value>When enabled, scripts run hidden in the background. When off, a PowerShell window may be shown. Normal !p / !power always waits and captures error output; !pf / !powerf only submits the script.</value>
+    <value>Hide the script window. Normal !p / !power waits for completion and captures errors; !pf / !powerf only submits to the persistent process.</value>
   </data>
   <data name="SettingsEnableTodoNoteLinks" xml:space="preserve">
     <value>Enable todo-note links</value>
@@ -493,22 +493,22 @@
     <value>Hide script window</value>
   </data>
   <data name="SettingsShowTopBarNewTodoButton" xml:space="preserve">
-    <value>Show top-bar new todo button</value>
+    <value>Show new todo button</value>
   </data>
   <data name="SettingsShowTopBarNewNoteButton" xml:space="preserve">
-    <value>Show top-bar new note button</value>
+    <value>Show new note button</value>
   </data>
   <data name="SettingsShowTopBarExternalOpenButton" xml:space="preserve">
-    <value>Show top-bar external open button</value>
+    <value>Show external open button</value>
   </data>
   <data name="SettingsShowLinkedNoteName" xml:space="preserve">
-    <value>Show linked note name</value>
+    <value>Show linked note title</value>
   </data>
   <data name="SettingsHideLinkedNotesFromCapsules" xml:space="preserve">
-    <value>Hide linked notes from capsules</value>
+    <value>Linked notes not shown as capsules</value>
   </data>
   <data name="SettingsResetNoteZoom" xml:space="preserve">
-    <value>Reset note zoom</value>
+    <value>Restore note zoom</value>
   </data>
   <data name="SettingsRestoreAllCapsules" xml:space="preserve">
     <value>Expand all capsules</value>
