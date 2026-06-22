@@ -303,6 +303,9 @@
   <data name="SettingsShowDeepCapsuleWhileExpanded" xml:space="preserve">
     <value>展开纸片时保留边缘胶囊</value>
   </data>
+  <data name="SettingsCollapseExpandedDeepCapsuleOnClick" xml:space="preserve">
+    <value>再次点击侧边胶囊缩回</value>
+  </data>
   <data name="CapsuleCollapseAllLabel" xml:space="preserve">
     <value>收起</value>
   </data>
@@ -443,6 +446,9 @@
   </data>
   <data name="TipShowDeepCapsuleWhileExpanded" xml:space="preserve">
     <value>开启后，从边缘胶囊打开纸片时，右侧会保留一颗高亮胶囊并占用原槽位；关闭后，打开期间隐藏它并释放位置，纸片收回胶囊后再显示。</value>
+  </data>
+  <data name="TipCollapseExpandedDeepCapsuleOnClick" xml:space="preserve">
+    <value>开启后，纸片已展开且侧边胶囊仍保留时，再次点击该胶囊会把纸片缩回。关闭时，再次点击只会将纸片前置强调。</value>
   </data>
   <data name="TipCapsuleCollapseAll" xml:space="preserve">
     <value>在贴边胶囊顶部显示一颗「收起」主胶囊，点击可一键收起 / 展开全部胶囊。需先开启自动贴边。</value>

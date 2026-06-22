@@ -303,6 +303,9 @@
   <data name="SettingsShowDeepCapsuleWhileExpanded" xml:space="preserve">
     <value>展開中も端のカプセルを残す</value>
   </data>
+  <data name="SettingsCollapseExpandedDeepCapsuleOnClick" xml:space="preserve">
+    <value>端のカプセルを再クリックして折りたたむ</value>
+  </data>
   <data name="CapsuleCollapseAllLabel" xml:space="preserve">
     <value>折りたたむ</value>
   </data>
@@ -443,6 +446,9 @@
   </data>
   <data name="TipShowDeepCapsuleWhileExpanded" xml:space="preserve">
     <value>オンにすると、端のカプセルから紙片を開いたときも、その位置に強調表示のカプセルを残します。オフにすると、開いている間は非表示にしてスロットを空け、紙片がカプセルに戻った後に再表示します。</value>
+  </data>
+  <data name="TipCollapseExpandedDeepCapsuleOnClick" xml:space="preserve">
+    <value>展開中の紙片の端カプセルが残っているとき、もう一度クリックすると紙片をカプセルに戻します。オフの場合は紙片を前面に出すだけです。</value>
   </data>
   <data name="TipCapsuleCollapseAll" xml:space="preserve">
     <value>ドック上部に「折りたたむ」マスターカプセルを表示し、クリックで全カプセルを一括折りたたみ／展開します。端寄せが必要です。</value>

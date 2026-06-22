@@ -34,6 +34,7 @@ public sealed partial class AppController : IDisposable
     private CheckBox? _settingsCapsuleModeCheckBox;
     private CheckBox? _settingsDeepCapsuleModeCheckBox;
     private CheckBox? _settingsDeepCapsuleExpandedSlotCheckBox;
+    private CheckBox? _settingsCollapseExpandedDeepCapsuleOnClickCheckBox;
     private CheckBox? _settingsCapsuleCollapseAllCheckBox;
     private bool _isExiting;
     private bool _suppressDirty;

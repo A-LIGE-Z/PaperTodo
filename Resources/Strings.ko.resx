@@ -303,6 +303,9 @@
   <data name="SettingsShowDeepCapsuleWhileExpanded" xml:space="preserve">
     <value>펼친 동안 가장자리 캡슐 유지</value>
   </data>
+  <data name="SettingsCollapseExpandedDeepCapsuleOnClick" xml:space="preserve">
+    <value>가장자리 캡슐을 다시 클릭해 접기</value>
+  </data>
   <data name="CapsuleCollapseAllLabel" xml:space="preserve">
     <value>접기</value>
   </data>
@@ -443,6 +446,9 @@
   </data>
   <data name="TipShowDeepCapsuleWhileExpanded" xml:space="preserve">
     <value>켜면 가장자리 캡슐에서 페이퍼를 열 때 해당 슬롯에 강조된 캡슐을 계속 표시합니다. 끄면 여는 동안 캡슐을 숨기고 자리를 비우며, 페이퍼가 다시 캡슐로 돌아간 뒤 표시합니다.</value>
+  </data>
+  <data name="TipCollapseExpandedDeepCapsuleOnClick" xml:space="preserve">
+    <value>펼쳐진 페이퍼의 가장자리 캡슐이 남아 있을 때 다시 클릭하면 페이퍼를 캡슐로 접습니다. 끄면 클릭 시 페이퍼를 앞으로 가져오기만 합니다.</value>
   </data>
   <data name="TipCapsuleCollapseAll" xml:space="preserve">
     <value>도크 상단에 '접기' 마스터 캡슐을 표시하며, 클릭하면 모든 캡슐을 한 번에 접거나 펼칩니다. 가장자리 정렬이 필요합니다.</value>

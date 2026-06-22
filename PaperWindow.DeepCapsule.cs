@@ -332,6 +332,11 @@ public sealed partial class PaperWindow
             ShowMainWindowForDeepCapsuleActivation();
             SetCollapsedState(false, alignExpandedToDockedEdge: true);
         }
+        else if (_controller.State.CollapseExpandedDeepCapsuleOnClick &&
+            (HoldsDeepCapsuleSlotWhileExpanded || HasExpandedDeepCapsuleSlotReservation))
+        {
+            SetCollapsedState(true, alignExpandedToDockedEdge: true);
+        }
         else
         {
             EnsureExpandedSurfaceGeometry(alignToDockedEdge: true);

@@ -468,6 +468,7 @@ public sealed partial class AppController
             _settingsCapsuleModeCheckBox = null;
             _settingsDeepCapsuleModeCheckBox = null;
             _settingsDeepCapsuleExpandedSlotCheckBox = null;
+            _settingsCollapseExpandedDeepCapsuleOnClickCheckBox = null;
             _settingsCapsuleCollapseAllCheckBox = null;
             _settingsWindow = null;
         };
@@ -609,10 +610,12 @@ public sealed partial class AppController
         _settingsCapsuleModeCheckBox = SettingsToggle(Strings.Get("TrayCapsuleMode"), State.UseCapsuleMode, ToggleCapsuleMode);
         _settingsDeepCapsuleModeCheckBox = SettingsToggle(Strings.Get("TrayDeepCapsuleMode"), State.UseDeepCapsuleMode, ToggleDeepCapsuleMode);
         _settingsDeepCapsuleExpandedSlotCheckBox = SettingsToggle(Strings.Get("SettingsShowDeepCapsuleWhileExpanded"), State.ShowDeepCapsuleWhileExpanded, ToggleDeepCapsuleExpandedSlot);
+        _settingsCollapseExpandedDeepCapsuleOnClickCheckBox = SettingsToggle(Strings.Get("SettingsCollapseExpandedDeepCapsuleOnClick"), State.CollapseExpandedDeepCapsuleOnClick, ToggleCollapseExpandedDeepCapsuleOnClick);
         _settingsCapsuleCollapseAllCheckBox = SettingsToggle(Strings.Get("SettingsCapsuleCollapseAll"), State.UseCapsuleCollapseAll, ToggleCapsuleCollapseAll);
         rightColumn.Children.Add(WrapWithHint(_settingsCapsuleModeCheckBox, "TipCapsuleMode"));
         rightColumn.Children.Add(WrapWithHint(_settingsDeepCapsuleModeCheckBox, "TipDeepCapsuleMode"));
         rightColumn.Children.Add(WrapWithHint(_settingsDeepCapsuleExpandedSlotCheckBox, "TipShowDeepCapsuleWhileExpanded"));
+        rightColumn.Children.Add(WrapWithHint(_settingsCollapseExpandedDeepCapsuleOnClickCheckBox, "TipCollapseExpandedDeepCapsuleOnClick"));
         rightColumn.Children.Add(WrapWithHint(_settingsCapsuleCollapseAllCheckBox, "TipCapsuleCollapseAll"));
         RefreshSettingsCapsuleToggleStates();
         rightColumn.Children.Add(WrapWithHint(SettingsFieldLabel(Strings.Get("SettingsMaxTitleLength"), topMargin: 8), "TipMaxTitleLength"));
@@ -857,6 +860,12 @@ public sealed partial class AppController
         {
             _settingsDeepCapsuleExpandedSlotCheckBox.IsChecked = State.ShowDeepCapsuleWhileExpanded;
             _settingsDeepCapsuleExpandedSlotCheckBox.IsEnabled = State.UseCapsuleMode && State.UseDeepCapsuleMode;
+        }
+        if (_settingsCollapseExpandedDeepCapsuleOnClickCheckBox != null)
+        {
+            _settingsCollapseExpandedDeepCapsuleOnClickCheckBox.IsChecked = State.CollapseExpandedDeepCapsuleOnClick;
+            _settingsCollapseExpandedDeepCapsuleOnClickCheckBox.IsEnabled = State.UseCapsuleMode && State.UseDeepCapsuleMode &&
+                State.ShowDeepCapsuleWhileExpanded;
         }
         if (_settingsCapsuleCollapseAllCheckBox != null)
         {
@@ -1307,6 +1316,13 @@ public sealed partial class AppController
         }
 
         ArrangeDeepCapsules(animate: State.EnableAnimations);
+        SaveNow();
+        RefreshSettingsCapsuleToggleStates();
+    }
+
+    private void ToggleCollapseExpandedDeepCapsuleOnClick()
+    {
+        State.CollapseExpandedDeepCapsuleOnClick = !State.CollapseExpandedDeepCapsuleOnClick;
         SaveNow();
         RefreshSettingsCapsuleToggleStates();
     }

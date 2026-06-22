@@ -303,6 +303,9 @@
   <data name="SettingsShowDeepCapsuleWhileExpanded" xml:space="preserve">
     <value>Keep edge capsule when expanded</value>
   </data>
+  <data name="SettingsCollapseExpandedDeepCapsuleOnClick" xml:space="preserve">
+    <value>Click edge capsule again to collapse</value>
+  </data>
   <data name="CapsuleCollapseAllLabel" xml:space="preserve">
     <value>Collapse</value>
   </data>
@@ -443,6 +446,9 @@
   </data>
   <data name="TipShowDeepCapsuleWhileExpanded" xml:space="preserve">
     <value>When on, opening a paper from an edge capsule keeps a highlighted capsule in its slot. When off, that capsule is hidden and the slot is released until the paper returns to capsule form.</value>
+  </data>
+  <data name="TipCollapseExpandedDeepCapsuleOnClick" xml:space="preserve">
+    <value>When the edge capsule remains visible for an expanded paper, click it again to collapse the paper. When off, the click only brings the paper to front.</value>
   </data>
   <data name="TipCapsuleCollapseAll" xml:space="preserve">
     <value>Show a "Collapse" master capsule atop the docked stack; click it to collapse / expand all capsules at once. Requires edge-align.</value>
