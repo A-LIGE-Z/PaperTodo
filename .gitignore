@@ -11,3 +11,4 @@ PaperTodo.crash.log
 对比_StickyMD/
 .codex_decompile_debug/
 extract_code.py
+rollout-*.jsonl
