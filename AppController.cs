@@ -419,12 +419,7 @@ public sealed partial class AppController : IDisposable
             return false;
         }
 
-        if (!_windows.TryGetValue(note.Id, out var window))
-        {
-            window = new PaperWindow(note, this);
-            _windows[note.Id] = window;
-        }
-
+        var window = GetOrCreatePaperWindow(note);
         return window.TryRunScriptCapsule();
     }
 
@@ -701,8 +696,38 @@ public sealed partial class AppController : IDisposable
         return _visibilityAnimationVersions.TryGetValue(paperId, out var current) && current == version;
     }
 
+    private PaperWindow GetOrCreatePaperWindow(PaperData paper)
+    {
+        if (_windows.TryGetValue(paper.Id, out var existing))
+        {
+            if (!existing.IsClosed)
+            {
+                return existing;
+            }
+
+            _windows.Remove(paper.Id);
+        }
+
+        var paperId = paper.Id;
+        var window = new PaperWindow(paper, this);
+        window.Closed += (_, _) =>
+        {
+            if (_windows.TryGetValue(paperId, out var current) && ReferenceEquals(current, window))
+            {
+                _windows.Remove(paperId);
+            }
+        };
+        _windows[paperId] = window;
+        return window;
+    }
+
     public void ShowPaper(PaperData paper)
     {
+        if (_isExiting)
+        {
+            return;
+        }
+
         RefreshTopmostForForegroundWindow();
         if (paper.IsCollapsed && !CanPaperDisplayAsCapsule(paper))
         {
@@ -712,11 +737,7 @@ public sealed partial class AppController : IDisposable
         var visibilityVersion = NextVisibilityAnimationVersion(paper.Id);
         RescuePaperIfOffScreen(paper, State.Papers.IndexOf(paper));
 
-        if (!_windows.TryGetValue(paper.Id, out var window))
-        {
-            window = new PaperWindow(paper, this);
-            _windows[paper.Id] = window;
-        }
+        var window = GetOrCreatePaperWindow(paper);
         window.CancelPendingVisibilityTransitions();
 
         var showAsDeepCapsuleOnly = State.UseCapsuleMode && State.UseDeepCapsuleMode && paper.IsCollapsed;
@@ -1054,6 +1075,11 @@ public sealed partial class AppController : IDisposable
 
     public void ShowAllPapers()
     {
+        if (_isExiting)
+        {
+            return;
+        }
+
         EnsurePapersOnScreen();
 
         var wasSuppressingDirty = _suppressDirty;
@@ -2168,10 +2194,7 @@ public sealed partial class AppController : IDisposable
     {
         _isExiting = true;
         _saveTimer.Stop();
-        if (_trayMenu != null)
-        {
-            _trayMenu.IsOpen = false;
-        }
+        DisposeTrayIcon();
         _settingsWindow?.Close();
         _settingsWindow = null;
         SaveNow(sync: true);
@@ -2189,12 +2212,35 @@ public sealed partial class AppController : IDisposable
 
         PaperWindow.StopPersistentScriptProcesses();
 
-        _trayIcon?.Dispose();
+        Application.Current.Shutdown();
+        Environment.Exit(0);
+    }
+
+    private void DisposeTrayIcon()
+    {
+        if (_trayMenu != null)
+        {
+            _trayMenu.IsOpen = false;
+        }
+
+        var trayIcon = _trayIcon;
         _trayIcon = null;
         _trayMenu = null;
 
-        Application.Current.Shutdown();
-        Environment.Exit(0);
+        if (trayIcon == null)
+        {
+            return;
+        }
+
+        try
+        {
+            trayIcon.Visibility = Visibility.Hidden;
+            trayIcon.Dispose();
+        }
+        catch
+        {
+            // Exit cleanup must not be blocked by a stale shell notification icon.
+        }
     }
 
     public void Dispose()
@@ -2204,10 +2250,7 @@ public sealed partial class AppController : IDisposable
         SystemEvents.SessionSwitch -= OnSessionSwitch;
         _saveTimer.Stop();
         _topmostRefreshTimer.Stop();
-        if (_trayMenu != null)
-        {
-            _trayMenu.IsOpen = false;
-        }
+        DisposeTrayIcon();
         _settingsWindow?.Close();
         _settingsWindow = null;
         foreach (var window in _windows.Values.ToList())
@@ -2220,8 +2263,5 @@ public sealed partial class AppController : IDisposable
         }
         _masterCapsules.Clear();
         PaperWindow.StopPersistentScriptProcesses();
-        _trayIcon?.Dispose();
-        _trayIcon = null;
-        _trayMenu = null;
     }
 }

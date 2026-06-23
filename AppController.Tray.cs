@@ -27,9 +27,22 @@ public sealed partial class AppController
         trayIcon.ToolTipText = "PaperTodo";
         trayIcon.IconSource = LoadTrayIconSource();
         trayIcon.ContextMenu = _trayMenu;
-        trayIcon.PreviewTrayContextMenuOpen += (_, _) => RebuildTrayMenu();
+        trayIcon.PreviewTrayContextMenuOpen += (_, _) =>
+        {
+            if (_isExiting)
+            {
+                return;
+            }
+
+            RebuildTrayMenu();
+        };
         trayIcon.TrayMouseDoubleClick += (_, _) =>
         {
+            if (_isExiting)
+            {
+                return;
+            }
+
             Application.Current.Dispatcher.Invoke(ShowAllPapers);
         };
 

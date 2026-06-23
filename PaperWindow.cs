@@ -214,6 +214,7 @@ public sealed partial class PaperWindow : Window
     public bool IsDeepCapsuleSlotVisible => _deepCapsuleSlotHost?.IsVisible == true;
     public bool HasVisibleSurface => IsVisible || IsDeepCapsuleSlotVisible;
     public bool IsCollapseAllRetracted => _isCollapseAllRetracted;
+    public bool IsClosed { get; private set; }
     public bool HasExpandedDeepCapsuleSlotReservation => _deepCapsuleSlotState is DeepCapsuleSlotState.ExpandedReserved or DeepCapsuleSlotState.Retracting;
     public bool OccupiesDeepCapsuleSlot => _paper.IsVisible && (_paper.IsCollapsed || _deepCapsuleSlotState == DeepCapsuleSlotState.ExpandedReserved);
     public bool SuppressGeometrySave => _suppressGeometrySave;
@@ -604,6 +605,7 @@ public sealed partial class PaperWindow : Window
             }
         };
         Closing += OnClosing;
+        Closed += (_, _) => IsClosed = true;
 
         if (_paper.Type == PaperTypes.Note)
         {
@@ -623,6 +625,11 @@ public sealed partial class PaperWindow : Window
 
     public void CloseForReal()
     {
+        if (IsClosed)
+        {
+            return;
+        }
+
         CloseExpandedDeepCapsuleSlotHostForReal();
         _closeForReal = true;
         Close();
