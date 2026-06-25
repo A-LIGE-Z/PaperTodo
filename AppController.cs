@@ -39,6 +39,7 @@ public sealed partial class AppController : IDisposable
     private CheckBox? _settingsDeepCapsuleModeCheckBox;
     private CheckBox? _settingsDeepCapsuleExpandedSlotCheckBox;
     private CheckBox? _settingsCollapseExpandedDeepCapsuleOnClickCheckBox;
+    private CheckBox? _settingsHideDeepCapsulesWhenCoveredCheckBox;
     private CheckBox? _settingsCapsuleCollapseAllCheckBox;
     private bool _isExiting;
     private bool _suppressDirty;
@@ -56,6 +57,7 @@ public sealed partial class AppController : IDisposable
     private string? _noteLinkTargetItemId;
     private int _deepCapsuleContextMenuOpenCount;
     private readonly HashSet<string> _shownTodoReminderKeys = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, DateTime> _lastTodoReminderShownAt = new(StringComparer.Ordinal);
     private readonly Dictionary<string, TodoReminderBubbleWindow> _todoReminderBubbles = new(StringComparer.Ordinal);
     // One master pill per docked-capsule queue, keyed by QueueKey(monitorDevice, edge).
     private readonly Dictionary<string, MasterCapsuleWindow> _masterCapsules = new();
@@ -73,6 +75,14 @@ public sealed partial class AppController : IDisposable
     public bool SuppressDeepCapsuleTopmostForContextMenu => _deepCapsuleContextMenuOpenCount > 0;
     public IntPtr FullscreenAvoidanceWindow => _fullscreenAvoidanceWindow;
     private bool ShouldAvoidFullscreenTopmost => FullscreenTopmostModes.Normalize(State.FullscreenTopmostMode) == FullscreenTopmostModes.Avoid;
+
+    public bool ShouldHideDeepCapsuleForOcclusion(Rect capsuleBounds)
+    {
+        return State.HideDeepCapsulesWhenCovered &&
+            State.UseCapsuleMode &&
+            State.UseDeepCapsuleMode &&
+            ExternalWindowOcclusionDetector.IsAreaCovered(capsuleBounds);
+    }
 
     public AppController()
     {
@@ -449,6 +459,10 @@ public sealed partial class AppController : IDisposable
         {
             _shownTodoReminderKeys.Remove(key);
         }
+        foreach (var key in _lastTodoReminderShownAt.Keys.Where(k => k.StartsWith(itemId + "|", StringComparison.Ordinal)).ToList())
+        {
+            _lastTodoReminderShownAt.Remove(key);
+        }
 
         if (_todoReminderBubbles.Remove(itemId, out var bubble))
         {
@@ -464,6 +478,8 @@ public sealed partial class AppController : IDisposable
         }
 
         var now = DateTime.Now;
+        var relativeDueWindows = new HashSet<string>(StringComparer.Ordinal);
+        var reminderCandidates = new List<TodoReminderCandidate>();
         foreach (var paper in State.Papers.Where(p => p.Type == PaperTypes.Todo).ToList())
         {
             foreach (var item in paper.Items.ToList())
@@ -473,24 +489,102 @@ public sealed partial class AppController : IDisposable
                     continue;
                 }
 
-                if (now < dueAt.AddMinutes(-TodoReminderLeadTimeMinutes) ||
-                    now > dueAt.AddMinutes(TodoReminderGraceMinutes))
+                if (State.ShowTodoDueRelativeTime)
+                {
+                    relativeDueWindows.Add(paper.Id);
+                }
+
+                if (!ShouldShowTodoReminder(item, dueAt, now))
                 {
                     continue;
                 }
 
-                var reminderKey = $"{item.Id}|{item.DueAtLocal}";
-                if (!_shownTodoReminderKeys.Add(reminderKey))
-                {
-                    continue;
-                }
+                reminderCandidates.Add(new TodoReminderCandidate(paper, item, dueAt));
+            }
+        }
 
-                ShowTodoReminderBubble(paper, item, dueAt);
+        if (TodoReminderScopes.Normalize(State.TodoReminderScope) == TodoReminderScopes.Nearest &&
+            reminderCandidates.Count > 1)
+        {
+            reminderCandidates = reminderCandidates
+                .OrderBy(candidate => Math.Abs((candidate.DueAt - now).TotalSeconds))
+                .ThenBy(candidate => candidate.DueAt)
+                .Take(1)
+                .ToList();
+        }
+
+        foreach (var candidate in reminderCandidates)
+        {
+            MarkTodoReminderShown(candidate.Item, now);
+            ShowTodoReminderBubble(candidate.Paper, candidate.Item, candidate.DueAt, now);
+        }
+
+        foreach (var paperId in relativeDueWindows)
+        {
+            if (_windows.TryGetValue(paperId, out var window))
+            {
+                window.RefreshTodoRowsForExternalChange();
             }
         }
     }
 
-    private void ShowTodoReminderBubble(PaperData paper, PaperItem item, DateTime dueAt)
+    private bool ShouldShowTodoReminder(PaperItem item, DateTime dueAt, DateTime now)
+    {
+        var reminderKey = TodoReminderKey(item);
+        if (State.UseTodoReminderInterval)
+        {
+            var interval = TodoReminderInterval(item);
+            if (dueAt > now.Add(interval))
+            {
+                return false;
+            }
+
+            return !_lastTodoReminderShownAt.TryGetValue(reminderKey, out var lastShown) ||
+                now - lastShown >= interval;
+        }
+
+        if (now < dueAt.AddMinutes(-TodoReminderLeadTimeMinutes) ||
+            now > dueAt.AddMinutes(TodoReminderGraceMinutes))
+        {
+            return false;
+        }
+
+        return !_shownTodoReminderKeys.Contains(reminderKey);
+    }
+
+    private void MarkTodoReminderShown(PaperItem item, DateTime now)
+    {
+        var reminderKey = TodoReminderKey(item);
+        if (State.UseTodoReminderInterval)
+        {
+            _lastTodoReminderShownAt[reminderKey] = now;
+        }
+        else
+        {
+            _shownTodoReminderKeys.Add(reminderKey);
+        }
+    }
+
+    private TimeSpan TodoReminderInterval(PaperItem item)
+    {
+        var value = item.ReminderIntervalValue is int itemValue && itemValue > 0
+            ? itemValue
+            : State.TodoReminderIntervalValue;
+        var unit = item.ReminderIntervalValue is int itemValue2 && itemValue2 > 0
+            ? item.ReminderIntervalUnit
+            : State.TodoReminderIntervalUnit;
+
+        value = Math.Clamp(value <= 0 ? 10 : value, 1, 240);
+        return TodoReminderIntervalUnits.Normalize(unit) == TodoReminderIntervalUnits.Hours
+            ? TimeSpan.FromHours(value)
+            : TimeSpan.FromMinutes(value);
+    }
+
+    private static string TodoReminderKey(PaperItem item) => $"{item.Id}|{item.DueAtLocal}";
+
+    private readonly record struct TodoReminderCandidate(PaperData Paper, PaperItem Item, DateTime DueAt);
+
+    private void ShowTodoReminderBubble(PaperData paper, PaperItem item, DateTime dueAt, DateTime now)
     {
         var itemText = string.IsNullOrWhiteSpace(item.Text)
             ? PaperTitleText(paper)
@@ -500,16 +594,19 @@ public sealed partial class AppController : IDisposable
             itemText = itemText[..80] + "...";
         }
 
-        var dueText = dueAt.ToString("yyyy-MM-dd HH:mm", CultureInfo.CurrentCulture);
+        var dueText = dueAt.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.CurrentCulture);
+        var relativeText = dueAt >= now
+            ? Strings.Format("TodoReminderBubbleRemainingSeconds", FormatTodoReminderCountdown(dueAt - now))
+            : Strings.Format("TodoReminderBubbleOverdueSeconds", FormatTodoReminderCountdown(now - dueAt));
         var title = Strings.Get("TodoReminderBubbleTitle");
-        var message = Strings.Format("TodoReminderBubbleMessage", dueText, itemText);
+        var message = Strings.Format("TodoReminderBubbleMessage", dueText, relativeText, itemText);
 
         if (_todoReminderBubbles.Remove(item.Id, out var existing))
         {
             existing.Close();
         }
 
-        var bubble = new TodoReminderBubbleWindow(title, message, () =>
+        var bubble = new TodoReminderBubbleWindow(title, message, State.TodoReminderBubbleDurationSeconds, () =>
         {
             if (_todoReminderBubbles.Remove(item.Id, out var current))
             {
@@ -530,6 +627,43 @@ public sealed partial class AppController : IDisposable
         var anchor = ReminderAnchorFor(paper);
         bubble.PlaceNear(anchor);
         bubble.Show();
+    }
+
+    private static string FormatTodoReminderCountdown(TimeSpan span)
+    {
+        var totalSeconds = Math.Max(0, (long)Math.Ceiling(span.TotalSeconds));
+        var days = totalSeconds / 86400;
+        totalSeconds %= 86400;
+        var hours = totalSeconds / 3600;
+        totalSeconds %= 3600;
+        var minutes = totalSeconds / 60;
+        var seconds = totalSeconds % 60;
+
+        if (days > 0)
+        {
+            return string.Concat(
+                Strings.Format("TodoReminderCountdownDay", days),
+                Strings.Format("TodoReminderCountdownHour", hours),
+                Strings.Format("TodoReminderCountdownMinute", minutes),
+                Strings.Format("TodoReminderCountdownSecond", seconds));
+        }
+
+        if (hours > 0)
+        {
+            return string.Concat(
+                Strings.Format("TodoReminderCountdownHour", hours),
+                Strings.Format("TodoReminderCountdownMinute", minutes),
+                Strings.Format("TodoReminderCountdownSecond", seconds));
+        }
+
+        if (minutes > 0)
+        {
+            return string.Concat(
+                Strings.Format("TodoReminderCountdownMinute", minutes),
+                Strings.Format("TodoReminderCountdownSecond", seconds));
+        }
+
+        return Strings.Format("TodoReminderCountdownSecond", seconds);
     }
 
     private Rect ReminderAnchorFor(PaperData paper)
@@ -1022,11 +1156,17 @@ public sealed partial class AppController : IDisposable
         }
 
         var avoidanceWindowChanged = avoidanceWindow != _fullscreenAvoidanceWindow;
+        var shouldRefreshCoveredCapsules = State.UseCapsuleMode && State.UseDeepCapsuleMode && State.HideDeepCapsulesWhenCovered;
         if (shouldSuppress == _suppressTopmostForFullscreenForeground && !avoidanceWindowChanged)
         {
             if (!shouldSuppress)
             {
                 RefreshFloatingSurfaceZOrder();
+            }
+
+            if (shouldRefreshCoveredCapsules)
+            {
+                ArrangeDeepCapsules(animate: false);
             }
 
             if (ShouldAvoidFullscreenTopmost)
@@ -1044,6 +1184,11 @@ public sealed partial class AppController : IDisposable
             window.RefreshEffectiveTopmost();
         }
         foreach (var m in _masterCapsules.Values) m.RefreshEffectiveTopmost();
+
+        if (shouldRefreshCoveredCapsules)
+        {
+            ArrangeDeepCapsules(animate: false);
+        }
 
         if (ShouldAvoidFullscreenTopmost)
         {

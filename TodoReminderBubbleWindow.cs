@@ -12,7 +12,7 @@ public sealed class TodoReminderBubbleWindow : Window
 {
     private readonly DispatcherTimer _closeTimer;
 
-    public TodoReminderBubbleWindow(string title, string message, Action activate)
+    public TodoReminderBubbleWindow(string title, string message, int durationSeconds, Action activate)
     {
         Width = 260;
         Height = 104;
@@ -93,7 +93,7 @@ public sealed class TodoReminderBubbleWindow : Window
 
         _closeTimer = new DispatcherTimer
         {
-            Interval = TimeSpan.FromSeconds(9)
+            Interval = TimeSpan.FromSeconds(Math.Clamp(durationSeconds <= 0 ? 5 : durationSeconds, 1, 600))
         };
         _closeTimer.Tick += (_, _) =>
         {

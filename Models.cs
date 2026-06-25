@@ -80,6 +80,28 @@ public static class FullscreenTopmostModes
     }
 }
 
+public static class TodoReminderIntervalUnits
+{
+    public const string Minutes = "minutes";
+    public const string Hours = "hours";
+
+    public static string Normalize(string? unit)
+    {
+        return unit is Hours ? Hours : Minutes;
+    }
+}
+
+public static class TodoReminderScopes
+{
+    public const string Nearest = "nearest";
+    public const string All = "all";
+
+    public static string Normalize(string? scope)
+    {
+        return scope is Nearest ? Nearest : All;
+    }
+}
+
 public static class DeepCapsuleSides
 {
     public const string Left = "left";
@@ -144,6 +166,7 @@ public sealed class AppState
     public List<PaperData> Papers { get; set; } = new();
     public string Theme { get; set; } = "system";
     public string ColorScheme { get; set; } = ColorSchemes.Warm;
+    public string CustomThemeColorHex { get; set; } = "";
     public string MarkdownRenderMode { get; set; } = MarkdownRenderModes.Enhanced;
     public string TodoVisualSize { get; set; } = TodoVisualSizes.Medium;
     public string UiFontPreset { get; set; } = UiFontPresets.Default;
@@ -156,6 +179,12 @@ public sealed class AppState
     public bool ShowTopBarExternalOpenButton { get; set; } = true;
     public bool HidePapersFromWindowSwitcher { get; set; }
     public bool EnableTodoNoteLinks { get; set; } = true;
+    public bool ShowTodoDueRelativeTime { get; set; }
+    public bool UseTodoReminderInterval { get; set; }
+    public int TodoReminderIntervalValue { get; set; } = 10;
+    public string TodoReminderIntervalUnit { get; set; } = TodoReminderIntervalUnits.Minutes;
+    public string TodoReminderScope { get; set; } = TodoReminderScopes.All;
+    public int TodoReminderBubbleDurationSeconds { get; set; } = 5;
     public bool ShowLinkedNoteName { get; set; }
     public bool AllowLongLinkedNoteTitles { get; set; }
     public bool HideLinkedNotesFromCapsules { get; set; }
@@ -166,6 +195,10 @@ public sealed class AppState
     public Dictionary<string, bool> CapsuleCollapseAllActiveQueues { get; set; } = new();
     public bool ShowDeepCapsuleWhileExpanded { get; set; } = true;
     public bool CollapseExpandedDeepCapsuleOnClick { get; set; }
+    public bool HideDeepCapsulesWhenCovered { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool HideDeepCapsulesWhenFullscreen { get; set; }
     public bool EnableAnimations { get; set; } = true;
     public bool EnableToolTips { get; set; } = true;
     public string FullscreenTopmostMode { get; set; } = FullscreenTopmostModes.Avoid;
@@ -233,4 +266,10 @@ public sealed class PaperItem
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? DueAtLocal { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? ReminderIntervalValue { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ReminderIntervalUnit { get; set; }
 }

@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Globalization;
 using System.Windows.Media;
 using Brush = System.Windows.Media.Brush;
 using Color = System.Windows.Media.Color;
@@ -84,7 +85,7 @@ public static class Theme
             }
 
             var pair = Schemes.TryGetValue(CurrentScheme, out var s) ? s : Schemes[ColorSchemes.Warm];
-            _paletteCache = IsDark ? pair.Dark : pair.Light;
+            _paletteCache = ApplyCustomAccent(Clone(IsDark ? pair.Dark : pair.Light));
             return _paletteCache;
         }
     }
@@ -165,6 +166,111 @@ public static class Theme
     private static Color Darken(Color c, double t) => Mix(c, Color.FromRgb(0, 0, 0), t);
 
     private static Color Lighten(Color c, double t) => Mix(c, Color.FromRgb(255, 255, 255), t);
+
+    public static string NormalizeCustomThemeColorHex(string? value)
+    {
+        var text = (value ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return "";
+        }
+
+        if (!text.StartsWith("#", StringComparison.Ordinal))
+        {
+            text = "#" + text;
+        }
+
+        return TryParseHexColor(text, out _) ? text.ToUpperInvariant() : "";
+    }
+
+    public static bool TryParseHexColor(string? value, out Color color)
+    {
+        color = default;
+        var text = (value ?? "").Trim();
+        if (text.StartsWith("#", StringComparison.Ordinal))
+        {
+            text = text[1..];
+        }
+
+        if (text.Length != 6 ||
+            !byte.TryParse(text[..2], NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var r) ||
+            !byte.TryParse(text.Substring(2, 2), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var g) ||
+            !byte.TryParse(text.Substring(4, 2), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var b))
+        {
+            return false;
+        }
+
+        color = Color.FromRgb(r, g, b);
+        return true;
+    }
+
+    private static Palette Clone(Palette source)
+    {
+        return new Palette
+        {
+            Paper = source.Paper,
+            PaperBorder = source.PaperBorder,
+            Text = source.Text,
+            WeakText = source.WeakText,
+            Active = source.Active,
+            Code = source.Code,
+            QuoteBorder = source.QuoteBorder,
+            Link = source.Link,
+            CheckBox = source.CheckBox,
+            Tint = source.Tint,
+            Danger = source.Danger
+        };
+    }
+
+    private static Palette ApplyCustomAccent(Palette palette)
+    {
+        if (!TryParseHexColor(AppController.Current?.State?.CustomThemeColorHex, out var accent))
+        {
+            return palette;
+        }
+
+        var active = IsDark
+            ? (RelativeLuminance(accent) < 0.26 ? Lighten(accent, 0.36) : Lighten(accent, 0.12))
+            : (RelativeLuminance(accent) > 0.78 ? Darken(accent, 0.30) : accent);
+
+        if (IsDark)
+        {
+            palette.Paper = Mix(accent, Color.FromRgb(0, 0, 0), 0.82);
+            palette.Text = Mix(accent, Color.FromRgb(255, 255, 255), 0.82);
+            palette.PaperBorder = Mix(palette.Paper, palette.Text, 0.17);
+            palette.WeakText = Mix(palette.Text, palette.Paper, 0.46);
+            palette.Code = Mix(accent, Color.FromRgb(0, 0, 0), 0.74);
+            palette.Tint = Lighten(active, 0.50);
+        }
+        else
+        {
+            palette.Paper = Mix(accent, Color.FromRgb(255, 255, 255), 0.90);
+            palette.Text = Mix(accent, Color.FromRgb(0, 0, 0), 0.72);
+            palette.PaperBorder = Mix(palette.Paper, palette.Text, 0.16);
+            palette.WeakText = Mix(palette.Text, palette.Paper, 0.46);
+            palette.Code = Mix(accent, Color.FromRgb(255, 255, 255), 0.82);
+            palette.Tint = Darken(active, 0.10);
+        }
+
+        palette.Active = active;
+        palette.Link = Mix(active, palette.Text, IsDark ? 0.10 : 0.12);
+        palette.CheckBox = Mix(active, palette.PaperBorder, IsDark ? 0.30 : 0.34);
+        palette.QuoteBorder = Mix(active, palette.PaperBorder, IsDark ? 0.34 : 0.40);
+        return palette;
+    }
+
+    private static double RelativeLuminance(Color color)
+    {
+        static double Channel(byte value)
+        {
+            var normalized = value / 255.0;
+            return normalized <= 0.03928
+                ? normalized / 12.92
+                : System.Math.Pow((normalized + 0.055) / 1.055, 2.4);
+        }
+
+        return 0.2126 * Channel(color.R) + 0.7152 * Channel(color.G) + 0.0722 * Channel(color.B);
+    }
 
     private static Dictionary<string, (Palette Light, Palette Dark)> BuildSchemes()
     {

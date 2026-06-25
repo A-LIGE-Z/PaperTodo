@@ -2,11 +2,13 @@ using System;
 using System.Diagnostics;
 using System.Globalization;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Data;
 using System.Windows.Input;
+using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Threading;
 using Hardcodet.Wpf.TaskbarNotification;
@@ -80,6 +82,175 @@ public sealed partial class AppController
         };
 
         return CreateSegmentSelector(segments, ColorSchemes.Normalize(State.ColorScheme), SetColorScheme);
+    }
+
+    private void SetCustomThemeColor(string hex)
+    {
+        var normalized = Theme.NormalizeCustomThemeColorHex(hex);
+        if (State.CustomThemeColorHex == normalized)
+        {
+            return;
+        }
+
+        State.CustomThemeColorHex = normalized;
+        Theme.Invalidate();
+        SaveNow();
+
+        foreach (var window in _windows.Values)
+        {
+            window.UpdateTheme();
+        }
+        foreach (var m in _masterCapsules.Values) m.UpdateTheme();
+
+        RebuildTrayMenu();
+        RefreshSettingsWindowContent();
+    }
+
+    private UIElement CreateCustomThemeColorEditor()
+    {
+        var root = new Grid { Margin = new Thickness(0, 4, 0, 10) };
+        root.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        root.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var picker = new Button
+        {
+            Width = 44,
+            Height = 30,
+            Padding = new Thickness(0),
+            BorderThickness = new Thickness(1),
+            BorderBrush = TrayBorderBrush,
+            Background = CustomThemeSwatchBrush(),
+            Cursor = System.Windows.Input.Cursors.Hand,
+            ToolTip = Strings.Get("SettingsCustomThemeColorPick")
+        };
+        picker.Click += (_, _) => ShowCustomThemeColorDialog();
+        Grid.SetColumn(picker, 0);
+        root.Children.Add(picker);
+
+        var pickText = new TextBlock
+        {
+            Text = Strings.Get("SettingsCustomThemeColorPick"),
+            Foreground = TrayWeakTextBrush,
+            FontFamily = AppTypography.UiFontFamily,
+            FontSize = 12,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(8, 0, 8, 0)
+        };
+        Grid.SetColumn(pickText, 1);
+        root.Children.Add(pickText);
+
+        var clear = new Button
+        {
+            Content = Strings.Get("SettingsCustomThemeColorClear"),
+            MinWidth = 70,
+            Height = 26,
+            Margin = new Thickness(0, 0, 0, 0),
+            BorderThickness = new Thickness(0),
+            Background = TrayHoverBrush,
+            Foreground = TrayTextBrush,
+            FontFamily = AppTypography.UiFontFamily,
+            FontSize = 12,
+            Cursor = System.Windows.Input.Cursors.Hand
+        };
+        clear.Click += (_, _) => SetCustomThemeColor("");
+        Grid.SetColumn(clear, 2);
+        root.Children.Add(clear);
+
+        return root;
+    }
+
+    private void ShowCustomThemeColorDialog()
+    {
+        var current = Theme.TryParseHexColor(State.CustomThemeColorHex, out var color)
+            ? color
+            : BrushToColor(Theme.ActiveBrush);
+
+        var owner = _settingsWindow is null ? IntPtr.Zero : new WindowInteropHelper(_settingsWindow).Handle;
+        if (!TryChooseCustomThemeColor(owner, current, out var selected))
+        {
+            return;
+        }
+
+        SetCustomThemeColor($"#{selected.R:X2}{selected.G:X2}{selected.B:X2}");
+    }
+
+    private static bool TryChooseCustomThemeColor(IntPtr owner, Color current, out Color selected)
+    {
+        var customColors = new int[16];
+        customColors[0] = ToColorRef(current);
+
+        var handle = GCHandle.Alloc(customColors, GCHandleType.Pinned);
+        try
+        {
+            var chooseColor = new ChooseColor
+            {
+                lStructSize = Marshal.SizeOf<ChooseColor>(),
+                hwndOwner = owner,
+                rgbResult = ToColorRef(current),
+                lpCustColors = handle.AddrOfPinnedObject(),
+                Flags = ChooseColorFlags.CC_ANYCOLOR | ChooseColorFlags.CC_FULLOPEN | ChooseColorFlags.CC_RGBINIT
+            };
+
+            if (!ChooseColorW(ref chooseColor))
+            {
+                selected = default;
+                return false;
+            }
+
+            selected = FromColorRef(chooseColor.rgbResult);
+            return true;
+        }
+        finally
+        {
+            handle.Free();
+        }
+    }
+
+    private static Color BrushToColor(Brush brush)
+    {
+        return brush is SolidColorBrush solid
+            ? solid.Color
+            : Color.FromRgb(140, 115, 80);
+    }
+
+    private static Brush CustomThemeSwatchBrush()
+    {
+        return Theme.TryParseHexColor(AppController.Current?.State?.CustomThemeColorHex, out var color)
+            ? new SolidColorBrush(color)
+            : Theme.ActiveBrush;
+    }
+
+    private static int ToColorRef(Color color) => color.R | (color.G << 8) | (color.B << 16);
+
+    private static Color FromColorRef(int colorRef) => Color.FromRgb(
+        (byte)(colorRef & 0xFF),
+        (byte)((colorRef >> 8) & 0xFF),
+        (byte)((colorRef >> 16) & 0xFF));
+
+    [DllImport("comdlg32.dll", CharSet = CharSet.Unicode, EntryPoint = "ChooseColorW")]
+    private static extern bool ChooseColorW(ref ChooseColor lpcc);
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    private struct ChooseColor
+    {
+        public int lStructSize;
+        public IntPtr hwndOwner;
+        public IntPtr hInstance;
+        public int rgbResult;
+        public IntPtr lpCustColors;
+        public ChooseColorFlags Flags;
+        public IntPtr lCustData;
+        public IntPtr lpfnHook;
+        public IntPtr lpTemplateName;
+    }
+
+    [Flags]
+    private enum ChooseColorFlags
+    {
+        CC_RGBINIT = 0x00000001,
+        CC_FULLOPEN = 0x00000002,
+        CC_ANYCOLOR = 0x00000100
     }
 
     private void SetUiFontPreset(string preset)
@@ -195,6 +366,180 @@ public sealed partial class AppController
         };
 
         return CreateSegmentSelector(segments, TodoVisualSizes.Normalize(State.TodoVisualSize), SetTodoVisualSize);
+    }
+
+    private void SetTodoReminderIntervalUnit(string unit)
+    {
+        var normalized = TodoReminderIntervalUnits.Normalize(unit);
+        if (State.TodoReminderIntervalUnit == normalized)
+        {
+            return;
+        }
+
+        State.TodoReminderIntervalUnit = normalized;
+        _lastTodoReminderShownAt.Clear();
+        SaveNow();
+        RefreshSettingsWindowContent();
+    }
+
+    private UIElement CreateTodoReminderIntervalUnitSelector()
+    {
+        var segments = new[]
+        {
+            (TodoReminderIntervalUnits.Minutes, Strings.Get("TodoReminderIntervalUnitMinutes")),
+            (TodoReminderIntervalUnits.Hours, Strings.Get("TodoReminderIntervalUnitHours"))
+        };
+
+        return CreateSegmentSelector(segments, TodoReminderIntervalUnits.Normalize(State.TodoReminderIntervalUnit), SetTodoReminderIntervalUnit);
+    }
+
+    private void SetTodoReminderScope(string scope)
+    {
+        var normalized = TodoReminderScopes.Normalize(scope);
+        if (State.TodoReminderScope == normalized)
+        {
+            return;
+        }
+
+        State.TodoReminderScope = normalized;
+        SaveNow();
+        RefreshSettingsWindowContent();
+    }
+
+    private UIElement CreateTodoReminderScopeSegmentSelector()
+    {
+        var segments = new[]
+        {
+            (TodoReminderScopes.Nearest, Strings.Get("TodoReminderScopeNearest")),
+            (TodoReminderScopes.All, Strings.Get("TodoReminderScopeAll"))
+        };
+
+        return CreateSegmentSelector(segments, TodoReminderScopes.Normalize(State.TodoReminderScope), SetTodoReminderScope);
+    }
+
+    private UIElement CreateTodoReminderIntervalStepper()
+    {
+        var textBox = new TextBox
+        {
+            Text = State.TodoReminderIntervalValue.ToString(CultureInfo.InvariantCulture),
+            Foreground = TrayTextBrush,
+            CaretBrush = TrayTextBrush,
+            Background = Brushes.Transparent,
+            BorderBrush = TrayBorderBrush,
+            BorderThickness = new Thickness(1),
+            Padding = new Thickness(8, 4, 8, 4),
+            Margin = new Thickness(0, 4, 0, 10),
+            FontSize = 13,
+            Height = 28,
+            HorizontalContentAlignment = HorizontalAlignment.Center,
+            VerticalContentAlignment = VerticalAlignment.Center,
+            Style = BuildSettingsTextBoxStyle()
+        };
+
+        void Commit()
+        {
+            var value = int.TryParse(textBox.Text.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed)
+                ? parsed
+                : State.TodoReminderIntervalValue;
+            SetTodoReminderIntervalValue(value);
+            textBox.Text = State.TodoReminderIntervalValue.ToString(CultureInfo.InvariantCulture);
+            textBox.CaretIndex = textBox.Text.Length;
+        }
+
+        textBox.GotKeyboardFocus += (_, _) => textBox.SelectAll();
+        textBox.LostKeyboardFocus += (_, _) => Commit();
+        textBox.PreviewKeyDown += (_, e) =>
+        {
+            if (e.Key == Key.Enter)
+            {
+                Commit();
+                Keyboard.ClearFocus();
+                e.Handled = true;
+            }
+            else if (e.Key == Key.Escape)
+            {
+                textBox.Text = State.TodoReminderIntervalValue.ToString(CultureInfo.InvariantCulture);
+                Keyboard.ClearFocus();
+                e.Handled = true;
+            }
+        };
+
+        return textBox;
+    }
+
+    private void SetTodoReminderIntervalValue(int value)
+    {
+        var normalized = Math.Clamp(value <= 0 ? 1 : value, 1, 240);
+        if (State.TodoReminderIntervalValue == normalized)
+        {
+            return;
+        }
+
+        State.TodoReminderIntervalValue = normalized;
+        _lastTodoReminderShownAt.Clear();
+        SaveNow();
+    }
+
+    private UIElement CreateTodoReminderBubbleDurationEditor()
+    {
+        var textBox = new TextBox
+        {
+            Text = State.TodoReminderBubbleDurationSeconds.ToString(CultureInfo.InvariantCulture),
+            Foreground = TrayTextBrush,
+            CaretBrush = TrayTextBrush,
+            Background = Brushes.Transparent,
+            BorderBrush = TrayBorderBrush,
+            BorderThickness = new Thickness(1),
+            Padding = new Thickness(8, 4, 8, 4),
+            Margin = new Thickness(0, 4, 0, 10),
+            FontSize = 13,
+            Height = 28,
+            HorizontalContentAlignment = HorizontalAlignment.Center,
+            VerticalContentAlignment = VerticalAlignment.Center,
+            Style = BuildSettingsTextBoxStyle()
+        };
+
+        void Commit()
+        {
+            var value = int.TryParse(textBox.Text.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed)
+                ? parsed
+                : State.TodoReminderBubbleDurationSeconds;
+            SetTodoReminderBubbleDurationSeconds(value);
+            textBox.Text = State.TodoReminderBubbleDurationSeconds.ToString(CultureInfo.InvariantCulture);
+            textBox.CaretIndex = textBox.Text.Length;
+        }
+
+        textBox.GotKeyboardFocus += (_, _) => textBox.SelectAll();
+        textBox.LostKeyboardFocus += (_, _) => Commit();
+        textBox.PreviewKeyDown += (_, e) =>
+        {
+            if (e.Key == Key.Enter)
+            {
+                Commit();
+                Keyboard.ClearFocus();
+                e.Handled = true;
+            }
+            else if (e.Key == Key.Escape)
+            {
+                textBox.Text = State.TodoReminderBubbleDurationSeconds.ToString(CultureInfo.InvariantCulture);
+                Keyboard.ClearFocus();
+                e.Handled = true;
+            }
+        };
+
+        return textBox;
+    }
+
+    private void SetTodoReminderBubbleDurationSeconds(int value)
+    {
+        var normalized = Math.Clamp(value <= 0 ? 5 : value, 1, 600);
+        if (State.TodoReminderBubbleDurationSeconds == normalized)
+        {
+            return;
+        }
+
+        State.TodoReminderBubbleDurationSeconds = normalized;
+        SaveNow();
     }
 
     private UIElement CreateExternalMarkdownExtensionEditor()
@@ -615,7 +960,7 @@ public sealed partial class AppController
         leftColumn.Children.Add(WrapWithHint(SettingsFieldLabel(Strings.Get("TrayThemeMode")), "TipThemeMode"));
         leftColumn.Children.Add(CreateThemeSegmentSelector());
         leftColumn.Children.Add(WrapWithHint(SettingsFieldLabel(Strings.Get("SettingsColorScheme")), "TipColorScheme"));
-        leftColumn.Children.Add(CreateColorSchemeSegmentSelector());
+        leftColumn.Children.Add(CreateCustomThemeColorEditor());
         leftColumn.Children.Add(WrapWithHint(SettingsFieldLabel(Strings.Get("SettingsUiFont")), "TipUiFont"));
         leftColumn.Children.Add(CreateUiFontPresetSegmentSelector());
         leftColumn.Children.Add(WrapWithHint(SettingsFieldLabel(Strings.Get("TrayMarkdownRenderMode")), "TipMarkdownRender"));
@@ -638,6 +983,16 @@ public sealed partial class AppController
 
         rightColumn.Children.Add(SettingsSectionLabel(Strings.Get("SettingsTodoNote")));
         rightColumn.Children.Add(WrapWithHint(SettingsToggle(Strings.Get("SettingsEnableTodoNoteLinks"), State.EnableTodoNoteLinks, ToggleTodoNoteLinks), "TipEnableTodoNoteLinks"));
+        rightColumn.Children.Add(WrapWithHint(SettingsToggle(Strings.Get("SettingsShowTodoDueRelativeTime"), State.ShowTodoDueRelativeTime, ToggleTodoDueRelativeTime), "TipShowTodoDueRelativeTime"));
+        rightColumn.Children.Add(WrapWithHint(SettingsToggle(Strings.Get("SettingsUseTodoReminderInterval"), State.UseTodoReminderInterval, ToggleTodoReminderInterval), "TipUseTodoReminderInterval"));
+        rightColumn.Children.Add(WrapWithHint(SettingsFieldLabel(Strings.Get("SettingsTodoReminderInterval"), topMargin: 6), "TipTodoReminderInterval"));
+        rightColumn.Children.Add(CreateTodoReminderIntervalStepper());
+        rightColumn.Children.Add(WrapWithHint(SettingsFieldLabel(Strings.Get("SettingsTodoReminderIntervalUnit")), "TipTodoReminderIntervalUnit"));
+        rightColumn.Children.Add(CreateTodoReminderIntervalUnitSelector());
+        rightColumn.Children.Add(WrapWithHint(SettingsFieldLabel(Strings.Get("SettingsTodoReminderScope")), "TipTodoReminderScope"));
+        rightColumn.Children.Add(CreateTodoReminderScopeSegmentSelector());
+        rightColumn.Children.Add(WrapWithHint(SettingsFieldLabel(Strings.Get("SettingsTodoReminderBubbleDuration"), topMargin: 6), "TipTodoReminderBubbleDuration"));
+        rightColumn.Children.Add(CreateTodoReminderBubbleDurationEditor());
         var showLinkedNoteNameToggle = SettingsToggle(Strings.Get("SettingsShowLinkedNoteName"), State.ShowLinkedNoteName, ToggleLinkedNoteNameDisplay);
         showLinkedNoteNameToggle.IsEnabled = State.EnableTodoNoteLinks;
         rightColumn.Children.Add(WrapWithHint(showLinkedNoteNameToggle, "TipShowLinkedNoteName"));
@@ -665,11 +1020,13 @@ public sealed partial class AppController
         _settingsDeepCapsuleModeCheckBox = SettingsToggle(Strings.Get("TrayDeepCapsuleMode"), State.UseDeepCapsuleMode, ToggleDeepCapsuleMode);
         _settingsDeepCapsuleExpandedSlotCheckBox = SettingsToggle(Strings.Get("SettingsShowDeepCapsuleWhileExpanded"), State.ShowDeepCapsuleWhileExpanded, ToggleDeepCapsuleExpandedSlot);
         _settingsCollapseExpandedDeepCapsuleOnClickCheckBox = SettingsToggle(Strings.Get("SettingsCollapseExpandedDeepCapsuleOnClick"), State.CollapseExpandedDeepCapsuleOnClick, ToggleCollapseExpandedDeepCapsuleOnClick);
+        _settingsHideDeepCapsulesWhenCoveredCheckBox = SettingsToggle(Strings.Get("SettingsHideDeepCapsulesWhenCovered"), State.HideDeepCapsulesWhenCovered, ToggleHideDeepCapsulesWhenCovered);
         _settingsCapsuleCollapseAllCheckBox = SettingsToggle(Strings.Get("SettingsCapsuleCollapseAll"), State.UseCapsuleCollapseAll, ToggleCapsuleCollapseAll);
         rightColumn.Children.Add(WrapWithHint(_settingsCapsuleModeCheckBox, "TipCapsuleMode"));
         rightColumn.Children.Add(WrapWithHint(_settingsDeepCapsuleModeCheckBox, "TipDeepCapsuleMode"));
         rightColumn.Children.Add(WrapWithHint(_settingsDeepCapsuleExpandedSlotCheckBox, "TipShowDeepCapsuleWhileExpanded"));
         rightColumn.Children.Add(WrapWithHint(_settingsCollapseExpandedDeepCapsuleOnClickCheckBox, "TipCollapseExpandedDeepCapsuleOnClick"));
+        rightColumn.Children.Add(WrapWithHint(_settingsHideDeepCapsulesWhenCoveredCheckBox, "TipHideDeepCapsulesWhenCovered"));
         rightColumn.Children.Add(WrapWithHint(_settingsCapsuleCollapseAllCheckBox, "TipCapsuleCollapseAll"));
         RefreshSettingsCapsuleToggleStates();
         rightColumn.Children.Add(WrapWithHint(SettingsFieldLabel(Strings.Get("SettingsMaxTitleLength"), topMargin: 8), "TipMaxTitleLength"));
@@ -921,6 +1278,11 @@ public sealed partial class AppController
             _settingsCollapseExpandedDeepCapsuleOnClickCheckBox.IsChecked = State.CollapseExpandedDeepCapsuleOnClick;
             _settingsCollapseExpandedDeepCapsuleOnClickCheckBox.IsEnabled = State.UseCapsuleMode && State.UseDeepCapsuleMode &&
                 State.ShowDeepCapsuleWhileExpanded;
+        }
+        if (_settingsHideDeepCapsulesWhenCoveredCheckBox != null)
+        {
+            _settingsHideDeepCapsulesWhenCoveredCheckBox.IsChecked = State.HideDeepCapsulesWhenCovered;
+            _settingsHideDeepCapsulesWhenCoveredCheckBox.IsEnabled = State.UseCapsuleMode && State.UseDeepCapsuleMode;
         }
         if (_settingsCapsuleCollapseAllCheckBox != null)
         {
@@ -1343,6 +1705,28 @@ public sealed partial class AppController
         RefreshSettingsWindowContent();
     }
 
+    private void ToggleTodoDueRelativeTime()
+    {
+        State.ShowTodoDueRelativeTime = !State.ShowTodoDueRelativeTime;
+
+        foreach (var window in _windows.Values)
+        {
+            window.RefreshTodoRowsForExternalChange();
+        }
+
+        SaveNow();
+        RefreshSettingsWindowContent();
+    }
+
+    private void ToggleTodoReminderInterval()
+    {
+        State.UseTodoReminderInterval = !State.UseTodoReminderInterval;
+        _shownTodoReminderKeys.Clear();
+        _lastTodoReminderShownAt.Clear();
+        SaveNow();
+        RefreshSettingsWindowContent();
+    }
+
     private void ToggleLongLinkedNoteTitles()
     {
         State.AllowLongLinkedNoteTitles = !State.AllowLongLinkedNoteTitles;
@@ -1452,6 +1836,14 @@ public sealed partial class AppController
     private void ToggleCollapseExpandedDeepCapsuleOnClick()
     {
         State.CollapseExpandedDeepCapsuleOnClick = !State.CollapseExpandedDeepCapsuleOnClick;
+        SaveNow();
+        RefreshSettingsCapsuleToggleStates();
+    }
+
+    private void ToggleHideDeepCapsulesWhenCovered()
+    {
+        State.HideDeepCapsulesWhenCovered = !State.HideDeepCapsulesWhenCovered;
+        ArrangeDeepCapsules(animate: State.EnableAnimations);
         SaveNow();
         RefreshSettingsCapsuleToggleStates();
     }

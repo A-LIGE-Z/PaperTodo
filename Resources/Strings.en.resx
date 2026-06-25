@@ -247,7 +247,7 @@
     <value>Dark</value>
   </data>
   <data name="SettingsColorScheme" xml:space="preserve">
-    <value>Color scheme</value>
+    <value>Global color</value>
   </data>
   <data name="SettingsUiFont" xml:space="preserve">
     <value>Font</value>
@@ -317,6 +317,12 @@
   </data>
   <data name="SettingsCollapseExpandedDeepCapsuleOnClick" xml:space="preserve">
     <value>Click edge capsule again to retract paper</value>
+  </data>
+  <data name="SettingsHideDeepCapsulesWhenFullscreen" xml:space="preserve">
+    <value>Hide edge capsules during fullscreen apps</value>
+  </data>
+  <data name="SettingsHideDeepCapsulesWhenCovered" xml:space="preserve">
+    <value>Hide edge capsules when covered</value>
   </data>
   <data name="CapsuleCollapseAllLabel" xml:space="preserve">
     <value>Collapse</value>
@@ -415,7 +421,10 @@
     <value>Choose light, dark, or follow the Windows system theme.</value>
   </data>
   <data name="TipColorScheme" xml:space="preserve">
-    <value>Switch the paper color tone, including backgrounds, accents, and muted text.</value>
+    <value>Use the color picker / palette tool to choose one color and generate the whole app palette, including papers, tray, capsules, reminder bubbles, text, borders, and accents.</value>
+  </data>
+  <data name="TipCustomThemeColor" xml:space="preserve">
+    <value>Click the color block to open the full color picker. The chosen color generates the whole app palette instead of only changing this setting item.</value>
   </data>
   <data name="TipUiFont" xml:space="preserve">
     <value>Language default chooses suitable system fonts for UI and note text separately.
@@ -433,6 +442,21 @@ If papertodo.ttf or papertodo.otf exists in the app folder, that custom font tak
   </data>
   <data name="TipEnableTodoNoteLinks" xml:space="preserve">
     <value>Drag a note onto a todo item to link it, then open the note directly from that item.</value>
+  </data>
+  <data name="TipShowTodoDueRelativeTime" xml:space="preserve">
+    <value>Todo time badges can show how long remains, or how long they have been overdue, instead of the calendar time.</value>
+  </data>
+  <data name="TipUseTodoReminderInterval" xml:space="preserve">
+    <value>Repeat reminder bubbles by the selected interval. Off keeps the original one-time due-soon reminder.</value>
+  </data>
+  <data name="TipTodoReminderInterval" xml:space="preserve">
+    <value>How often an unfinished todo can show another reminder bubble once it is within the selected interval before due, or already overdue.</value>
+  </data>
+  <data name="TipTodoReminderIntervalUnit" xml:space="preserve">
+    <value>Choose whether the reminder interval value is counted in minutes or hours.</value>
+  </data>
+  <data name="TipTodoReminderScope" xml:space="preserve">
+    <value>Nearest shows only the closest matching todo per reminder check; All can show every matching todo.</value>
   </data>
   <data name="TipShowLinkedNoteName" xml:space="preserve">
     <value>Show the linked note title after the todo item.</value>
@@ -469,6 +493,12 @@ If papertodo.ttf or papertodo.otf exists in the app folder, that custom font tak
   </data>
   <data name="TipCollapseExpandedDeepCapsuleOnClick" xml:space="preserve">
     <value>When a paper is open from an edge capsule, click the same capsule again to retract the paper.</value>
+  </data>
+  <data name="TipHideDeepCapsulesWhenFullscreen" xml:space="preserve">
+    <value>When another app is fullscreen, edge capsules are temporarily hidden and return automatically after fullscreen exits.</value>
+  </data>
+  <data name="TipHideDeepCapsulesWhenCovered" xml:space="preserve">
+    <value>When an external window overlaps an edge capsule's docked area, the capsule hides immediately and returns when the area is clear.</value>
   </data>
   <data name="TipCapsuleCollapseAll" xml:space="preserve">
     <value>Show a main capsule at the top of the capsule queue to collapse or expand the current queue.</value>
@@ -508,6 +538,48 @@ If papertodo.ttf or papertodo.otf exists in the app folder, that custom font tak
   </data>
   <data name="SettingsEnableTodoNoteLinks" xml:space="preserve">
     <value>Enable todo-note links</value>
+  </data>
+  <data name="SettingsShowTodoDueRelativeTime" xml:space="preserve">
+    <value>Show relative todo time</value>
+  </data>
+  <data name="SettingsUseTodoReminderInterval" xml:space="preserve">
+    <value>Use interval reminder bubbles</value>
+  </data>
+  <data name="SettingsTodoReminderInterval" xml:space="preserve">
+    <value>Reminder interval</value>
+  </data>
+  <data name="SettingsTodoReminderIntervalUnit" xml:space="preserve">
+    <value>Interval unit</value>
+  </data>
+  <data name="TodoReminderIntervalUnitMinutes" xml:space="preserve">
+    <value>Minutes</value>
+  </data>
+  <data name="TodoReminderIntervalUnitHours" xml:space="preserve">
+    <value>Hours</value>
+  </data>
+  <data name="SettingsTodoReminderScope" xml:space="preserve">
+    <value>Reminder target</value>
+  </data>
+  <data name="TodoReminderScopeNearest" xml:space="preserve">
+    <value>Nearest</value>
+  </data>
+  <data name="TodoReminderScopeAll" xml:space="preserve">
+    <value>All</value>
+  </data>
+  <data name="SettingsCustomThemeColor" xml:space="preserve">
+    <value>Global theme color</value>
+  </data>
+  <data name="SettingsCustomThemeColorClear" xml:space="preserve">
+    <value>Default color</value>
+  </data>
+  <data name="SettingsCustomThemeColorPick" xml:space="preserve">
+    <value>Choose color</value>
+  </data>
+  <data name="SettingsTodoReminderBubbleDuration" xml:space="preserve">
+    <value>Bubble duration (seconds)</value>
+  </data>
+  <data name="TipTodoReminderBubbleDuration" xml:space="preserve">
+    <value>How long reminder bubbles stay visible before closing. Hovering a bubble pauses its timer.</value>
   </data>
   <data name="SettingsPersistentPowerShellProcess" xml:space="preserve">
     <value>Persistent PowerShell process</value>
@@ -560,6 +632,15 @@ If papertodo.ttf or papertodo.otf exists in the app folder, that custom font tak
   <data name="MenuClearTodoDue" xml:space="preserve">
     <value>Clear time</value>
   </data>
+  <data name="MenuSetTodoReminderInterval" xml:space="preserve">
+    <value>Set reminder interval</value>
+  </data>
+  <data name="MenuChangeTodoReminderInterval" xml:space="preserve">
+    <value>Change reminder interval</value>
+  </data>
+  <data name="MenuClearTodoReminderInterval" xml:space="preserve">
+    <value>Use global reminder interval</value>
+  </data>
   <data name="ToolTipTodoDue" xml:space="preserve">
     <value>Time: {0}</value>
   </data>
@@ -567,7 +648,7 @@ If papertodo.ttf or papertodo.otf exists in the app folder, that custom font tak
     <value>Set time</value>
   </data>
   <data name="TodoDueDialogMessage" xml:space="preserve">
-    <value>Enter local time, for example 18:30, 6-25 18:30, or 2026-06-25 18:30. Leave empty to clear.</value>
+    <value>Choose the local date and time for this todo item.</value>
   </data>
   <data name="TodoDueInvalidInput" xml:space="preserve">
     <value>This time could not be recognized.</value>
@@ -578,13 +659,58 @@ If papertodo.ttf or papertodo.otf exists in the app folder, that custom font tak
   <data name="TodoDueDialogCancel" xml:space="preserve">
     <value>Cancel</value>
   </data>
+  <data name="TodoDueDialogClear" xml:space="preserve">
+    <value>Clear</value>
+  </data>
   <data name="TodoDueTomorrowLabel" xml:space="preserve">
     <value>Tomorrow {0}</value>
+  </data>
+  <data name="TodoDueRelativeFuture" xml:space="preserve">
+    <value>in {0}</value>
+  </data>
+  <data name="TodoDueRelativePast" xml:space="preserve">
+    <value>{0} overdue</value>
+  </data>
+  <data name="TodoDueRelativeMinuteUnit" xml:space="preserve">
+    <value>{0}m</value>
+  </data>
+  <data name="TodoDueRelativeHourUnit" xml:space="preserve">
+    <value>{0}h</value>
+  </data>
+  <data name="TodoDueRelativeDayUnit" xml:space="preserve">
+    <value>{0}d</value>
   </data>
   <data name="TodoReminderBubbleTitle" xml:space="preserve">
     <value>Todo due soon</value>
   </data>
   <data name="TodoReminderBubbleMessage" xml:space="preserve">
-    <value>{0}&#x0A;{1}</value>
+    <value>{0}&#x0A;{1}&#x0A;{2}</value>
+  </data>
+  <data name="TodoReminderBubbleRemainingSeconds" xml:space="preserve">
+    <value>in {0}</value>
+  </data>
+  <data name="TodoReminderBubbleOverdueSeconds" xml:space="preserve">
+    <value>{0} overdue</value>
+  </data>
+  <data name="TodoReminderCountdownDay" xml:space="preserve">
+    <value>{0}d </value>
+  </data>
+  <data name="TodoReminderCountdownHour" xml:space="preserve">
+    <value>{0}h </value>
+  </data>
+  <data name="TodoReminderCountdownMinute" xml:space="preserve">
+    <value>{0}m </value>
+  </data>
+  <data name="TodoReminderCountdownSecond" xml:space="preserve">
+    <value>{0}s</value>
+  </data>
+  <data name="TodoReminderIntervalDialogTitle" xml:space="preserve">
+    <value>Reminder interval</value>
+  </data>
+  <data name="TodoReminderIntervalDialogMessage" xml:space="preserve">
+    <value>Set a custom reminder interval for this todo. It overrides the app setting when interval reminder bubbles are enabled.</value>
+  </data>
+  <data name="TodoReminderIntervalDialogUseGlobal" xml:space="preserve">
+    <value>Global</value>
   </data>
 </root>

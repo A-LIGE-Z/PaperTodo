@@ -475,6 +475,13 @@ public sealed partial class PaperWindow
             {
                 itemMenu.Items.Add(MenuItem(Strings.Get("MenuClearTodoDue"), (_, _) => ClearTodoDue(item)));
             }
+            itemMenu.Items.Add(MenuItem(
+                item.ReminderIntervalValue is int ? Strings.Get("MenuChangeTodoReminderInterval") : Strings.Get("MenuSetTodoReminderInterval"),
+                (_, _) => ShowTodoReminderIntervalDialog(item)));
+            if (item.ReminderIntervalValue is int)
+            {
+                itemMenu.Items.Add(MenuItem(Strings.Get("MenuClearTodoReminderInterval"), (_, _) => ClearTodoReminderInterval(item)));
+            }
             itemMenu.Items.Add(MenuSeparator());
             itemMenu.Items.Add(MenuItem(Strings.Get("MenuDeleteItem"), (_, _) => RemoveItem(item)));
             itemMenu.Items.Add(MenuItem(Strings.Get("MenuClearDone"), (_, _) => ClearDoneItems()));
@@ -759,7 +766,7 @@ public sealed partial class PaperWindow
 
         var label = new TextBlock
         {
-            Text = FormatTodoDueLabel(dueAt, now),
+            Text = FormatTodoDueLabel(dueAt, now, _controller.State.ShowTodoDueRelativeTime),
             Foreground = foreground,
             FontFamily = AppTypography.UiFontFamily,
             FontSize = Math.Max(9.5, metrics.LinkedNoteNameFontSize),
@@ -836,15 +843,21 @@ public sealed partial class PaperWindow
 
     private void ShowTodoDueDialog(PaperItem item)
     {
-        var existingText = TryGetTodoDueAt(item, out var existingDue)
-            ? existingDue.ToString("yyyy-MM-dd HH:mm", CultureInfo.CurrentCulture)
-            : "";
+        var hasExistingDue = TryGetTodoDueAt(item, out var existingDue);
+        var initialDue = hasExistingDue ? existingDue : DateTime.Now.AddHours(1);
+        initialDue = new DateTime(
+            initialDue.Year,
+            initialDue.Month,
+            initialDue.Day,
+            initialDue.Hour,
+            initialDue.Minute,
+            0);
 
         var dialog = new Window
         {
             Title = Strings.Get("TodoDueDialogTitle"),
-            Width = 330,
-            Height = 214,
+            Width = 354,
+            Height = 242,
             WindowStyle = WindowStyle.None,
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
             AllowsTransparency = true,
@@ -891,31 +904,41 @@ public sealed partial class PaperWindow
             Margin = new Thickness(0, 0, 0, 10)
         });
 
-        var input = new TextBox
+        var pickerGrid = new Grid
         {
-            Text = existingText,
+            Margin = new Thickness(0, 0, 0, 12)
+        };
+        pickerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        pickerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(8) });
+        pickerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(74) });
+        pickerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(6) });
+        pickerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(74) });
+
+        var datePicker = new DatePicker
+        {
+            SelectedDate = initialDue.Date,
             BorderThickness = new Thickness(1),
             BorderBrush = Theme.Tint(80),
             Background = Theme.Tint((byte)(Theme.IsDark ? 22 : 12)),
             Foreground = TextBrush,
-            CaretBrush = TextBrush,
             FontFamily = AppTypography.UiFontFamily,
             FontSize = 13,
-            Padding = new Thickness(8, 5, 8, 5),
-            Margin = new Thickness(0, 0, 0, 6)
+            Padding = new Thickness(7, 4, 7, 4)
         };
-        stack.Children.Add(input);
+        Grid.SetColumn(datePicker, 0);
+        pickerGrid.Children.Add(datePicker);
 
-        var error = new TextBlock
-        {
-            Text = Strings.Get("TodoDueInvalidInput"),
-            Foreground = Theme.DangerBrush,
-            FontFamily = AppTypography.UiFontFamily,
-            FontSize = 11,
-            Visibility = Visibility.Collapsed,
-            Margin = new Thickness(0, 0, 0, 9)
-        };
-        stack.Children.Add(error);
+        var hourBox = TodoDueComboBox(Enumerable.Range(0, 24).Select(i => i.ToString("00", CultureInfo.InvariantCulture)));
+        hourBox.SelectedItem = initialDue.Hour.ToString("00", CultureInfo.InvariantCulture);
+        Grid.SetColumn(hourBox, 2);
+        pickerGrid.Children.Add(hourBox);
+
+        var minuteBox = TodoDueComboBox(Enumerable.Range(0, 60).Select(i => i.ToString("00", CultureInfo.InvariantCulture)));
+        minuteBox.SelectedItem = initialDue.Minute.ToString("00", CultureInfo.InvariantCulture);
+        Grid.SetColumn(minuteBox, 4);
+        pickerGrid.Children.Add(minuteBox);
+
+        stack.Children.Add(pickerGrid);
 
         var buttons = new StackPanel
         {
@@ -925,38 +948,40 @@ public sealed partial class PaperWindow
         };
 
         var cancel = TodoDialogButton(Strings.Get("TodoDueDialogCancel"));
+        var clear = TodoDialogButton(Strings.Get("TodoDueDialogClear"));
         var ok = TodoDialogButton(Strings.Get("TodoDueDialogOk"), isPrimary: true);
         cancel.Click += (_, _) => dialog.Close();
+        clear.Click += (_, _) =>
+        {
+            SetTodoDue(item, null);
+            dialog.Close();
+        };
         ok.Click += (_, _) =>
         {
-            var value = input.Text.Trim();
-            if (string.IsNullOrWhiteSpace(value))
-            {
-                SetTodoDue(item, null);
-                dialog.Close();
-                return;
-            }
-
-            if (!TryParseTodoDueInput(value, out var dueAt))
-            {
-                error.Visibility = Visibility.Visible;
-                return;
-            }
+            var selectedDate = datePicker.SelectedDate ?? initialDue.Date;
+            var hour = int.TryParse(hourBox.SelectedItem as string, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsedHour)
+                ? parsedHour
+                : initialDue.Hour;
+            var minute = int.TryParse(minuteBox.SelectedItem as string, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsedMinute)
+                ? parsedMinute
+                : initialDue.Minute;
+            var dueAt = selectedDate.Date.AddHours(hour).AddMinutes(minute);
 
             SetTodoDue(item, dueAt);
             dialog.Close();
         };
         buttons.Children.Add(cancel);
+        buttons.Children.Add(clear);
         buttons.Children.Add(ok);
         stack.Children.Add(buttons);
 
         dialog.Content = border;
         dialog.Loaded += (_, _) =>
         {
-            input.Focus();
-            input.SelectAll();
+            datePicker.Focus();
+            datePicker.IsDropDownOpen = !hasExistingDue;
         };
-        input.KeyDown += (_, e) =>
+        dialog.PreviewKeyDown += (_, e) =>
         {
             if (e.Key == Key.Enter)
             {
@@ -971,6 +996,165 @@ public sealed partial class PaperWindow
         };
 
         dialog.ShowDialog();
+    }
+
+    private void ShowTodoReminderIntervalDialog(PaperItem item)
+    {
+        var initialValue = item.ReminderIntervalValue ?? _controller.State.TodoReminderIntervalValue;
+        var initialUnit = TodoReminderIntervalUnits.Normalize(item.ReminderIntervalUnit ?? _controller.State.TodoReminderIntervalUnit);
+
+        var dialog = new Window
+        {
+            Title = Strings.Get("TodoReminderIntervalDialogTitle"),
+            Width = 326,
+            Height = 216,
+            WindowStyle = WindowStyle.None,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            AllowsTransparency = true,
+            Background = Brushes.Transparent,
+            ResizeMode = ResizeMode.NoResize,
+            Owner = this,
+            Topmost = Topmost
+        };
+
+        var border = new Border
+        {
+            Background = PaperBrush,
+            BorderBrush = PaperBorderBrush,
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(RadiusBlock),
+            Padding = new Thickness(16),
+            Effect = new DropShadowEffect
+            {
+                BlurRadius = 24,
+                ShadowDepth = 4,
+                Opacity = 0.22
+            }
+        };
+
+        var stack = new StackPanel();
+        border.Child = stack;
+
+        stack.Children.Add(new TextBlock
+        {
+            Text = Strings.Get("TodoReminderIntervalDialogTitle"),
+            Foreground = TextBrush,
+            FontFamily = AppTypography.UiFontFamily,
+            FontSize = 15,
+            FontWeight = FontWeights.SemiBold,
+            Margin = new Thickness(0, 0, 0, 8)
+        });
+        stack.Children.Add(new TextBlock
+        {
+            Text = Strings.Get("TodoReminderIntervalDialogMessage"),
+            Foreground = WeakTextBrush,
+            FontFamily = AppTypography.UiFontFamily,
+            FontSize = 12,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 0, 0, 10)
+        });
+
+        var editorGrid = new Grid { Margin = new Thickness(0, 0, 0, 12) };
+        editorGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        editorGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(8) });
+        editorGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(112) });
+
+        var valueBox = new TextBox
+        {
+            Text = Math.Clamp(initialValue <= 0 ? 10 : initialValue, 1, 240).ToString(CultureInfo.InvariantCulture),
+            BorderThickness = new Thickness(1),
+            BorderBrush = Theme.Tint(80),
+            Background = Theme.Tint((byte)(Theme.IsDark ? 22 : 12)),
+            Foreground = TextBrush,
+            CaretBrush = TextBrush,
+            FontFamily = AppTypography.UiFontFamily,
+            FontSize = 13,
+            Padding = new Thickness(8, 5, 8, 5),
+            HorizontalContentAlignment = HorizontalAlignment.Center
+        };
+        Grid.SetColumn(valueBox, 0);
+        editorGrid.Children.Add(valueBox);
+
+        var unitBox = TodoDueComboBox(new[]
+        {
+            Strings.Get("TodoReminderIntervalUnitMinutes"),
+            Strings.Get("TodoReminderIntervalUnitHours")
+        });
+        unitBox.SelectedIndex = initialUnit == TodoReminderIntervalUnits.Hours ? 1 : 0;
+        Grid.SetColumn(unitBox, 2);
+        editorGrid.Children.Add(unitBox);
+        stack.Children.Add(editorGrid);
+
+        var buttons = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Margin = new Thickness(0, 4, 0, 0)
+        };
+
+        var cancel = TodoDialogButton(Strings.Get("TodoDueDialogCancel"));
+        var clear = TodoDialogButton(Strings.Get("TodoReminderIntervalDialogUseGlobal"));
+        var ok = TodoDialogButton(Strings.Get("TodoDueDialogOk"), isPrimary: true);
+        cancel.Click += (_, _) => dialog.Close();
+        clear.Click += (_, _) =>
+        {
+            SetTodoReminderInterval(item, null, null);
+            dialog.Close();
+        };
+        ok.Click += (_, _) =>
+        {
+            var value = int.TryParse(valueBox.Text.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed)
+                ? parsed
+                : initialValue;
+            var unit = unitBox.SelectedIndex == 1 ? TodoReminderIntervalUnits.Hours : TodoReminderIntervalUnits.Minutes;
+            SetTodoReminderInterval(item, Math.Clamp(value <= 0 ? 1 : value, 1, 240), unit);
+            dialog.Close();
+        };
+        buttons.Children.Add(cancel);
+        buttons.Children.Add(clear);
+        buttons.Children.Add(ok);
+        stack.Children.Add(buttons);
+
+        dialog.Content = border;
+        dialog.Loaded += (_, _) =>
+        {
+            valueBox.Focus();
+            valueBox.SelectAll();
+        };
+        dialog.PreviewKeyDown += (_, e) =>
+        {
+            if (e.Key == Key.Enter)
+            {
+                ok.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+                e.Handled = true;
+            }
+            else if (e.Key == Key.Escape)
+            {
+                dialog.Close();
+                e.Handled = true;
+            }
+        };
+
+        dialog.ShowDialog();
+    }
+
+    private ComboBox TodoDueComboBox(IEnumerable<string> values)
+    {
+        var box = new ComboBox
+        {
+            ItemsSource = values.ToList(),
+            BorderThickness = new Thickness(1),
+            BorderBrush = Theme.Tint(80),
+            Background = Theme.Tint((byte)(Theme.IsDark ? 22 : 12)),
+            Foreground = TextBrush,
+            FontFamily = AppTypography.UiFontFamily,
+            FontSize = 13,
+            Padding = new Thickness(7, 3, 7, 3),
+            HorizontalContentAlignment = HorizontalAlignment.Center,
+            IsEditable = false,
+            MaxDropDownHeight = 220
+        };
+        return box;
     }
 
     private static Button TodoDialogButton(string text, bool isPrimary = false)
@@ -1011,45 +1195,38 @@ public sealed partial class PaperWindow
         SetTodoDue(item, null);
     }
 
-    private static bool TryParseTodoDueInput(string input, out DateTime dueAt)
+    private void SetTodoReminderInterval(PaperItem item, int? value, string? unit)
     {
-        var now = DateTime.Now;
-        dueAt = default;
-        var value = input.Trim();
-        var timeOnlyFormats = new[] { "H:mm", "HH:mm", "H:mm:ss", "HH:mm:ss" };
-        if (DateTime.TryParseExact(value, timeOnlyFormats, CultureInfo.CurrentCulture, DateTimeStyles.None, out var parsedTime))
-        {
-            dueAt = now.Date.Add(parsedTime.TimeOfDay);
-            if (dueAt < now.AddMinutes(-2))
-            {
-                dueAt = dueAt.AddDays(1);
-            }
-            return true;
-        }
-
-        var noYearFormats = new[] { "M-d H:mm", "M-d HH:mm", "M/d H:mm", "M/d HH:mm", "M.d H:mm", "M.d HH:mm" };
-        if (DateTime.TryParseExact(value, noYearFormats, CultureInfo.CurrentCulture, DateTimeStyles.None, out var parsedNoYear))
-        {
-            dueAt = new DateTime(now.Year, parsedNoYear.Month, parsedNoYear.Day, parsedNoYear.Hour, parsedNoYear.Minute, parsedNoYear.Second);
-            return true;
-        }
-
-        var fullFormats = new[]
-        {
-            "yyyy-M-d H:mm", "yyyy-M-d HH:mm",
-            "yyyy/M/d H:mm", "yyyy/M/d HH:mm",
-            "yyyy.M.d H:mm", "yyyy.M.d HH:mm",
-            "yyyy-MM-ddTHH:mm:ss"
-        };
-        if (DateTime.TryParseExact(value, fullFormats, CultureInfo.CurrentCulture, DateTimeStyles.AllowWhiteSpaces, out dueAt))
-        {
-            return true;
-        }
-
-        return DateTime.TryParse(value, CultureInfo.CurrentCulture, DateTimeStyles.AllowWhiteSpaces | DateTimeStyles.AssumeLocal, out dueAt);
+        var focusedId = CurrentFocusedTodoItemId() ?? item.Id;
+        PushUndoSnapshot();
+        item.ReminderIntervalValue = value;
+        item.ReminderIntervalUnit = value is int ? TodoReminderIntervalUnits.Normalize(unit) : null;
+        _controller.ResetTodoReminder(item.Id);
+        _controller.MarkDirty();
+        RebuildTodoRows(focusedId);
     }
 
-    private static string FormatTodoDueLabel(DateTime dueAt, DateTime now)
+    private void ClearTodoReminderInterval(PaperItem item)
+    {
+        if (item.ReminderIntervalValue is not int)
+        {
+            return;
+        }
+
+        SetTodoReminderInterval(item, null, null);
+    }
+
+    private static string FormatTodoDueLabel(DateTime dueAt, DateTime now, bool relative)
+    {
+        if (relative)
+        {
+            return FormatTodoDueRelativeLabel(dueAt, now);
+        }
+
+        return FormatTodoDueAbsoluteLabel(dueAt, now);
+    }
+
+    private static string FormatTodoDueAbsoluteLabel(DateTime dueAt, DateTime now)
     {
         if (dueAt.Date == now.Date)
         {
@@ -1062,6 +1239,34 @@ public sealed partial class PaperWindow
         }
 
         return dueAt.ToString("M/d HH:mm", CultureInfo.CurrentCulture);
+    }
+
+    private static string FormatTodoDueRelativeLabel(DateTime dueAt, DateTime now)
+    {
+        var delta = dueAt - now;
+        var isPast = delta.TotalSeconds < 0;
+        var span = delta.Duration();
+        var value = Math.Max(1, (int)Math.Round(span.TotalMinutes));
+        var unitKey = "TodoDueRelativeMinuteUnit";
+
+        if (span.TotalDays >= 1)
+        {
+            value = Math.Max(1, (int)Math.Round(span.TotalDays));
+            unitKey = "TodoDueRelativeDayUnit";
+        }
+        else if (span.TotalHours >= 1)
+        {
+            value = Math.Max(1, (int)Math.Round(span.TotalHours));
+            unitKey = "TodoDueRelativeHourUnit";
+        }
+
+        var text = string.Format(
+            CultureInfo.CurrentUICulture,
+            Strings.Get(unitKey),
+            value);
+        return isPast
+            ? Strings.Format("TodoDueRelativePast", text)
+            : Strings.Format("TodoDueRelativeFuture", text);
     }
 
     private static string FormatTodoDueFull(DateTime dueAt)
@@ -1986,6 +2191,7 @@ public sealed partial class PaperWindow
     {
         return string.IsNullOrWhiteSpace(item.Text) &&
             string.IsNullOrWhiteSpace(item.DueAtLocal) &&
+            item.ReminderIntervalValue is not int &&
             string.IsNullOrWhiteSpace(item.LinkedNoteId);
     }
 
@@ -2098,7 +2304,9 @@ public sealed partial class PaperWindow
             Done = i.Done,
             Order = i.Order,
             LinkedNoteId = i.LinkedNoteId,
-            DueAtLocal = i.DueAtLocal
+            DueAtLocal = i.DueAtLocal,
+            ReminderIntervalValue = i.ReminderIntervalValue,
+            ReminderIntervalUnit = i.ReminderIntervalUnit
         }).ToList();
     }
 

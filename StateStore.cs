@@ -235,6 +235,7 @@ public sealed class StateStore
         }
 
         state.ColorScheme = ColorSchemes.Normalize(state.ColorScheme);
+        state.CustomThemeColorHex = Theme.NormalizeCustomThemeColorHex(state.CustomThemeColorHex);
 
         if (!MarkdownRenderModes.IsValid(state.MarkdownRenderMode))
         {
@@ -243,11 +244,21 @@ public sealed class StateStore
 
         state.ExternalMarkdownExtension = ExternalMarkdownFileExtensions.Normalize(state.ExternalMarkdownExtension);
         state.FullscreenTopmostMode = FullscreenTopmostModes.Normalize(state.FullscreenTopmostMode);
+        state.TodoReminderIntervalUnit = TodoReminderIntervalUnits.Normalize(state.TodoReminderIntervalUnit);
+        state.TodoReminderScope = TodoReminderScopes.Normalize(state.TodoReminderScope);
+        state.TodoReminderIntervalValue = Math.Clamp(state.TodoReminderIntervalValue <= 0 ? 10 : state.TodoReminderIntervalValue, 1, 240);
+        state.TodoReminderBubbleDurationSeconds = Math.Clamp(state.TodoReminderBubbleDurationSeconds <= 0 ? 5 : state.TodoReminderBubbleDurationSeconds, 1, 600);
         state.DeepCapsuleSide = DeepCapsuleSides.Normalize(state.DeepCapsuleSide);
         state.DeepCapsuleMonitorDeviceName = WindowWorkAreaHelper.NormalizeQueueMonitorDeviceName(state.DeepCapsuleMonitorDeviceName);
         state.TodoVisualSize = TodoVisualSizes.Normalize(state.TodoVisualSize);
         state.UiFontPreset = UiFontPresets.Normalize(state.UiFontPreset);
         state.TopBarHeight = 0;
+
+        if (state.HideDeepCapsulesWhenFullscreen && !state.HideDeepCapsulesWhenCovered)
+        {
+            state.HideDeepCapsulesWhenCovered = true;
+        }
+        state.HideDeepCapsulesWhenFullscreen = false;
 
         if (state.ShowTopBarNewPaperButtons is bool showTopBarNewPaperButtons)
         {
@@ -390,6 +401,7 @@ public sealed class StateStore
                 item.Order = i;
                 item.Text ??= "";
                 item.DueAtLocal = NormalizeDueAtLocal(item.DueAtLocal);
+                NormalizeReminderInterval(item);
             }
         }
 
@@ -519,5 +531,18 @@ public sealed class StateStore
         }
 
         return dueAt.ToLocalTime().ToString("yyyy-MM-ddTHH:mm:ss", CultureInfo.InvariantCulture);
+    }
+
+    private static void NormalizeReminderInterval(PaperItem item)
+    {
+        if (item.ReminderIntervalValue is not int value || value <= 0)
+        {
+            item.ReminderIntervalValue = null;
+            item.ReminderIntervalUnit = null;
+            return;
+        }
+
+        item.ReminderIntervalValue = Math.Clamp(value, 1, 240);
+        item.ReminderIntervalUnit = TodoReminderIntervalUnits.Normalize(item.ReminderIntervalUnit);
     }
 }

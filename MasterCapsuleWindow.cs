@@ -325,7 +325,7 @@ public sealed class MasterCapsuleWindow : Window
 
         ApplyDockedWidth(MasterVisibleWidth());
 
-        MoveToTarget(animate);
+        RefreshOcclusionVisibility(animate);
         RefreshEffectiveTopmost();
     }
 
@@ -642,6 +642,14 @@ public sealed class MasterCapsuleWindow : Window
         ApplyDockedWidth(MasterVisibleWidth());
         MoveToTarget(animate: false);
 
+        if (_controller.ShouldHideDeepCapsuleForOcclusion(CurrentBounds()))
+        {
+            BeginAnimation(OpacityProperty, null);
+            Opacity = 1;
+            Hide();
+            return;
+        }
+
         if (!animate)
         {
             BeginAnimation(OpacityProperty, null);
@@ -667,6 +675,33 @@ public sealed class MasterCapsuleWindow : Window
             Opacity = 1;
         };
         BeginAnimation(OpacityProperty, fadeIn);
+    }
+
+    public void RefreshOcclusionVisibility(bool animate)
+    {
+        if (_controller.ShouldHideDeepCapsuleForOcclusion(CurrentBounds()))
+        {
+            BeginAnimation(OpacityProperty, null);
+            Opacity = 1;
+            Hide();
+            return;
+        }
+
+        MoveToTarget(animate);
+        if (!IsVisible)
+        {
+            Show();
+            RefreshEffectiveTopmost();
+        }
+    }
+
+    private Rect CurrentBounds()
+    {
+        return new Rect(
+            double.IsNaN(Left) || double.IsInfinity(Left) ? 0 : Left,
+            double.IsNaN(Top) || double.IsInfinity(Top) ? 0 : Top,
+            Math.Max(1, double.IsNaN(Width) || double.IsInfinity(Width) ? PaperLayoutDefaults.CapsuleWidth : Width),
+            Math.Max(1, double.IsNaN(Height) || double.IsInfinity(Height) ? PaperLayoutDefaults.CapsuleHeight : Height));
     }
 
     public void CloseForReal()

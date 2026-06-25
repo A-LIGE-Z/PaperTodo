@@ -590,6 +590,23 @@ public sealed partial class PaperWindow
             _deepCapsuleSlotHostRoot.IsHitTestVisible = !keepHiding;
         }
 
+        if (_controller.ShouldHideDeepCapsuleForOcclusion(new Rect(
+                targetHostLeft,
+                targetTop,
+                wallExactViewportWidth,
+                PaperLayoutDefaults.CapsuleHeight)))
+        {
+            host.BeginAnimation(Window.OpacityProperty, null);
+            host.BeginAnimation(Window.LeftProperty, null);
+            host.BeginAnimation(Window.TopProperty, null);
+            ClearDeepCapsuleSlotHorizontalAnimation();
+            host.Top = targetTop;
+            SetDeepCapsuleSlotHostHorizontalBounds(targetHostLeft, wallExactViewportWidth);
+            host.Opacity = _isCollapseAllRetracted ? 0 : 1;
+            host.Hide();
+            return;
+        }
+
         if (!host.IsVisible)
         {
             host.BeginAnimation(Window.OpacityProperty, null);
