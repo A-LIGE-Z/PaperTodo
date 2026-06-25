@@ -20,12 +20,16 @@ namespace PaperTodo;
 
 public sealed partial class AppController : IDisposable
 {
+    public const int TodoReminderLeadTimeMinutes = 10;
+    private const int TodoReminderGraceMinutes = 2;
+
     public static AppController Current { get; private set; } = null!;
 
     private readonly StateStore _store = new();
     private readonly Dictionary<string, PaperWindow> _windows = new();
     private readonly DispatcherTimer _saveTimer;
     private readonly DispatcherTimer _topmostRefreshTimer;
+    private readonly DispatcherTimer _todoReminderTimer;
 
     private TaskbarIcon? _trayIcon;
     private ContextMenu? _trayMenu;
@@ -51,6 +55,8 @@ public sealed partial class AppController : IDisposable
     private PaperWindow? _noteLinkTargetWindow;
     private string? _noteLinkTargetItemId;
     private int _deepCapsuleContextMenuOpenCount;
+    private readonly HashSet<string> _shownTodoReminderKeys = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, TodoReminderBubbleWindow> _todoReminderBubbles = new(StringComparer.Ordinal);
     // One master pill per docked-capsule queue, keyed by QueueKey(monitorDevice, edge).
     private readonly Dictionary<string, MasterCapsuleWindow> _masterCapsules = new();
 
@@ -91,6 +97,12 @@ public sealed partial class AppController : IDisposable
         };
         _topmostRefreshTimer.Tick += (_, _) => RefreshTopmostForForegroundWindow();
 
+        _todoReminderTimer = new DispatcherTimer
+        {
+            Interval = TimeSpan.FromSeconds(30)
+        };
+        _todoReminderTimer.Tick += (_, _) => CheckTodoDueReminders();
+
         SystemEvents.UserPreferenceChanged += OnUserPreferenceChanged;
         SystemEvents.PowerModeChanged += OnPowerModeChanged;
         SystemEvents.SessionSwitch += OnSessionSwitch;
@@ -103,6 +115,8 @@ public sealed partial class AppController : IDisposable
         PaperWindow.EnsurePersistentScriptProcessForSettings(State);
         RefreshTopmostForForegroundWindow();
         _topmostRefreshTimer.Start();
+        _todoReminderTimer.Start();
+        Dispatcher.CurrentDispatcher.BeginInvoke(new Action(CheckTodoDueReminders), DispatcherPriority.Background);
 
         if (State.Papers.Count == 0)
         {
@@ -422,6 +436,136 @@ public sealed partial class AppController : IDisposable
 
         var window = GetOrCreatePaperWindow(note);
         return window.TryRunScriptCapsule();
+    }
+
+    public void ResetTodoReminder(string itemId)
+    {
+        if (string.IsNullOrWhiteSpace(itemId))
+        {
+            return;
+        }
+
+        foreach (var key in _shownTodoReminderKeys.Where(k => k.StartsWith(itemId + "|", StringComparison.Ordinal)).ToList())
+        {
+            _shownTodoReminderKeys.Remove(key);
+        }
+
+        if (_todoReminderBubbles.Remove(itemId, out var bubble))
+        {
+            bubble.Close();
+        }
+    }
+
+    private void CheckTodoDueReminders()
+    {
+        if (_isExiting)
+        {
+            return;
+        }
+
+        var now = DateTime.Now;
+        foreach (var paper in State.Papers.Where(p => p.Type == PaperTypes.Todo).ToList())
+        {
+            foreach (var item in paper.Items.ToList())
+            {
+                if (item.Done || !PaperWindow.TryGetTodoDueAt(item, out var dueAt))
+                {
+                    continue;
+                }
+
+                if (now < dueAt.AddMinutes(-TodoReminderLeadTimeMinutes) ||
+                    now > dueAt.AddMinutes(TodoReminderGraceMinutes))
+                {
+                    continue;
+                }
+
+                var reminderKey = $"{item.Id}|{item.DueAtLocal}";
+                if (!_shownTodoReminderKeys.Add(reminderKey))
+                {
+                    continue;
+                }
+
+                ShowTodoReminderBubble(paper, item, dueAt);
+            }
+        }
+    }
+
+    private void ShowTodoReminderBubble(PaperData paper, PaperItem item, DateTime dueAt)
+    {
+        var itemText = string.IsNullOrWhiteSpace(item.Text)
+            ? PaperTitleText(paper)
+            : item.Text.Trim();
+        if (itemText.Length > 80)
+        {
+            itemText = itemText[..80] + "...";
+        }
+
+        var dueText = dueAt.ToString("yyyy-MM-dd HH:mm", CultureInfo.CurrentCulture);
+        var title = Strings.Get("TodoReminderBubbleTitle");
+        var message = Strings.Format("TodoReminderBubbleMessage", dueText, itemText);
+
+        if (_todoReminderBubbles.Remove(item.Id, out var existing))
+        {
+            existing.Close();
+        }
+
+        var bubble = new TodoReminderBubbleWindow(title, message, () =>
+        {
+            if (_todoReminderBubbles.Remove(item.Id, out var current))
+            {
+                current.Close();
+            }
+
+            OpenTodoReminderPaper(paper);
+        });
+        _todoReminderBubbles[item.Id] = bubble;
+        bubble.Closed += (_, _) =>
+        {
+            if (_todoReminderBubbles.TryGetValue(item.Id, out var current) && ReferenceEquals(current, bubble))
+            {
+                _todoReminderBubbles.Remove(item.Id);
+            }
+        };
+
+        var anchor = ReminderAnchorFor(paper);
+        bubble.PlaceNear(anchor);
+        bubble.Show();
+    }
+
+    private Rect ReminderAnchorFor(PaperData paper)
+    {
+        if (paper.IsVisible)
+        {
+            var window = GetOrCreatePaperWindow(paper);
+            var anchor = window.ReminderAnchorRect();
+            if (!anchor.IsEmpty && anchor.Width > 0 && anchor.Height > 0)
+            {
+                return anchor;
+            }
+        }
+
+        return new Rect(
+            SystemParameters.VirtualScreenLeft + SystemParameters.VirtualScreenWidth - 8,
+            SystemParameters.VirtualScreenTop + SystemParameters.VirtualScreenHeight - 120,
+            1,
+            1);
+    }
+
+    private void OpenTodoReminderPaper(PaperData paper)
+    {
+        if (_isExiting)
+        {
+            return;
+        }
+
+        ShowPaper(paper);
+        var window = GetOrCreatePaperWindow(paper);
+        if (paper.IsCollapsed)
+        {
+            window.SetCollapsedState(false, alignExpandedToDockedEdge: true);
+        }
+
+        BringPaperToFront(paper);
     }
 
     public void RefreshTodoRowsForLinkedNote(string? noteId)
@@ -1133,6 +1277,10 @@ public sealed partial class AppController : IDisposable
     public void DeletePaper(PaperData paper)
     {
         var deletedNoteId = paper.Type == PaperTypes.Note ? paper.Id : null;
+        if (paper.Type == PaperTypes.Todo)
+        {
+            CloseTodoReminderBubbles(paper.Items.Select(i => i.Id));
+        }
 
         if (_windows.TryGetValue(paper.Id, out var window))
         {
@@ -1163,6 +1311,17 @@ public sealed partial class AppController : IDisposable
         ArrangeDeepCapsules();
         RefreshTrayMenu();
         MarkDirty();
+    }
+
+    private void CloseTodoReminderBubbles(IEnumerable<string> itemIds)
+    {
+        foreach (var itemId in itemIds.Where(id => !string.IsNullOrWhiteSpace(id)).ToList())
+        {
+            if (_todoReminderBubbles.Remove(itemId, out var bubble))
+            {
+                bubble.Close();
+            }
+        }
     }
 
     private void ClearTodoLinksToNote(string noteId)
@@ -2195,6 +2354,7 @@ public sealed partial class AppController : IDisposable
     {
         _isExiting = true;
         _saveTimer.Stop();
+        _todoReminderTimer.Stop();
         DisposeTrayIcon();
         _settingsWindow?.Close();
         _settingsWindow = null;
@@ -2210,6 +2370,8 @@ public sealed partial class AppController : IDisposable
             master.CloseForReal();
         }
         _masterCapsules.Clear();
+
+        CloseAllTodoReminderBubbles();
 
         PaperWindow.StopPersistentScriptProcesses();
 
@@ -2251,6 +2413,7 @@ public sealed partial class AppController : IDisposable
         SystemEvents.SessionSwitch -= OnSessionSwitch;
         _saveTimer.Stop();
         _topmostRefreshTimer.Stop();
+        _todoReminderTimer.Stop();
         DisposeTrayIcon();
         _settingsWindow?.Close();
         _settingsWindow = null;
@@ -2263,6 +2426,16 @@ public sealed partial class AppController : IDisposable
             m.CloseForReal();
         }
         _masterCapsules.Clear();
+        CloseAllTodoReminderBubbles();
         PaperWindow.StopPersistentScriptProcesses();
+    }
+
+    private void CloseAllTodoReminderBubbles()
+    {
+        foreach (var bubble in _todoReminderBubbles.Values.ToList())
+        {
+            bubble.Close();
+        }
+        _todoReminderBubbles.Clear();
     }
 }
