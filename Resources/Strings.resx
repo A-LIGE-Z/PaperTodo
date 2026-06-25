@@ -563,4 +563,40 @@
   <data name="Unpin" xml:space="preserve">
     <value>取消置顶</value>
   </data>
+  <data name="MenuSetTodoDue" xml:space="preserve">
+    <value>设置时间节点</value>
+  </data>
+  <data name="MenuChangeTodoDue" xml:space="preserve">
+    <value>修改时间节点</value>
+  </data>
+  <data name="MenuClearTodoDue" xml:space="preserve">
+    <value>清除时间节点</value>
+  </data>
+  <data name="ToolTipTodoDue" xml:space="preserve">
+    <value>时间节点：{0}</value>
+  </data>
+  <data name="TodoDueDialogTitle" xml:space="preserve">
+    <value>设置时间节点</value>
+  </data>
+  <data name="TodoDueDialogMessage" xml:space="preserve">
+    <value>输入本地时间，例如 18:30、6-25 18:30 或 2026-06-25 18:30。留空可清除。</value>
+  </data>
+  <data name="TodoDueInvalidInput" xml:space="preserve">
+    <value>无法识别这个时间。</value>
+  </data>
+  <data name="TodoDueDialogOk" xml:space="preserve">
+    <value>确定</value>
+  </data>
+  <data name="TodoDueDialogCancel" xml:space="preserve">
+    <value>取消</value>
+  </data>
+  <data name="TodoDueTomorrowLabel" xml:space="preserve">
+    <value>明天 {0}</value>
+  </data>
+  <data name="TodoReminderBubbleTitle" xml:space="preserve">
+    <value>待办快到时间</value>
+  </data>
+  <data name="TodoReminderBubbleMessage" xml:space="preserve">
+    <value>{0}&#x0A;{1}</value>
+  </data>
 </root>

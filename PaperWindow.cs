@@ -227,6 +227,29 @@ public sealed partial class PaperWindow : Window
         ? ExpandedDeepCapsuleVisibleWidth()
         : DeepCapsuleVisibleWidth();
 
+    public Rect ReminderAnchorRect()
+    {
+        if (_deepCapsuleSlotHost?.IsVisible == true)
+        {
+            return new Rect(
+                _deepCapsuleSlotHost.Left,
+                _deepCapsuleSlotHost.Top,
+                Math.Max(_deepCapsuleSlotHost.ActualWidth, _deepCapsuleSlotHost.Width),
+                Math.Max(_deepCapsuleSlotHost.ActualHeight, _deepCapsuleSlotHost.Height));
+        }
+
+        if (IsVisible)
+        {
+            return new Rect(
+                Left,
+                Top,
+                Math.Max(ActualWidth, Width),
+                Math.Max(ActualHeight, Height));
+        }
+
+        return Rect.Empty;
+    }
+
     private enum TodoFocusPlacement
     {
         End,

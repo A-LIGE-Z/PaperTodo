@@ -1,4 +1,5 @@
 using System.IO;
+using System.Globalization;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -388,6 +389,7 @@ public sealed class StateStore
 
                 item.Order = i;
                 item.Text ??= "";
+                item.DueAtLocal = NormalizeDueAtLocal(item.DueAtLocal);
             }
         }
 
@@ -498,5 +500,24 @@ public sealed class StateStore
     {
         var area = DeepCapsuleLayout.WorkAreaForQueue(monitorDeviceName);
         return DeepCapsuleLayout.NormalizeStartTopMargin(value, area, 1);
+    }
+
+    private static string? NormalizeDueAtLocal(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        if (!DateTime.TryParse(
+                value.Trim(),
+                CultureInfo.CurrentCulture,
+                DateTimeStyles.AllowWhiteSpaces | DateTimeStyles.AssumeLocal,
+                out var dueAt))
+        {
+            return null;
+        }
+
+        return dueAt.ToLocalTime().ToString("yyyy-MM-ddTHH:mm:ss", CultureInfo.InvariantCulture);
     }
 }

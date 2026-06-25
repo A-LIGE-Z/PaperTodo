@@ -551,4 +551,40 @@ If papertodo.ttf or papertodo.otf exists in the app folder, that custom font tak
   <data name="Unpin" xml:space="preserve">
     <value>Unpin</value>
   </data>
+  <data name="MenuSetTodoDue" xml:space="preserve">
+    <value>Set time</value>
+  </data>
+  <data name="MenuChangeTodoDue" xml:space="preserve">
+    <value>Change time</value>
+  </data>
+  <data name="MenuClearTodoDue" xml:space="preserve">
+    <value>Clear time</value>
+  </data>
+  <data name="ToolTipTodoDue" xml:space="preserve">
+    <value>Time: {0}</value>
+  </data>
+  <data name="TodoDueDialogTitle" xml:space="preserve">
+    <value>Set time</value>
+  </data>
+  <data name="TodoDueDialogMessage" xml:space="preserve">
+    <value>Enter local time, for example 18:30, 6-25 18:30, or 2026-06-25 18:30. Leave empty to clear.</value>
+  </data>
+  <data name="TodoDueInvalidInput" xml:space="preserve">
+    <value>This time could not be recognized.</value>
+  </data>
+  <data name="TodoDueDialogOk" xml:space="preserve">
+    <value>OK</value>
+  </data>
+  <data name="TodoDueDialogCancel" xml:space="preserve">
+    <value>Cancel</value>
+  </data>
+  <data name="TodoDueTomorrowLabel" xml:space="preserve">
+    <value>Tomorrow {0}</value>
+  </data>
+  <data name="TodoReminderBubbleTitle" xml:space="preserve">
+    <value>Todo due soon</value>
+  </data>
+  <data name="TodoReminderBubbleMessage" xml:space="preserve">
+    <value>{0}&#x0A;{1}</value>
+  </data>
 </root>
