@@ -9,6 +9,7 @@ using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Effects;
+using System.Windows.Media.Imaging;
 using Brush = System.Windows.Media.Brush;
 using Brushes = System.Windows.Media.Brushes;
 using Button = System.Windows.Controls.Button;
@@ -61,10 +62,13 @@ public sealed partial class PaperWindow : Window
     private Button? _newNoteButton;
     private Button? _openMarkdownButton;
     private Button? _linkNoteButton;
+    private Button? _desktopPinButton;
     private TextBlock? _titleText;
     private TextBox? _titleEditBox;
     private TextBlock? _textZoomIndicator;
+    private UIElement? _paperBodyElement;
     private UIElement? _noteBodyElement;
+    private FrameworkElement? _titleHostElement;
     private Border? _capsuleLeftArea;
     private Border? _activeDropRow;
     private Border? _dropIndicatorLine;
@@ -86,6 +90,9 @@ public sealed partial class PaperWindow : Window
     private bool _suppressTodoBackspaceUntilKeyUp;
     private bool _isApplyingCollapsedState;
     private Button? _closeButton;
+    private Window? _desktopPinUnlockHost;
+    private Border? _desktopPinUnlockChrome;
+    private Button? _desktopPinUnlockButton;
     private Grid _capsuleShell = null!;
     private Window? _deepCapsuleSlotHost;
     private Grid? _deepCapsuleSlotHostRoot;
@@ -204,10 +211,10 @@ public sealed partial class PaperWindow : Window
 
     // 圆角阶梯：所有元素只从这四档取值，避免散落的随手圆角。
     // 小元素（勾选框）/ 控件（按钮、徽标、行）/ 块（菜单、面板）/ 外壳（纸片、顶栏）。
-    private const double RadiusSmall = 4;
-    private const double RadiusControl = 8;
-    private const double RadiusBlock = 12;
-    private const double RadiusShell = 16;
+    private const double RadiusSmall = AppUi.RadiusSmall;
+    private const double RadiusControl = AppUi.RadiusControl;
+    private const double RadiusBlock = AppUi.RadiusBlock;
+    private const double RadiusShell = AppUi.RadiusShell;
     private static readonly object NoteRenderTraceLock = new();
 
     public bool IsDeepCapsulePlaced => _paper.IsCollapsed && HasDeepCapsuleSlotPlacement;
@@ -611,15 +618,27 @@ public sealed partial class PaperWindow : Window
         UpdateToolTipSetting();
 
         Loaded += (_, _) => SaveGeometryIfAllowed();
-        LocationChanged += (_, _) => SaveGeometryIfAllowed();
-        SizeChanged += (_, _) => SaveGeometryIfAllowed();
+        LocationChanged += (_, _) =>
+        {
+            SaveGeometryIfAllowed();
+            PositionDesktopPinUnlockHost();
+        };
+        SizeChanged += (_, _) =>
+        {
+            SaveGeometryIfAllowed();
+            PositionDesktopPinUnlockHost();
+        };
         PreviewMouseMove += OnWindowPreviewMouseMove;
         PreviewMouseWheel += OnWindowPreviewMouseWheel;
         PreviewMouseLeftButtonUp += OnWindowPreviewMouseLeftButtonUp;
         LostMouseCapture += OnLostMouseCapture;
         PreviewKeyDown += OnWindowPreviewKeyDown;
         PreviewKeyUp += OnWindowPreviewKeyUp;
-        SourceInitialized += (_, _) => UpdateWindowSwitcherVisibility();
+        SourceInitialized += (_, _) =>
+        {
+            UpdateWindowSwitcherVisibility();
+            RefreshDesktopPinState();
+        };
         Activated += (_, _) => _controller.RefreshFloatingSurfaceZOrder();
         Deactivated += (_, _) =>
         {
@@ -659,6 +678,7 @@ public sealed partial class PaperWindow : Window
             return;
         }
 
+        CloseDesktopPinUnlockHost();
         CloseExpandedDeepCapsuleSlotHostForReal();
         _closeForReal = true;
         Close();
@@ -780,6 +800,10 @@ public sealed partial class PaperWindow : Window
         var themeAnimationGeneration = _themeAnimationGeneration;
 
         InitializeThemeResources();
+        if (_paperChrome != null)
+        {
+            _paperChrome.Effect = AppUi.PaperShadow();
+        }
 
         var canAnimateTheme = _controller.State.EnableAnimations &&
             _paperChrome != null &&
@@ -830,6 +854,8 @@ public sealed partial class PaperWindow : Window
 
         RefreshPaperTitle();
         RefreshPaperIconButton();
+        RefreshDesktopPinButton();
+        UpdateDesktopPinUnlockHostTheme();
         UpdateTextZoom();
         UpdateDeepCapsuleSlotHostTheme();
 
@@ -891,6 +917,11 @@ public sealed partial class PaperWindow : Window
         {
             _deepCapsuleSlotHost.FontFamily = AppTypography.UiFontFamily;
             _deepCapsuleSlotHost.Language = AppTypography.Language;
+        }
+
+        if (_desktopPinUnlockButton != null)
+        {
+            _desktopPinUnlockButton.FontFamily = AppTypography.UiFontFamily;
         }
 
         if (_deepCapsuleSlotIconText != null)
@@ -957,12 +988,7 @@ public sealed partial class PaperWindow : Window
             CornerRadius = PaperChromeCornerRadiusForState(_paper.IsCollapsed && _controller.State.UseCapsuleMode),
             BorderThickness = new Thickness(1),
             SnapsToDevicePixels = true,
-            Effect = new DropShadowEffect
-            {
-                BlurRadius = 14,
-                ShadowDepth = 2,
-                Opacity = 0.18
-            }
+            Effect = AppUi.PaperShadow()
         };
         _paperChrome.SetResourceReference(Border.BackgroundProperty, "PaperBrushKey");
         _paperChrome.SetResourceReference(Border.BorderBrushProperty, "PaperBorderBrushKey");
@@ -1038,7 +1064,7 @@ public sealed partial class PaperWindow : Window
         var top = new Grid
         {
             Height = TitleBarHeight,
-            Margin = new Thickness(3, 3, 6, 0),
+            Margin = new Thickness(6, 5, 8, 0),
             Background = Brushes.Transparent
         };
 
@@ -1048,6 +1074,11 @@ public sealed partial class PaperWindow : Window
         top.PreviewMouseLeftButtonDown += (_, _) => ExitNoteEditor();
         top.MouseLeftButtonDown += (_, e) =>
         {
+            if (_paper.IsPinnedToDesktop)
+            {
+                return;
+            }
+
             if (e.ChangedButton == MouseButton.Left && e.ClickCount == 1)
             {
                 try { DragMove(); } catch { }
@@ -1090,6 +1121,7 @@ public sealed partial class PaperWindow : Window
             ToolTip = Strings.Get("ToolTipEditTitle")
         };
         titleHost.SetResourceReference(Border.BorderBrushProperty, "TitleBarDividerBrushKey");
+        _titleHostElement = titleHost;
 
         var titleEditLayer = new Grid
         {
@@ -1197,6 +1229,15 @@ public sealed partial class PaperWindow : Window
             buttons.Children.Add(_openMarkdownButton);
         }
 
+        if (_paper.Type is PaperTypes.Todo or PaperTypes.Note)
+        {
+            _desktopPinButton = DesktopPinIconButton(
+                _paper.IsPinnedToDesktop ? "assets/icons/unpin.png" : "assets/icons/pin.png",
+                _paper.IsPinnedToDesktop ? Strings.Get("DesktopPinUnlockButton") : Strings.Get("MenuPinPaperToDesktop"));
+            _desktopPinButton.Click += (_, _) => _controller.SetPaperPinnedToDesktop(_paper, !_paper.IsPinnedToDesktop);
+            buttons.Children.Add(_desktopPinButton);
+        }
+
         _closeButton = IconButton("×", Strings.Get("ToolTipHideThisPaper"));
         _closeButton.FontSize = 16;
         _closeButton.Click += (_, _) =>
@@ -1222,7 +1263,7 @@ public sealed partial class PaperWindow : Window
 
         var topHost = new Border
         {
-            Margin = new Thickness(0, 0, 0, 1.5),
+            Margin = new Thickness(0, 0, 0, 2),
             BorderThickness = new Thickness(0, 0, 0, 1),
             CornerRadius = new CornerRadius(RadiusShell, RadiusShell, 0, 0),
             Child = top
@@ -1362,12 +1403,7 @@ public sealed partial class PaperWindow : Window
             Opacity = 0.86,
             Child = stack,
             IsHitTestVisible = false,
-            Effect = new DropShadowEffect
-            {
-                BlurRadius = 16,
-                ShadowDepth = 2,
-                Opacity = 0.22
-            }
+            Effect = AppUi.FloatingShadow()
         };
 
         return new Window
@@ -1443,6 +1479,7 @@ public sealed partial class PaperWindow : Window
     private void BuildBody()
     {
         UIElement body = _paper.Type == PaperTypes.Note ? BuildNoteBody() : BuildTodoBody();
+        _paperBodyElement = body;
         Grid.SetRow(body, 1);
         if (_paper.Type == PaperTypes.Note)
         {
@@ -1519,6 +1556,20 @@ public sealed partial class PaperWindow : Window
             menu.Items.Add(MenuItem(Strings.Get("MenuClearDone"), (_, _) => ClearDoneItems()));
         }
 
+        if (_paper.Type is PaperTypes.Todo or PaperTypes.Note)
+        {
+            menu.Items.Add(MenuSeparator());
+            menu.Items.Add(MenuHeader(Strings.Get("MenuDesktopPin")));
+            if (!_paper.IsCollapsed && !forDeepCapsuleSlot && !_paper.IsPinnedToDesktop)
+            {
+                menu.Items.Add(MenuItem(Strings.Get("MenuPinPaperToDesktop"), (_, _) => _controller.SetPaperPinnedToDesktop(_paper, true)));
+            }
+            if (_paper.IsPinnedToDesktop)
+            {
+                menu.Items.Add(MenuItem(Strings.Get("MenuUnlockPinnedPaper"), (_, _) => _controller.SetPaperPinnedToDesktop(_paper, false)));
+            }
+        }
+
         menu.Items.Add(MenuSeparator());
         menu.Items.Add(MenuHeader(_controller.PaperCapsuleTitle(_paper)));
 
@@ -1558,7 +1609,8 @@ public sealed partial class PaperWindow : Window
 
     internal void RefreshEffectiveTopmost()
     {
-        var shouldBeTopmost = _paper.AlwaysOnTop || (_controller.State.UseCapsuleMode && _paper.IsCollapsed);
+        var shouldBeTopmost = !_paper.IsPinnedToDesktop &&
+            (_paper.AlwaysOnTop || (_controller.State.UseCapsuleMode && _paper.IsCollapsed));
         var effectiveTopmost = shouldBeTopmost && !_controller.SuppressTopmostForFullscreenForeground;
         Topmost = effectiveTopmost;
         if (IsVisible && (shouldBeTopmost || WindowNative.IsTopmost(this)))
@@ -1567,6 +1619,186 @@ public sealed partial class PaperWindow : Window
         }
 
         RefreshDeepCapsuleSlotTopmost();
+    }
+
+    public void RefreshDesktopPinState()
+    {
+        var pinned = _paper.IsPinnedToDesktop && !_paper.IsCollapsed;
+
+        if (_windowHost != null)
+        {
+            _windowHost.IsHitTestVisible = true;
+        }
+
+        if (pinned)
+        {
+            ResizeMode = ResizeMode.NoResize;
+            CloseDesktopPinUnlockHost();
+        }
+        else if (!_paper.IsCollapsed && !_isApplyingCollapsedState)
+        {
+            ResizeMode = ResizeMode.CanResizeWithGrip;
+            CloseDesktopPinUnlockHost();
+        }
+
+        WindowNative.ApplyMouseTransparentStyle(this, false);
+        if (pinned)
+        {
+            Topmost = false;
+            ApplyPinnedDesktopBottomZOrder();
+        }
+        else
+        {
+            RefreshEffectiveTopmost();
+        }
+        if (_paperChrome != null)
+        {
+            _paperChrome.ContextMenu = pinned ? null : BuildPaperContextMenu();
+        }
+        RefreshDesktopPinButton();
+        RefreshPinnedDesktopInteractionState();
+    }
+
+    private void RefreshPinnedDesktopInteractionState()
+    {
+        var pinned = _paper.IsPinnedToDesktop && !_paper.IsCollapsed;
+        if (_paperBodyElement != null)
+        {
+            _paperBodyElement.IsHitTestVisible = !pinned;
+        }
+        if (_textZoomIndicator?.Parent is UIElement zoomHost)
+        {
+            zoomHost.IsHitTestVisible = !pinned;
+        }
+        if (_titleHostElement != null)
+        {
+            _titleHostElement.IsEnabled = !pinned;
+        }
+
+        SetPinnedBlockedControl(_paperIconButton, pinned);
+        SetPinnedBlockedControl(_newTodoButton, pinned);
+        SetPinnedBlockedControl(_newNoteButton, pinned);
+        SetPinnedBlockedControl(_openMarkdownButton, pinned);
+        SetPinnedBlockedControl(_linkNoteButton, pinned);
+        SetPinnedBlockedControl(_closeButton, pinned);
+
+        if (_desktopPinButton != null)
+        {
+            _desktopPinButton.IsEnabled = true;
+            _desktopPinButton.IsHitTestVisible = true;
+        }
+    }
+
+    private static void SetPinnedBlockedControl(Control? control, bool pinned)
+    {
+        if (control == null)
+        {
+            return;
+        }
+
+        control.IsEnabled = !pinned;
+    }
+
+    public void RevealPinnedDesktopPaper()
+    {
+        if (!_paper.IsPinnedToDesktop)
+        {
+            return;
+        }
+
+        if (!IsVisible)
+        {
+            Show();
+        }
+
+        WindowNative.ApplyTopZOrder(this);
+    }
+
+    private void EnsureDesktopPinUnlockHost()
+    {
+        if (_desktopPinUnlockHost != null)
+        {
+            UpdateDesktopPinUnlockHostTheme();
+            return;
+        }
+
+        _desktopPinUnlockButton = DesktopPinIconButton("assets/icons/unpin.png", Strings.Get("DesktopPinUnlockButton"));
+        _desktopPinUnlockButton.Width = 30;
+        _desktopPinUnlockButton.Height = 26;
+        _desktopPinUnlockButton.Click += (_, _) => _controller.SetPaperPinnedToDesktop(_paper, false);
+
+        _desktopPinUnlockChrome = new Border
+        {
+            CornerRadius = new CornerRadius(RadiusControl),
+            BorderThickness = new Thickness(1),
+            Padding = new Thickness(2),
+            Child = _desktopPinUnlockButton,
+            Effect = AppUi.FloatingShadow()
+        };
+
+        var host = new Window
+        {
+            ShowInTaskbar = false,
+            ShowActivated = false,
+            WindowStartupLocation = WindowStartupLocation.Manual,
+            WindowStyle = WindowStyle.None,
+            AllowsTransparency = true,
+            Background = Brushes.Transparent,
+            ResizeMode = ResizeMode.NoResize,
+            Width = 38,
+            Height = 34,
+            SizeToContent = SizeToContent.WidthAndHeight,
+            Content = _desktopPinUnlockChrome
+        };
+        host.SourceInitialized += (_, _) => WindowNative.ApplyNoActivateStyle(host);
+        _desktopPinUnlockHost = host;
+        UpdateDesktopPinUnlockHostTheme();
+    }
+
+    private void UpdateDesktopPinUnlockHostTheme()
+    {
+        if (_desktopPinUnlockChrome != null)
+        {
+            _desktopPinUnlockChrome.Background = PaperBrush;
+            _desktopPinUnlockChrome.BorderBrush = PaperBorderBrush;
+        }
+
+        if (_desktopPinUnlockButton != null)
+        {
+            SetDesktopPinIcon(_desktopPinUnlockButton, "assets/icons/unpin.png", Strings.Get("DesktopPinUnlockButton"));
+            _desktopPinUnlockButton.Foreground = TextBrush;
+            _desktopPinUnlockButton.FontFamily = AppTypography.UiFontFamily;
+        }
+    }
+
+    private void PositionDesktopPinUnlockHost()
+    {
+        if (_desktopPinUnlockHost == null || !_paper.IsPinnedToDesktop)
+        {
+            return;
+        }
+
+        var width = double.IsNaN(ActualWidth) || ActualWidth <= 0 ? Width : ActualWidth;
+        var hostWidth = _desktopPinUnlockHost.ActualWidth > 0 ? _desktopPinUnlockHost.ActualWidth : _desktopPinUnlockHost.Width;
+        _desktopPinUnlockHost.Left = Math.Round(Left + Math.Max(0, (width - hostWidth) / 2));
+        _desktopPinUnlockHost.Top = Math.Round(Top + WindowChromeMargin + 4);
+    }
+
+    private void ApplyPinnedDesktopBottomZOrder()
+    {
+        WindowNative.ApplyBottomZOrder(this);
+    }
+
+    private void CloseDesktopPinUnlockHost()
+    {
+        var host = _desktopPinUnlockHost;
+        _desktopPinUnlockHost = null;
+        if (host == null)
+        {
+            return;
+        }
+
+        host.Close();
     }
 
     internal void RefreshDeepCapsuleSlotTopmost()
@@ -1594,6 +1826,19 @@ public sealed partial class PaperWindow : Window
         _paperIconButton.Opacity = _paper.AlwaysOnTop ? 1.0 : 0.58;
         _paperIconButton.Foreground = _paper.AlwaysOnTop ? TextBrush : WeakTextBrush;
         _paperIconButton.FontWeight = _paper.AlwaysOnTop ? FontWeights.SemiBold : FontWeights.Normal;
+    }
+
+    private void RefreshDesktopPinButton()
+    {
+        if (_desktopPinButton == null)
+        {
+            return;
+        }
+
+        var iconPath = _paper.IsPinnedToDesktop ? "assets/icons/unpin.png" : "assets/icons/pin.png";
+        var tooltip = _paper.IsPinnedToDesktop ? Strings.Get("DesktopPinUnlockButton") : Strings.Get("MenuPinPaperToDesktop");
+        SetDesktopPinIcon(_desktopPinButton, iconPath, tooltip);
+        _desktopPinButton.Opacity = _paper.IsPinnedToDesktop ? 1.0 : 0.72;
     }
 
     public void RefreshPaperTitle()
@@ -1632,6 +1877,11 @@ public sealed partial class PaperWindow : Window
 
     private void BeginTitleEdit()
     {
+        if (_paper.IsPinnedToDesktop)
+        {
+            return;
+        }
+
         if (_titleText == null || _titleEditBox == null)
         {
             return;
@@ -1793,12 +2043,7 @@ public sealed partial class PaperWindow : Window
             BorderThickness = new Thickness(1),
             Background = PaperBrush,
             Padding = new Thickness(18),
-            Effect = new DropShadowEffect
-            {
-                BlurRadius = 18,
-                ShadowDepth = 2,
-                Opacity = 0.22
-            }
+            Effect = AppUi.FloatingShadow()
         };
 
         var layout = new Grid();
@@ -1971,6 +2216,36 @@ public sealed partial class PaperWindow : Window
             Height = 24,
             Margin = new Thickness(1, 0, 1, 0),
             Style = SharedIconButtonStyle
+        };
+    }
+
+    private static Button DesktopPinIconButton(string resourcePath, string tooltip)
+    {
+        var button = new Button
+        {
+            ToolTip = tooltip,
+            Width = 28,
+            Height = 24,
+            Margin = new Thickness(1, 0, 1, 0),
+            Padding = new Thickness(4),
+            BorderThickness = new Thickness(0),
+            Background = Brushes.Transparent,
+            Cursor = Cursors.Hand,
+            Style = SharedIconButtonStyle
+        };
+        SetDesktopPinIcon(button, resourcePath, tooltip);
+        return button;
+    }
+
+    private static void SetDesktopPinIcon(Button button, string resourcePath, string tooltip)
+    {
+        button.ToolTip = tooltip;
+        button.Content = new Image
+        {
+            Width = 15,
+            Height = 15,
+            Stretch = Stretch.Uniform,
+            Source = new BitmapImage(new Uri($"pack://application:,,,/{resourcePath}", UriKind.Absolute))
         };
     }
 

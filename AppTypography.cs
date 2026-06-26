@@ -13,13 +13,17 @@ public static class AppTypography
     private const string DefaultCodeFontFamilyName = "Cascadia Mono, Consolas, Microsoft YaHei UI, Segoe UI Symbol, Segoe UI Emoji";
 
     private static string _preset = UiFontPresets.Default;
+    private static string _systemFontFamilyName = "";
     private static FontFamily? _customFontFamily;
+    private static readonly Lazy<IReadOnlyList<string>> SystemFontFamilyNameCache = new(LoadSystemFontFamilyNames);
 
     public static XmlLanguage Language { get; } = XmlLanguage.GetLanguage(CultureInfo.CurrentUICulture.IetfLanguageTag);
 
-    public static FontFamily UiFontFamily => _customFontFamily ?? ResolveUiFontFamily();
+    public static IReadOnlyList<string> SystemFontFamilyNames => SystemFontFamilyNameCache.Value;
 
-    public static FontFamily ContentFontFamily => _customFontFamily ?? ResolveContentFontFamily();
+    public static FontFamily UiFontFamily => ResolveSystemFontFamily() ?? _customFontFamily ?? ResolveUiFontFamily();
+
+    public static FontFamily ContentFontFamily => ResolveSystemFontFamily() ?? _customFontFamily ?? ResolveContentFontFamily();
 
     public static FontFamily CodeFontFamily => new(DefaultCodeFontFamilyName);
 
@@ -31,10 +35,42 @@ public static class AppTypography
 
     public static bool HasCustomFont => _customFontFamily != null;
 
-    public static void Configure(string? preset)
+    public static void Configure(string? preset, string? systemFontFamilyName = null)
     {
         _preset = UiFontPresets.Normalize(preset);
-        _customFontFamily = TryLoadCustomFontFamily();
+        _systemFontFamilyName = NormalizeSystemFontFamilyName(systemFontFamilyName);
+        _customFontFamily = string.IsNullOrWhiteSpace(_systemFontFamilyName)
+            ? TryLoadCustomFontFamily()
+            : null;
+    }
+
+    public static string NormalizeSystemFontFamilyName(string? value)
+    {
+        var text = (value ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return "";
+        }
+
+        return SystemFontFamilyNames.FirstOrDefault(
+            name => string.Equals(name, text, StringComparison.CurrentCultureIgnoreCase)) ?? "";
+    }
+
+    private static IReadOnlyList<string> LoadSystemFontFamilyNames()
+    {
+        return Fonts.SystemFontFamilies
+            .Select(font => font.Source)
+            .Where(name => !string.IsNullOrWhiteSpace(name))
+            .Distinct(StringComparer.CurrentCultureIgnoreCase)
+            .OrderBy(name => name, StringComparer.CurrentCultureIgnoreCase)
+            .ToList();
+    }
+
+    private static FontFamily? ResolveSystemFontFamily()
+    {
+        return string.IsNullOrWhiteSpace(_systemFontFamilyName)
+            ? null
+            : new FontFamily(_systemFontFamilyName);
     }
 
     public static void ApplyTextRendering(DependencyObject target)

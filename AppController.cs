@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.IO;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 using System.Windows;
@@ -11,6 +12,7 @@ using System.Windows.Media;
 using System.Windows.Media.Effects;
 using System.Windows.Input;
 using System.Windows.Media.Imaging;
+using System.Windows.Interop;
 using System.Windows.Threading;
 using Hardcodet.Wpf.TaskbarNotification;
 using Microsoft.Win32;
@@ -34,6 +36,7 @@ public sealed partial class AppController : IDisposable
     private TaskbarIcon? _trayIcon;
     private ContextMenu? _trayMenu;
     private Window? _settingsWindow;
+    private int _settingsSelectedTabIndex;
     private TextBox? _settingsExternalMarkdownTextBox;
     private CheckBox? _settingsCapsuleModeCheckBox;
     private CheckBox? _settingsDeepCapsuleModeCheckBox;
@@ -61,6 +64,8 @@ public sealed partial class AppController : IDisposable
     private readonly Dictionary<string, TodoReminderBubbleWindow> _todoReminderBubbles = new(StringComparer.Ordinal);
     // One master pill per docked-capsule queue, keyed by QueueKey(monitorDevice, edge).
     private readonly Dictionary<string, MasterCapsuleWindow> _masterCapsules = new();
+    private HwndSource? _hotKeySource;
+    private readonly HashSet<int> _registeredHotKeyIds = new();
 
     private static Brush TrayPaperBrush => Theme.PaperBrush;
     private static Brush TrayBorderBrush => Theme.PaperBorderBrush;
@@ -69,6 +74,9 @@ public sealed partial class AppController : IDisposable
     private static Brush TrayHoverBrush => Theme.HoverBrush;
     private static readonly bool EnableFullscreenDebugLog = false;
     private static string FullscreenDebugLogPath => Path.Combine(AppContext.BaseDirectory, "fullscreen-debug.log");
+    private const int WmHotKey = 0x0312;
+    private const int PinnedTodoHotKeyId = 0x2901;
+    private const int PinnedNoteHotKeyId = 0x2902;
 
     public AppState State { get; private set; }
     public bool SuppressTopmostForFullscreenForeground => _suppressTopmostForFullscreenForeground;
@@ -88,7 +96,7 @@ public sealed partial class AppController : IDisposable
     {
         Current = this;
         State = _store.Load();
-        AppTypography.Configure(State.UiFontPreset);
+        AppTypography.Configure(State.UiFontPreset, State.SystemFontFamilyName);
         ToolTipPreferences.Register(() => State.EnableToolTips);
 
         _saveTimer = new DispatcherTimer
@@ -116,6 +124,194 @@ public sealed partial class AppController : IDisposable
         SystemEvents.UserPreferenceChanged += OnUserPreferenceChanged;
         SystemEvents.PowerModeChanged += OnPowerModeChanged;
         SystemEvents.SessionSwitch += OnSessionSwitch;
+
+        RebuildGlobalHotKeys();
+    }
+
+    private void RebuildGlobalHotKeys()
+    {
+        EnsureHotKeySource();
+        UnregisterGlobalHotKeys();
+
+        TryRegisterGlobalHotKey(PinnedTodoHotKeyId, State.PinnedTodoHotKey);
+        TryRegisterGlobalHotKey(PinnedNoteHotKeyId, State.PinnedNoteHotKey);
+    }
+
+    private void EnsureHotKeySource()
+    {
+        if (_hotKeySource != null)
+        {
+            return;
+        }
+
+        var parameters = new HwndSourceParameters("PaperTodoHotKeys")
+        {
+            Width = 0,
+            Height = 0,
+            WindowStyle = 0
+        };
+        _hotKeySource = new HwndSource(parameters);
+        _hotKeySource.AddHook(HandleHotKeyMessage);
+    }
+
+    private IntPtr HandleHotKeyMessage(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
+    {
+        if (msg != WmHotKey)
+        {
+            return IntPtr.Zero;
+        }
+
+        handled = true;
+        var id = wParam.ToInt32();
+        if (id == PinnedTodoHotKeyId)
+        {
+            RevealPinnedPaper(PaperTypes.Todo);
+        }
+        else if (id == PinnedNoteHotKeyId)
+        {
+            RevealPinnedPaper(PaperTypes.Note);
+        }
+
+        return IntPtr.Zero;
+    }
+
+    private void TryRegisterGlobalHotKey(int id, string? gestureText)
+    {
+        if (_hotKeySource == null ||
+            !TryParseHotKey(gestureText, out var modifiers, out var key))
+        {
+            return;
+        }
+
+        var virtualKey = KeyInterop.VirtualKeyFromKey(key);
+        if (virtualKey == 0)
+        {
+            return;
+        }
+
+        if (RegisterHotKey(_hotKeySource.Handle, id, modifiers, (uint)virtualKey))
+        {
+            _registeredHotKeyIds.Add(id);
+        }
+    }
+
+    private void UnregisterGlobalHotKeys()
+    {
+        if (_hotKeySource == null)
+        {
+            return;
+        }
+
+        foreach (var id in _registeredHotKeyIds.ToList())
+        {
+            UnregisterHotKey(_hotKeySource.Handle, id);
+        }
+        _registeredHotKeyIds.Clear();
+    }
+
+    private static bool TryParseHotKey(string? gestureText, out HotKeyModifiers modifiers, out Key key)
+    {
+        modifiers = HotKeyModifiers.None;
+        key = Key.None;
+        var parts = (gestureText ?? "")
+            .Split('+', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length == 0)
+        {
+            return false;
+        }
+
+        foreach (var part in parts)
+        {
+            if (part.Equals("Ctrl", StringComparison.OrdinalIgnoreCase) ||
+                part.Equals("Control", StringComparison.OrdinalIgnoreCase))
+            {
+                modifiers |= HotKeyModifiers.Control;
+            }
+            else if (part.Equals("Alt", StringComparison.OrdinalIgnoreCase))
+            {
+                modifiers |= HotKeyModifiers.Alt;
+            }
+            else if (part.Equals("Shift", StringComparison.OrdinalIgnoreCase))
+            {
+                modifiers |= HotKeyModifiers.Shift;
+            }
+            else if (part.Equals("Win", StringComparison.OrdinalIgnoreCase) ||
+                part.Equals("Windows", StringComparison.OrdinalIgnoreCase))
+            {
+                modifiers |= HotKeyModifiers.Win;
+            }
+            else if (TryConvertHotKeyPart(part, out var parsedKey))
+            {
+                key = parsedKey;
+            }
+        }
+
+        return modifiers != HotKeyModifiers.None &&
+            key != Key.None &&
+            key is not Key.LeftCtrl and not Key.RightCtrl and not Key.LeftAlt and not Key.RightAlt and
+                not Key.LeftShift and not Key.RightShift and not Key.LWin and not Key.RWin;
+    }
+
+    private static bool TryConvertHotKeyPart(string part, out Key key)
+    {
+        try
+        {
+            if (new KeyConverter().ConvertFromString(part) is Key parsedKey)
+            {
+                key = parsedKey;
+                return true;
+            }
+        }
+        catch
+        {
+        }
+
+        key = Key.None;
+        return false;
+    }
+
+    public void SetPinnedPaperHotKey(string paperType, string hotKeyText)
+    {
+        var normalized = StateStore.NormalizeHotKeyForSettings(hotKeyText);
+        if (paperType == PaperTypes.Note)
+        {
+            if (State.PinnedNoteHotKey == normalized)
+            {
+                return;
+            }
+
+            State.PinnedNoteHotKey = normalized;
+        }
+        else
+        {
+            if (State.PinnedTodoHotKey == normalized)
+            {
+                return;
+            }
+
+            State.PinnedTodoHotKey = normalized;
+        }
+
+        RebuildGlobalHotKeys();
+        SaveNow();
+        RefreshSettingsWindowContent();
+    }
+
+    private void RevealPinnedPaper(string paperType)
+    {
+        var paper = State.Papers.FirstOrDefault(p =>
+            p.Type == paperType &&
+            p.IsPinnedToDesktop &&
+            p.IsVisible);
+        if (paper == null)
+        {
+            return;
+        }
+
+        ShowPaper(paper);
+        var window = GetOrCreatePaperWindow(paper);
+        window.EnsureExpandedSurfaceGeometry(alignToDockedEdge: true);
+        window.RevealPinnedDesktopPaper();
     }
 
     public void Start(bool createDefaultPaper = true)
@@ -1079,6 +1275,7 @@ public sealed partial class AppController : IDisposable
         {
             window.Activate();
         }
+        window.RefreshDesktopPinState();
         if (State.UseCapsuleMode && State.UseDeepCapsuleMode && ShouldPaperOccupyDeepCapsuleSlot(paper, window))
         {
             ArrangeDeepCapsules(animate: State.EnableAnimations);
@@ -1132,7 +1329,63 @@ public sealed partial class AppController : IDisposable
         {
             window.EnsureExpandedSurfaceGeometry();
         }
+        if (paper.IsPinnedToDesktop)
+        {
+            window.RevealPinnedDesktopPaper();
+            return;
+        }
         ForceWindowToFrontWithEmphasis(window, State);
+    }
+
+    public void SetPaperPinnedToDesktop(PaperData paper, bool pinned)
+    {
+        if (_isExiting || paper.Type is not (PaperTypes.Todo or PaperTypes.Note))
+        {
+            return;
+        }
+
+        var window = GetOrCreatePaperWindow(paper);
+        if (pinned)
+        {
+            paper.IsVisible = true;
+            paper.IsCollapsed = false;
+            paper.AlwaysOnTop = false;
+            paper.IsPinnedToDesktop = true;
+            State.UseCapsuleMode = true;
+            State.UseDeepCapsuleMode = true;
+            State.ShowDeepCapsuleWhileExpanded = true;
+            if (string.IsNullOrWhiteSpace(paper.CapsuleSide))
+            {
+                InitializeNewPaperCapsuleQueue(paper, null);
+            }
+
+            ShowPaper(paper);
+            window.EnsureExpandedSurfaceGeometry(alignToDockedEdge: true);
+        }
+        else
+        {
+            paper.IsPinnedToDesktop = false;
+            if (paper.IsCollapsed)
+            {
+                window.SetCollapsedState(false, alignExpandedToDockedEdge: true);
+            }
+            else if (paper.IsVisible)
+            {
+                ShowPaper(paper);
+                window.EnsureExpandedSurfaceGeometry(alignToDockedEdge: true);
+            }
+        }
+
+        window.RefreshDesktopPinState();
+        ArrangeDeepCapsules(animate: State.EnableAnimations);
+        RefreshTrayMenu();
+        RefreshSettingsCapsuleToggleStates();
+        MarkDirty();
+
+        if (!pinned && paper.IsVisible)
+        {
+            BringPaperToFront(paper);
+        }
     }
 
     private void RefreshTopmostForForegroundWindow()
@@ -1310,11 +1563,13 @@ public sealed partial class AppController : IDisposable
 
     public void HidePaper(PaperData paper)
     {
+        paper.IsPinnedToDesktop = false;
         paper.IsVisible = false;
         var visibilityVersion = NextVisibilityAnimationVersion(paper.Id);
 
         if (_windows.TryGetValue(paper.Id, out var window))
         {
+            window.RefreshDesktopPinState();
             var saveGeometry = !window.IsDeepCapsulePlaced;
             window.DetachFromDeepCapsuleStack(animate: State.EnableAnimations);
 
@@ -2045,6 +2300,11 @@ public sealed partial class AppController : IDisposable
             return true;
         }
 
+        if (paper.IsPinnedToDesktop)
+        {
+            return true;
+        }
+
         return State.UseDeepCapsuleMode &&
             State.ShowDeepCapsuleWhileExpanded &&
             window.HasVisibleSurface;
@@ -2500,6 +2760,10 @@ public sealed partial class AppController : IDisposable
         _isExiting = true;
         _saveTimer.Stop();
         _todoReminderTimer.Stop();
+        UnregisterGlobalHotKeys();
+        _hotKeySource?.RemoveHook(HandleHotKeyMessage);
+        _hotKeySource?.Dispose();
+        _hotKeySource = null;
         DisposeTrayIcon();
         _settingsWindow?.Close();
         _settingsWindow = null;
@@ -2559,6 +2823,10 @@ public sealed partial class AppController : IDisposable
         _saveTimer.Stop();
         _topmostRefreshTimer.Stop();
         _todoReminderTimer.Stop();
+        UnregisterGlobalHotKeys();
+        _hotKeySource?.RemoveHook(HandleHotKeyMessage);
+        _hotKeySource?.Dispose();
+        _hotKeySource = null;
         DisposeTrayIcon();
         _settingsWindow?.Close();
         _settingsWindow = null;
@@ -2583,4 +2851,20 @@ public sealed partial class AppController : IDisposable
         }
         _todoReminderBubbles.Clear();
     }
+
+    [Flags]
+    private enum HotKeyModifiers : uint
+    {
+        None = 0,
+        Alt = 0x0001,
+        Control = 0x0002,
+        Shift = 0x0004,
+        Win = 0x0008
+    }
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool RegisterHotKey(IntPtr hWnd, int id, HotKeyModifiers fsModifiers, uint vk);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool UnregisterHotKey(IntPtr hWnd, int id);
 }

@@ -246,12 +246,18 @@ public sealed class StateStore
         state.FullscreenTopmostMode = FullscreenTopmostModes.Normalize(state.FullscreenTopmostMode);
         state.TodoReminderIntervalUnit = TodoReminderIntervalUnits.Normalize(state.TodoReminderIntervalUnit);
         state.TodoReminderScope = TodoReminderScopes.Normalize(state.TodoReminderScope);
+        state.TodoDueYearDisplayMode = TodoDueYearDisplayModes.Normalize(state.TodoDueYearDisplayMode);
+        state.TodoLineSpacing = NormalizeLineSpacing(state.TodoLineSpacing);
+        state.NoteLineSpacing = NormalizeLineSpacing(state.NoteLineSpacing);
         state.TodoReminderIntervalValue = Math.Clamp(state.TodoReminderIntervalValue <= 0 ? 10 : state.TodoReminderIntervalValue, 1, 240);
         state.TodoReminderBubbleDurationSeconds = Math.Clamp(state.TodoReminderBubbleDurationSeconds <= 0 ? 5 : state.TodoReminderBubbleDurationSeconds, 1, 600);
         state.DeepCapsuleSide = DeepCapsuleSides.Normalize(state.DeepCapsuleSide);
         state.DeepCapsuleMonitorDeviceName = WindowWorkAreaHelper.NormalizeQueueMonitorDeviceName(state.DeepCapsuleMonitorDeviceName);
         state.TodoVisualSize = TodoVisualSizes.Normalize(state.TodoVisualSize);
         state.UiFontPreset = UiFontPresets.Normalize(state.UiFontPreset);
+        state.SystemFontFamilyName = AppTypography.NormalizeSystemFontFamilyName(state.SystemFontFamilyName);
+        state.PinnedTodoHotKey = NormalizeHotKeyForSettings(state.PinnedTodoHotKey);
+        state.PinnedNoteHotKey = NormalizeHotKeyForSettings(state.PinnedNoteHotKey);
         state.TopBarHeight = 0;
 
         if (state.HideDeepCapsulesWhenFullscreen && !state.HideDeepCapsulesWhenCovered)
@@ -349,6 +355,15 @@ public sealed class StateStore
                 paper.Type = PaperTypes.Todo;
             }
 
+            if (paper.IsPinnedToDesktop)
+            {
+                paper.IsVisible = true;
+                paper.IsCollapsed = false;
+                state.UseCapsuleMode = true;
+                state.UseDeepCapsuleMode = true;
+                state.ShowDeepCapsuleWhileExpanded = true;
+            }
+
             // Per-paper queue identity. Migration: a capsule with no explicit side inherits the
             // legacy single global anchor, so existing docked capsules keep their current edge /
             // monitor. New papers default to the global side until dragged to a queue.
@@ -400,6 +415,36 @@ public sealed class StateStore
 
                 item.Order = i;
                 item.Text ??= "";
+                item.TodoColumnCount = Math.Clamp(item.TodoColumnCount <= 0 ? 1 : item.TodoColumnCount, 1, 4);
+                item.TodoExtraColumns ??= new List<string>();
+                while (item.TodoExtraColumns.Count < item.TodoColumnCount - 1)
+                {
+                    item.TodoExtraColumns.Add("");
+                }
+                if (item.TodoExtraColumns.Count > item.TodoColumnCount - 1)
+                {
+                    item.TodoExtraColumns.RemoveRange(item.TodoColumnCount - 1, item.TodoExtraColumns.Count - (item.TodoColumnCount - 1));
+                }
+                for (var columnIndex = 0; columnIndex < item.TodoExtraColumns.Count; columnIndex++)
+                {
+                    item.TodoExtraColumns[columnIndex] ??= "";
+                }
+                item.TodoColumnWidths ??= new List<double>();
+                while (item.TodoColumnWidths.Count < item.TodoColumnCount)
+                {
+                    item.TodoColumnWidths.Add(1);
+                }
+                if (item.TodoColumnWidths.Count > item.TodoColumnCount)
+                {
+                    item.TodoColumnWidths.RemoveRange(item.TodoColumnCount, item.TodoColumnWidths.Count - item.TodoColumnCount);
+                }
+                for (var columnIndex = 0; columnIndex < item.TodoColumnWidths.Count; columnIndex++)
+                {
+                    var width = item.TodoColumnWidths[columnIndex];
+                    item.TodoColumnWidths[columnIndex] = double.IsNaN(width) || double.IsInfinity(width) || width <= 0
+                        ? 1
+                        : Math.Clamp(Math.Round(width, 3), 0.2, 8);
+                }
                 item.DueAtLocal = NormalizeDueAtLocal(item.DueAtLocal);
                 NormalizeReminderInterval(item);
             }
@@ -445,6 +490,12 @@ public sealed class StateStore
         while (!usedIds.Add(id));
 
         return id;
+    }
+
+    public static string NormalizeHotKeyForSettings(string? value)
+    {
+        var text = (value ?? "").Trim();
+        return text.Length > 64 ? text[..64] : text;
     }
 
     private static double NormalizeCoordinate(double value, double fallback)
@@ -531,6 +582,16 @@ public sealed class StateStore
         }
 
         return dueAt.ToLocalTime().ToString("yyyy-MM-ddTHH:mm:ss", CultureInfo.InvariantCulture);
+    }
+
+    private static double NormalizeLineSpacing(double value)
+    {
+        if (double.IsNaN(value) || double.IsInfinity(value) || value <= 0)
+        {
+            return 1.0;
+        }
+
+        return Math.Clamp(Math.Round(value, 2), 0.8, 5.0);
     }
 
     private static void NormalizeReminderInterval(PaperItem item)

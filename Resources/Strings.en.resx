@@ -126,6 +126,30 @@
   <data name="MenuClearDone" xml:space="preserve">
     <value>Clear completed</value>
   </data>
+  <data name="MenuIncreaseTodoColumns" xml:space="preserve">
+    <value>Add column to this todo</value>
+  </data>
+  <data name="MenuInsertTodoColumnBefore" xml:space="preserve">
+    <value>Insert column before this one</value>
+  </data>
+  <data name="MenuDeleteTodoColumn" xml:space="preserve">
+    <value>Delete this column</value>
+  </data>
+  <data name="MenuDecreaseTodoColumns" xml:space="preserve">
+    <value>Remove column from this todo</value>
+  </data>
+  <data name="MenuDesktopPin" xml:space="preserve">
+    <value>Desktop pin</value>
+  </data>
+  <data name="MenuPinPaperToDesktop" xml:space="preserve">
+    <value>Pin to desktop</value>
+  </data>
+  <data name="MenuUnlockPinnedPaper" xml:space="preserve">
+    <value>Unlock desktop pin</value>
+  </data>
+  <data name="DesktopPinUnlockButton" xml:space="preserve">
+    <value>Unlock</value>
+  </data>
   <data name="MenuCodeBlock" xml:space="preserve">
     <value>Code block</value>
   </data>
@@ -251,6 +275,9 @@
   </data>
   <data name="SettingsUiFont" xml:space="preserve">
     <value>Font</value>
+  </data>
+  <data name="SettingsSystemFont" xml:space="preserve">
+    <value>System font</value>
   </data>
   <data name="UiFontDefault" xml:space="preserve">
     <value>Language default</value>
@@ -393,6 +420,18 @@
   <data name="SettingsDisplay" xml:space="preserve">
     <value>Display</value>
   </data>
+  <data name="SettingsTabDisplay" xml:space="preserve">
+    <value>Display</value>
+  </data>
+  <data name="SettingsTabTodoNote" xml:space="preserve">
+    <value>Todo / Notes</value>
+  </data>
+  <data name="SettingsTabCapsule" xml:space="preserve">
+    <value>Capsules</value>
+  </data>
+  <data name="SettingsTabGeneral" xml:space="preserve">
+    <value>General / Advanced</value>
+  </data>
   <data name="SettingsExternalOpen" xml:space="preserve">
     <value>External open</value>
   </data>
@@ -429,7 +468,10 @@
   <data name="TipUiFont" xml:space="preserve">
     <value>Language default chooses suitable system fonts for UI and note text separately.
 Choosing YaHei or DengXian unifies the UI, tray, capsules, todos, and note text under that font.
-If papertodo.ttf or papertodo.otf exists in the app folder, that custom font takes priority.</value>
+When no system font is selected, papertodo.ttf or papertodo.otf in the app folder is used as the custom font first.</value>
+  </data>
+  <data name="TipSystemFont" xml:space="preserve">
+    <value>Choose from fonts currently installed in Windows. The selected font takes priority for the UI, tray, capsules, todos, and note text. Choose language default to return to the preset above.</value>
   </data>
   <data name="TipMarkdownRender" xml:space="preserve">
     <value>Basic mode applies light highlighting; Enhanced also styles headings, lists, and emphasis.</value>
@@ -439,6 +481,21 @@ If papertodo.ttf or papertodo.otf exists in the app folder, that custom font tak
   </data>
   <data name="TipTodoVisualSize" xml:space="preserve">
     <value>Adjust todo text, row height, and spacing.</value>
+  </data>
+  <data name="SettingsTodoLineSpacing" xml:space="preserve">
+    <value>Todo line spacing</value>
+  </data>
+  <data name="SettingsNoteLineSpacing" xml:space="preserve">
+    <value>Note line spacing</value>
+  </data>
+  <data name="SettingsLineSpacingReset" xml:space="preserve">
+    <value>Default</value>
+  </data>
+  <data name="TipTodoLineSpacing" xml:space="preserve">
+    <value>Type the line spacing multiplier for multiline todo text. Default is 1; range is 0.8 to 5.</value>
+  </data>
+  <data name="TipNoteLineSpacing" xml:space="preserve">
+    <value>Type the line spacing multiplier for note text. Default is 1; range is 0.8 to 5.</value>
   </data>
   <data name="TipEnableTodoNoteLinks" xml:space="preserve">
     <value>Drag a note onto a todo item to link it, then open the note directly from that item.</value>
@@ -524,6 +581,21 @@ If papertodo.ttf or papertodo.otf exists in the app folder, that custom font tak
   <data name="SettingsEnableAnimations" xml:space="preserve">
     <value>Enable animations</value>
   </data>
+  <data name="SettingsPinnedTodoHotKey" xml:space="preserve">
+    <value>Pinned todo hotkey</value>
+  </data>
+  <data name="SettingsPinnedNoteHotKey" xml:space="preserve">
+    <value>Pinned note hotkey</value>
+  </data>
+  <data name="SettingsHotKeyClear" xml:space="preserve">
+    <value>Clear</value>
+  </data>
+  <data name="TipPinnedTodoHotKey" xml:space="preserve">
+    <value>Press a key combination in the box to bring a pinned todo paper from the desktop bottom to the front. Esc, Backspace, or Delete clears it.</value>
+  </data>
+  <data name="TipPinnedNoteHotKey" xml:space="preserve">
+    <value>Press a key combination in the box to bring a pinned note paper from the desktop bottom to the front. Esc, Backspace, or Delete clears it.</value>
+  </data>
   <data name="TipEnableAnimations" xml:space="preserve">
     <value>Enable transition animations for common actions. Turn off for a more direct response.</value>
   </data>
@@ -541,6 +613,21 @@ If papertodo.ttf or papertodo.otf exists in the app folder, that custom font tak
   </data>
   <data name="SettingsShowTodoDueRelativeTime" xml:space="preserve">
     <value>Show relative todo time</value>
+  </data>
+  <data name="SettingsTodoDueYearDisplay" xml:space="preserve">
+    <value>Due year display</value>
+  </data>
+  <data name="TipTodoDueYearDisplay" xml:space="preserve">
+    <value>Choose whether todo due badges include a year, shown as 26 or 2026.</value>
+  </data>
+  <data name="TodoDueYearDisplayNone" xml:space="preserve">
+    <value>None</value>
+  </data>
+  <data name="TodoDueYearDisplayShort" xml:space="preserve">
+    <value>26</value>
+  </data>
+  <data name="TodoDueYearDisplayFull" xml:space="preserve">
+    <value>2026</value>
   </data>
   <data name="SettingsUseTodoReminderInterval" xml:space="preserve">
     <value>Use interval reminder bubbles</value>
@@ -571,6 +658,9 @@ If papertodo.ttf or papertodo.otf exists in the app folder, that custom font tak
   </data>
   <data name="SettingsCustomThemeColorClear" xml:space="preserve">
     <value>Default color</value>
+  </data>
+  <data name="SettingsCustomThemeColorDefault" xml:space="preserve">
+    <value>Use default palette</value>
   </data>
   <data name="SettingsCustomThemeColorPick" xml:space="preserve">
     <value>Choose color</value>

@@ -29,6 +29,7 @@ public sealed class MarkdownTextBox : TextEditor
     private readonly MarkdownListBulletRenderer _listBulletRenderer;
     private readonly MarkdownHorizontalRuleRenderer _horizontalRuleRenderer;
     private readonly FencedCodeStateCache _fencedCodeStateCache = new();
+    private readonly LineSpacingElementGenerator _lineSpacingElementGenerator = new();
 
     public MarkdownTextBox()
     {
@@ -59,6 +60,7 @@ public sealed class MarkdownTextBox : TextEditor
         _markerColorizer = new MarkdownMarkerColorizer(this);
         _listBulletRenderer = new MarkdownListBulletRenderer(this);
         _horizontalRuleRenderer = new MarkdownHorizontalRuleRenderer(this);
+        TextArea.TextView.ElementGenerators.Add(_lineSpacingElementGenerator);
         TextArea.TextView.BackgroundRenderers.Add(new MarkdownBlockBackgroundRenderer(this));
         TextArea.TextView.BackgroundRenderers.Add(_listBulletRenderer);
         TextArea.TextView.BackgroundRenderers.Add(_horizontalRuleRenderer);
@@ -117,6 +119,12 @@ public sealed class MarkdownTextBox : TextEditor
         _textZoom = normalized;
         FontSize = ScaledFontSize(NoteTypography.FontSize);
         RefreshVisualStyle();
+    }
+
+    public void SetLineSpacing(double spacing)
+    {
+        _lineSpacingElementGenerator.SetLineSpacing(spacing, FontSize);
+        RefreshTextView();
     }
 
     public string MarkdownRenderMode => _markdownRenderMode;
@@ -1812,6 +1820,40 @@ public sealed class MarkdownTextBox : TextEditor
 
             yield return new InlineSpan(start, end + 1);
             index = end + 1;
+        }
+    }
+
+    private sealed class LineSpacingElementGenerator : VisualLineElementGenerator
+    {
+        private double _lineHeight;
+
+        public void SetLineSpacing(double spacing, double fontSize)
+        {
+            var normalized = Math.Clamp(spacing, 0.8, 5.0);
+            _lineHeight = Math.Max(0, Math.Round(fontSize * normalized, 1));
+        }
+
+        public override int GetFirstInterestedOffset(int startOffset)
+        {
+            var line = CurrentContext.VisualLine.FirstDocumentLine;
+            return line.Offset >= startOffset ? line.Offset : -1;
+        }
+
+        public override VisualLineElement ConstructElement(int offset)
+        {
+            var line = CurrentContext.VisualLine.FirstDocumentLine;
+            if (offset != line.Offset || _lineHeight <= 0)
+            {
+                return null!;
+            }
+
+            return new InlineObjectElement(0, new Border
+            {
+                Width = 0,
+                Height = _lineHeight,
+                IsHitTestVisible = false,
+                Background = Brushes.Transparent
+            });
         }
     }
 

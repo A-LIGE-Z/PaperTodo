@@ -135,6 +135,30 @@
   <data name="MenuClearDone" xml:space="preserve">
     <value>清理已完成</value>
   </data>
+  <data name="MenuIncreaseTodoColumns" xml:space="preserve">
+    <value>增加当前待办列数</value>
+  </data>
+  <data name="MenuInsertTodoColumnBefore" xml:space="preserve">
+    <value>在当前列前插入列</value>
+  </data>
+  <data name="MenuDeleteTodoColumn" xml:space="preserve">
+    <value>删除当前列</value>
+  </data>
+  <data name="MenuDecreaseTodoColumns" xml:space="preserve">
+    <value>减少当前待办列数</value>
+  </data>
+  <data name="MenuDesktopPin" xml:space="preserve">
+    <value>桌面钉住</value>
+  </data>
+  <data name="MenuPinPaperToDesktop" xml:space="preserve">
+    <value>钉在桌面</value>
+  </data>
+  <data name="MenuUnlockPinnedPaper" xml:space="preserve">
+    <value>解锁桌面钉住</value>
+  </data>
+  <data name="DesktopPinUnlockButton" xml:space="preserve">
+    <value>解除钉住</value>
+  </data>
   <data name="MenuCodeBlock" xml:space="preserve">
     <value>代码块</value>
   </data>
@@ -260,6 +284,9 @@
   </data>
   <data name="SettingsUiFont" xml:space="preserve">
     <value>字体</value>
+  </data>
+  <data name="SettingsSystemFont" xml:space="preserve">
+    <value>系统字体</value>
   </data>
   <data name="UiFontDefault" xml:space="preserve">
     <value>语言默认</value>
@@ -399,6 +426,18 @@
   <data name="SettingsDisplay" xml:space="preserve">
     <value>显示</value>
   </data>
+  <data name="SettingsTabDisplay" xml:space="preserve">
+    <value>显示</value>
+  </data>
+  <data name="SettingsTabTodoNote" xml:space="preserve">
+    <value>待办/笔记</value>
+  </data>
+  <data name="SettingsTabCapsule" xml:space="preserve">
+    <value>胶囊</value>
+  </data>
+  <data name="SettingsTabGeneral" xml:space="preserve">
+    <value>通用/高级</value>
+  </data>
   <data name="SettingsExternalOpen" xml:space="preserve">
     <value>外部打开</value>
   </data>
@@ -432,7 +471,10 @@
   <data name="TipUiFont" xml:space="preserve">
     <value>语言默认会为界面和笔记正文分别选择合适的系统字体。
 手动选择雅黑或等线后，界面、托盘、胶囊、待办和笔记正文会统一使用所选字体。
-程序目录下存在 papertodo.ttf 或 papertodo.otf 时，会优先使用该自定义字体。</value>
+没有选择系统字体时，程序目录下的 papertodo.ttf 或 papertodo.otf 会作为自定义字体优先使用。</value>
+  </data>
+  <data name="TipSystemFont" xml:space="preserve">
+    <value>从当前 Windows 已安装字体中选择一个字体；选择后会优先应用到界面、托盘、胶囊、待办和笔记正文。选择语言默认会回到上方字体预设。</value>
   </data>
   <data name="TipMarkdownRender" xml:space="preserve">
     <value>基础模式只做轻量高亮；增强模式进一步美化标题、列表和强调。</value>
@@ -442,6 +484,21 @@
   </data>
   <data name="TipTodoVisualSize" xml:space="preserve">
     <value>调整待办项的文字、行高和间距。</value>
+  </data>
+  <data name="SettingsTodoLineSpacing" xml:space="preserve">
+    <value>待办行距</value>
+  </data>
+  <data name="SettingsNoteLineSpacing" xml:space="preserve">
+    <value>笔记行距</value>
+  </data>
+  <data name="SettingsLineSpacingReset" xml:space="preserve">
+    <value>默认</value>
+  </data>
+  <data name="TipTodoLineSpacing" xml:space="preserve">
+    <value>输入待办多行文本的行距倍数，默认 1，范围 0.8 到 5。</value>
+  </data>
+  <data name="TipNoteLineSpacing" xml:space="preserve">
+    <value>输入笔记正文的行距倍数，默认 1，范围 0.8 到 5。</value>
   </data>
   <data name="TipEnableTodoNoteLinks" xml:space="preserve">
     <value>允许把笔记拖到待办项上建立关联，之后可从待办项直接打开对应笔记。</value>
@@ -505,6 +562,21 @@
   </data>
   <data name="SettingsEnableAnimations" xml:space="preserve">
     <value>启用动画效果</value>
+  </data>
+  <data name="SettingsPinnedTodoHotKey" xml:space="preserve">
+    <value>呼出钉住待办纸快捷键</value>
+  </data>
+  <data name="SettingsPinnedNoteHotKey" xml:space="preserve">
+    <value>呼出钉住笔记纸快捷键</value>
+  </data>
+  <data name="SettingsHotKeyClear" xml:space="preserve">
+    <value>清空</value>
+  </data>
+  <data name="TipPinnedTodoHotKey" xml:space="preserve">
+    <value>在输入框中按下组合键，用于把钉在桌面底层的待办纸呼出到前面；按 Esc、Backspace 或 Delete 可清空。</value>
+  </data>
+  <data name="TipPinnedNoteHotKey" xml:space="preserve">
+    <value>在输入框中按下组合键，用于把钉在桌面底层的笔记纸呼出到前面；按 Esc、Backspace 或 Delete 可清空。</value>
   </data>
   <data name="TipEnableAnimations" xml:space="preserve">
     <value>为常见操作启用过渡动画；关闭后响应更直接。</value>
@@ -613,6 +685,21 @@
   <data name="SettingsShowTodoDueRelativeTime" xml:space="preserve">
     <value>显示相对待办时间</value>
   </data>
+  <data name="SettingsTodoDueYearDisplay" xml:space="preserve">
+    <value>时间节点年份显示</value>
+  </data>
+  <data name="TipTodoDueYearDisplay" xml:space="preserve">
+    <value>选择待办时间节点是否显示年份，可显示为 26年 或 2026年。</value>
+  </data>
+  <data name="TodoDueYearDisplayNone" xml:space="preserve">
+    <value>不显示</value>
+  </data>
+  <data name="TodoDueYearDisplayShort" xml:space="preserve">
+    <value>26年</value>
+  </data>
+  <data name="TodoDueYearDisplayFull" xml:space="preserve">
+    <value>2026年</value>
+  </data>
   <data name="TodoDueDialogClear" xml:space="preserve">
     <value>清除</value>
   </data>
@@ -623,7 +710,7 @@
     <value>已过期{0}</value>
   </data>
   <data name="TodoDueRelativeMinuteUnit" xml:space="preserve">
-    <value>{0}分钟</value>
+    <value>{0}分</value>
   </data>
   <data name="TodoDueRelativeHourUnit" xml:space="preserve">
     <value>{0}小时</value>
@@ -684,6 +771,9 @@
   </data>
   <data name="SettingsCustomThemeColorClear" xml:space="preserve">
     <value>默认颜色</value>
+  </data>
+  <data name="SettingsCustomThemeColorDefault" xml:space="preserve">
+    <value>跟随默认调色板</value>
   </data>
   <data name="TipCustomThemeColor" xml:space="preserve">
     <value>点击色块打开全色域颜色选择器。选中的颜色会生成整套应用调色板，而不只是改变设置项本身。</value>

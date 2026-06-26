@@ -137,6 +137,18 @@ public static class TodoVisualSizes
     }
 }
 
+public static class TodoDueYearDisplayModes
+{
+    public const string None = "none";
+    public const string Short = "short";
+    public const string Full = "full";
+
+    public static string Normalize(string? mode)
+    {
+        return mode is Short or Full ? mode : None;
+    }
+}
+
 public static class UiFontPresets
 {
     public const string Default = "default";
@@ -170,6 +182,7 @@ public sealed class AppState
     public string MarkdownRenderMode { get; set; } = MarkdownRenderModes.Enhanced;
     public string TodoVisualSize { get; set; } = TodoVisualSizes.Medium;
     public string UiFontPreset { get; set; } = UiFontPresets.Default;
+    public string SystemFontFamilyName { get; set; } = "";
     public string ExternalMarkdownExtension { get; set; } = ExternalMarkdownFileExtensions.Default;
     public double Zoom { get; set; } = 1.0;
     public bool UseCapsuleMode { get; set; } = true;
@@ -180,6 +193,9 @@ public sealed class AppState
     public bool HidePapersFromWindowSwitcher { get; set; }
     public bool EnableTodoNoteLinks { get; set; } = true;
     public bool ShowTodoDueRelativeTime { get; set; }
+    public string TodoDueYearDisplayMode { get; set; } = TodoDueYearDisplayModes.None;
+    public double TodoLineSpacing { get; set; } = 1.0;
+    public double NoteLineSpacing { get; set; } = 1.0;
     public bool UseTodoReminderInterval { get; set; }
     public int TodoReminderIntervalValue { get; set; } = 10;
     public string TodoReminderIntervalUnit { get; set; } = TodoReminderIntervalUnits.Minutes;
@@ -201,6 +217,8 @@ public sealed class AppState
     public bool HideDeepCapsulesWhenFullscreen { get; set; }
     public bool EnableAnimations { get; set; } = true;
     public bool EnableToolTips { get; set; } = true;
+    public string PinnedTodoHotKey { get; set; } = "";
+    public string PinnedNoteHotKey { get; set; } = "";
     public string FullscreenTopmostMode { get; set; } = FullscreenTopmostModes.Avoid;
     public bool UsePersistentPowerShellProcess { get; set; }
     public bool PreferPowerShell7 { get; set; } = true;
@@ -241,6 +259,7 @@ public sealed class PaperData
     public bool IsVisible { get; set; } = true;
     public bool AlwaysOnTop { get; set; }
     public bool IsCollapsed { get; set; } = false;
+    public bool IsPinnedToDesktop { get; set; }
     public double TextZoom { get; set; } = 1.0;
 
     // Which edge-queue this paper's capsule belongs to. A queue is identified by
@@ -260,6 +279,9 @@ public sealed class PaperItem
     public string Text { get; set; } = "";
     public bool Done { get; set; }
     public int Order { get; set; }
+    public int TodoColumnCount { get; set; } = 1;
+    public List<string> TodoExtraColumns { get; set; } = new();
+    public List<double> TodoColumnWidths { get; set; } = new();
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? LinkedNoteId { get; set; }

@@ -92,6 +92,117 @@ public sealed partial class PaperWindow
         }
     }
 
+    private static int TodoItemColumnCount(PaperItem item)
+        => Math.Clamp(item.TodoColumnCount <= 0 ? 1 : item.TodoColumnCount, 1, 4);
+
+    private static void NormalizeTodoItemColumns(PaperItem item)
+    {
+        item.TodoColumnCount = TodoItemColumnCount(item);
+        item.TodoExtraColumns ??= new List<string>();
+        item.TodoColumnWidths ??= new List<double>();
+        while (item.TodoExtraColumns.Count < item.TodoColumnCount - 1)
+        {
+            item.TodoExtraColumns.Add("");
+        }
+        if (item.TodoExtraColumns.Count > item.TodoColumnCount - 1)
+        {
+            item.TodoExtraColumns.RemoveRange(item.TodoColumnCount - 1, item.TodoExtraColumns.Count - (item.TodoColumnCount - 1));
+        }
+        while (item.TodoColumnWidths.Count < item.TodoColumnCount)
+        {
+            item.TodoColumnWidths.Add(1);
+        }
+        if (item.TodoColumnWidths.Count > item.TodoColumnCount)
+        {
+            item.TodoColumnWidths.RemoveRange(item.TodoColumnCount, item.TodoColumnWidths.Count - item.TodoColumnCount);
+        }
+        for (var i = 0; i < item.TodoColumnWidths.Count; i++)
+        {
+            var width = item.TodoColumnWidths[i];
+            item.TodoColumnWidths[i] = double.IsNaN(width) || double.IsInfinity(width) || width <= 0
+                ? 1
+                : Math.Clamp(Math.Round(width, 3), 0.2, 8);
+        }
+    }
+
+    private void SetTodoItemColumnCount(PaperItem item, int columnCount)
+    {
+        var normalized = Math.Clamp(columnCount, 1, 4);
+        if (TodoItemColumnCount(item) == normalized)
+        {
+            return;
+        }
+
+        PushUndoSnapshot();
+        item.TodoColumnCount = normalized;
+        NormalizeTodoItemColumns(item);
+
+        _controller.MarkDirty();
+        RebuildTodoRows(item.Id);
+    }
+
+    private void InsertTodoColumnBefore(PaperItem item, int columnIndex)
+    {
+        NormalizeTodoItemColumns(item);
+        var count = TodoItemColumnCount(item);
+        if (count >= 4)
+        {
+            return;
+        }
+
+        PushUndoSnapshot();
+        var insertIndex = Math.Clamp(columnIndex, 0, count);
+        if (insertIndex == 0)
+        {
+            item.TodoExtraColumns.Insert(0, item.Text);
+            item.Text = "";
+        }
+        else
+        {
+            item.TodoExtraColumns.Insert(insertIndex - 1, "");
+        }
+
+        item.TodoColumnCount = count + 1;
+        item.TodoColumnWidths.Insert(insertIndex, 1);
+        NormalizeTodoItemColumns(item);
+        _controller.MarkDirty();
+        RebuildTodoRows(item.Id);
+    }
+
+    private void DeleteTodoColumn(PaperItem item, int columnIndex)
+    {
+        NormalizeTodoItemColumns(item);
+        var count = TodoItemColumnCount(item);
+        if (count <= 1)
+        {
+            return;
+        }
+
+        PushUndoSnapshot();
+        var deleteIndex = Math.Clamp(columnIndex, 0, count - 1);
+        if (deleteIndex == 0)
+        {
+            item.Text = item.TodoExtraColumns.Count > 0 ? item.TodoExtraColumns[0] : "";
+            if (item.TodoExtraColumns.Count > 0)
+            {
+                item.TodoExtraColumns.RemoveAt(0);
+            }
+        }
+        else if (deleteIndex - 1 < item.TodoExtraColumns.Count)
+        {
+            item.TodoExtraColumns.RemoveAt(deleteIndex - 1);
+        }
+
+        if (deleteIndex < item.TodoColumnWidths.Count)
+        {
+            item.TodoColumnWidths.RemoveAt(deleteIndex);
+        }
+        item.TodoColumnCount = count - 1;
+        NormalizeTodoItemColumns(item);
+        _controller.MarkDirty();
+        RebuildTodoRows(item.Id);
+    }
+
     private void FocusTodoItem(string? itemId, TodoFocusPlacement placement = TodoFocusPlacement.End)
     {
         if (string.IsNullOrWhiteSpace(itemId))
@@ -303,6 +414,7 @@ public sealed partial class PaperWindow
 
     private UIElement BuildTodoRow(PaperItem item, bool isNewItem = false)
     {
+        NormalizeTodoItemColumns(item);
         var metrics = TodoVisualSizes.Metrics(_controller.State.TodoVisualSize);
         var linkedNoteTitle = "";
         var hasLinkedNote = _controller.State.EnableTodoNoteLinks &&
@@ -313,11 +425,11 @@ public sealed partial class PaperWindow
         var row = new Border
         {
             Margin = new Thickness(0, 2, 0, 2),
-            Padding = new Thickness(2),
+            Padding = AppUi.TodoRowPadding,
             CornerRadius = new CornerRadius(RadiusControl),
             Background = Brushes.Transparent,
-            BorderBrush = Brushes.Transparent,
-            BorderThickness = new Thickness(0, 2, 0, 2),
+            BorderBrush = Theme.Tint((byte)(Theme.IsDark ? 18 : 12)),
+            BorderThickness = new Thickness(1),
             AllowDrop = true,
             Tag = item.Id,
             RenderTransform = new TransformGroup
@@ -347,7 +459,11 @@ public sealed partial class PaperWindow
             }
         };
 
-        var grid = new Grid();
+        var grid = new Grid
+        {
+            MinHeight = metrics.RowMinHeight,
+            VerticalAlignment = VerticalAlignment.Center
+        };
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(metrics.CheckColumnWidth) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
@@ -383,6 +499,7 @@ public sealed partial class PaperWindow
             AcceptsReturn = false,
             MaxLength = 5000
         };
+        ApplyTodoTextLineSpacing(text, metrics);
 
         _todoEditors[item.Id] = text;
 
@@ -424,8 +541,7 @@ public sealed partial class PaperWindow
         {
             PushUndoSnapshot();
             item.Done = true;
-            text.IsDone = true;
-            text.Foreground = BrightWeakTextBrush;
+            ApplyTodoRowDoneVisualState(row, done: true);
             _controller.MarkDirty();
 
             // 完成动画：只淡化，不缩小
@@ -443,8 +559,7 @@ public sealed partial class PaperWindow
         {
             PushUndoSnapshot();
             item.Done = false;
-            text.IsDone = false;
-            text.Foreground = TextBrush;
+            ApplyTodoRowDoneVisualState(row, done: false);
             _controller.MarkDirty();
 
             // 取消完成动画
@@ -455,7 +570,7 @@ public sealed partial class PaperWindow
             }
         };
 
-        ContextMenu CreateItemMenu()
+        ContextMenu CreateItemMenu(int columnIndex)
         {
             var itemMenu = CreateContextMenu();
             itemMenu.Items.Add(MenuHeader(Strings.Get("MenuTodoItem")));
@@ -483,6 +598,19 @@ public sealed partial class PaperWindow
                 itemMenu.Items.Add(MenuItem(Strings.Get("MenuClearTodoReminderInterval"), (_, _) => ClearTodoReminderInterval(item)));
             }
             itemMenu.Items.Add(MenuSeparator());
+            var insertColumnBefore = MenuItem(Strings.Get("MenuInsertTodoColumnBefore"), (_, _) => InsertTodoColumnBefore(item, columnIndex));
+            insertColumnBefore.IsEnabled = TodoItemColumnCount(item) < 4;
+            itemMenu.Items.Add(insertColumnBefore);
+            var deleteCurrentColumn = MenuItem(Strings.Get("MenuDeleteTodoColumn"), (_, _) => DeleteTodoColumn(item, columnIndex));
+            deleteCurrentColumn.IsEnabled = TodoItemColumnCount(item) > 1;
+            itemMenu.Items.Add(deleteCurrentColumn);
+            var increaseColumns = MenuItem(Strings.Get("MenuIncreaseTodoColumns"), (_, _) => SetTodoItemColumnCount(item, TodoItemColumnCount(item) + 1));
+            increaseColumns.IsEnabled = TodoItemColumnCount(item) < 4;
+            itemMenu.Items.Add(increaseColumns);
+            var decreaseColumns = MenuItem(Strings.Get("MenuDecreaseTodoColumns"), (_, _) => SetTodoItemColumnCount(item, TodoItemColumnCount(item) - 1));
+            decreaseColumns.IsEnabled = TodoItemColumnCount(item) > 1;
+            itemMenu.Items.Add(decreaseColumns);
+            itemMenu.Items.Add(MenuSeparator());
             itemMenu.Items.Add(MenuItem(Strings.Get("MenuDeleteItem"), (_, _) => RemoveItem(item)));
             itemMenu.Items.Add(MenuItem(Strings.Get("MenuClearDone"), (_, _) => ClearDoneItems()));
 
@@ -498,25 +626,35 @@ public sealed partial class PaperWindow
             return itemMenu;
         }
 
-        void AttachItemContextMenu(FrameworkElement element)
+        void AttachItemContextMenu(FrameworkElement element, int columnIndex = 0)
         {
-            element.ContextMenu = CreateItemMenu();
+            element.ContextMenu = CreateItemMenu(columnIndex);
             element.PreviewMouseRightButtonDown += (_, _) => text.Focus();
         }
 
-        AttachItemContextMenu(row);
-        AttachItemContextMenu(check);
-        AttachItemContextMenu(text);
+        AttachItemContextMenu(row, 0);
+        AttachItemContextMenu(check, 0);
+        AttachItemContextMenu(text, 0);
 
-        Grid.SetColumn(text, 1);
-        grid.Children.Add(text);
+        var textHost = BuildTodoTextColumnHost(item, text, metrics, AttachItemContextMenu);
+        Grid.SetColumn(textHost, 1);
+        grid.Children.Add(textHost);
 
         if (TryGetTodoDueAt(item, out var dueAt))
         {
+            var dueHost = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            var relativeBadge = BuildTodoDueRelativeBadge(dueAt, metrics);
             var dueBadge = BuildTodoDueBadge(item, dueAt, metrics);
+            AttachItemContextMenu(relativeBadge);
             AttachItemContextMenu(dueBadge);
-            Grid.SetColumn(dueBadge, 2);
-            grid.Children.Add(dueBadge);
+            dueHost.Children.Add(relativeBadge);
+            dueHost.Children.Add(dueBadge);
+            Grid.SetColumn(dueHost, 2);
+            grid.Children.Add(dueHost);
         }
 
         if (hasLinkedNote)
@@ -752,6 +890,156 @@ public sealed partial class PaperWindow
         return row;
     }
 
+    private UIElement BuildTodoTextColumnHost(
+        PaperItem item,
+        TodoTextBox primaryText,
+        TodoVisualMetrics metrics,
+        Action<FrameworkElement, int> attachItemContextMenu)
+    {
+        var columnCount = TodoItemColumnCount(item);
+        if (columnCount <= 1)
+        {
+            return primaryText;
+        }
+
+        var host = new Grid
+        {
+            VerticalAlignment = VerticalAlignment.Stretch
+        };
+        for (var i = 0; i < columnCount; i++)
+        {
+            host.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(item.TodoColumnWidths[i], GridUnitType.Star) });
+            if (i < columnCount - 1)
+            {
+                host.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(8) });
+            }
+        }
+
+        void AddColumn(UIElement element, int column, Thickness margin)
+        {
+            if (element is FrameworkElement frameworkElement)
+            {
+                frameworkElement.Margin = margin;
+            }
+            Grid.SetColumn(element, column * 2);
+            host.Children.Add(element);
+        }
+
+        AddColumn(primaryText, 0, new Thickness(0, 0, 3, 0));
+
+        for (var i = 1; i < columnCount; i++)
+        {
+            var extraIndex = i - 1;
+            var splitterColumn = (i * 2) - 1;
+            var separator = new Border
+            {
+                Width = 1,
+                Margin = new Thickness(0, 4, 0, 4),
+                HorizontalAlignment = HorizontalAlignment.Center,
+                Background = PaperBorderBrush,
+                Opacity = 0.9,
+                IsHitTestVisible = false
+            };
+            Grid.SetColumn(separator, splitterColumn);
+            host.Children.Add(separator);
+
+            var splitter = new GridSplitter
+            {
+                Width = 8,
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                VerticalAlignment = VerticalAlignment.Stretch,
+                Background = Brushes.Transparent,
+                Cursor = Cursors.SizeWE,
+                ResizeDirection = GridResizeDirection.Columns,
+                ResizeBehavior = GridResizeBehavior.PreviousAndNext,
+                ShowsPreview = false
+            };
+            splitter.DragCompleted += (_, _) =>
+            {
+                for (var widthIndex = 0; widthIndex < columnCount; widthIndex++)
+                {
+                    var actualWidth = host.ColumnDefinitions[widthIndex * 2].ActualWidth;
+                    item.TodoColumnWidths[widthIndex] = actualWidth <= 0 ? 1 : Math.Clamp(Math.Round(actualWidth, 3), 0.2, 10000);
+                }
+                _controller.MarkDirty();
+            };
+            Grid.SetColumn(splitter, splitterColumn);
+            host.Children.Add(splitter);
+
+            var extraText = new TodoTextBox
+            {
+                Text = extraIndex < item.TodoExtraColumns.Count ? item.TodoExtraColumns[extraIndex] : "",
+                IsDone = item.Done,
+                BorderThickness = new Thickness(0),
+                Background = Brushes.Transparent,
+                Foreground = item.Done ? BrightWeakTextBrush : TextBrush,
+                CaretBrush = TextBrush,
+                FontSize = metrics.TextFontSize,
+                Padding = new Thickness(8, metrics.TextVerticalPadding, 4, metrics.TextVerticalPadding),
+                VerticalContentAlignment = VerticalAlignment.Center,
+                TextWrapping = TextWrapping.Wrap,
+                AcceptsReturn = false,
+                MaxLength = 5000
+            };
+            ApplyTodoTextLineSpacing(extraText, metrics);
+
+            extraText.TextChanged += (_, _) =>
+            {
+                NormalizeTodoItemColumns(item);
+                if (extraIndex < item.TodoExtraColumns.Count)
+                {
+                    item.TodoExtraColumns[extraIndex] = extraText.Text;
+                    _controller.MarkDirty();
+                }
+            };
+            extraText.PreviewKeyDown += (_, e) => HandleTodoKeyDown(e, item, extraText);
+            attachItemContextMenu(extraText, i);
+            AddColumn(extraText, i, new Thickness(6, 0, i == columnCount - 1 ? 0 : 3, 0));
+        }
+
+        return host;
+    }
+
+    private double TodoTextLineHeight(TodoVisualMetrics metrics)
+        => Math.Round(metrics.TextFontSize * Math.Clamp(_controller.State.TodoLineSpacing, 0.8, 5.0), 1);
+
+    private void ApplyTodoTextLineSpacing(TodoTextBox box, TodoVisualMetrics metrics)
+    {
+        var lineHeight = TodoTextLineHeight(metrics);
+        var basePadding = new Thickness(box.Padding.Left, metrics.TextVerticalPadding, box.Padding.Right, metrics.TextVerticalPadding);
+        var minHeight = Math.Max(metrics.RowMinHeight, lineHeight + (metrics.TextVerticalPadding * 2));
+        box.ConfigureLineBox(basePadding, lineHeight, minHeight);
+    }
+
+    private void ApplyTodoRowDoneVisualState(DependencyObject root, bool done)
+    {
+        foreach (var box in VisualDescendants<TodoTextBox>(root))
+        {
+            box.IsDone = done;
+            box.Foreground = done ? BrightWeakTextBrush : TextBrush;
+            box.InvalidateVisual();
+        }
+    }
+
+    private static IEnumerable<T> VisualDescendants<T>(DependencyObject root)
+        where T : DependencyObject
+    {
+        var count = VisualTreeHelper.GetChildrenCount(root);
+        for (var i = 0; i < count; i++)
+        {
+            var child = VisualTreeHelper.GetChild(root, i);
+            if (child is T match)
+            {
+                yield return match;
+            }
+
+            foreach (var nested in VisualDescendants<T>(child))
+            {
+                yield return nested;
+            }
+        }
+    }
+
     private Border BuildTodoDueBadge(PaperItem item, DateTime dueAt, TodoVisualMetrics metrics)
     {
         var now = DateTime.Now;
@@ -766,7 +1054,7 @@ public sealed partial class PaperWindow
 
         var label = new TextBlock
         {
-            Text = FormatTodoDueLabel(dueAt, now, _controller.State.ShowTodoDueRelativeTime),
+            Text = FormatTodoDueAbsoluteLabel(dueAt, now, _controller.State.TodoDueYearDisplayMode),
             Foreground = foreground,
             FontFamily = AppTypography.UiFontFamily,
             FontSize = Math.Max(9.5, metrics.LinkedNoteNameFontSize),
@@ -814,6 +1102,40 @@ public sealed partial class PaperWindow
         };
 
         return badge;
+    }
+
+    private Border BuildTodoDueRelativeBadge(DateTime dueAt, TodoVisualMetrics metrics)
+    {
+        var now = DateTime.Now;
+        var isPastDue = dueAt < now;
+        var foreground = isPastDue ? Theme.DangerBrush : WeakTextBrush;
+        var background = isPastDue
+            ? Theme.Danger((byte)(Theme.IsDark ? 22 : 14))
+            : Theme.Tint((byte)(Theme.IsDark ? 24 : 16));
+
+        var label = new TextBlock
+        {
+            Text = FormatTodoDueRelativeLabel(dueAt, now),
+            Foreground = foreground,
+            FontFamily = AppTypography.UiFontFamily,
+            FontSize = Math.Max(9.5, metrics.LinkedNoteNameFontSize),
+            FontWeight = FontWeights.SemiBold,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+            TextAlignment = TextAlignment.Center,
+            TextWrapping = TextWrapping.NoWrap
+        };
+
+        return new Border
+        {
+            MinHeight = Math.Max(22, metrics.RowMinHeight - 2),
+            Margin = new Thickness(1, 0, 0, 0),
+            Padding = new Thickness(5, 1, 5, 1),
+            CornerRadius = new CornerRadius(RadiusControl),
+            Background = background,
+            ToolTip = Strings.Format("ToolTipTodoDue", FormatTodoDueFull(dueAt)),
+            Child = label
+        };
     }
 
     internal static bool TryGetTodoDueAt(PaperItem item, out DateTime dueAt)
@@ -874,12 +1196,7 @@ public sealed partial class PaperWindow
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(RadiusBlock),
             Padding = new Thickness(16),
-            Effect = new DropShadowEffect
-            {
-                BlurRadius = 24,
-                ShadowDepth = 4,
-                Opacity = 0.22
-            }
+            Effect = AppUi.FloatingShadow()
         };
 
         var stack = new StackPanel();
@@ -1024,12 +1341,7 @@ public sealed partial class PaperWindow
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(RadiusBlock),
             Padding = new Thickness(16),
-            Effect = new DropShadowEffect
-            {
-                BlurRadius = 24,
-                ShadowDepth = 4,
-                Opacity = 0.22
-            }
+            Effect = AppUi.FloatingShadow()
         };
 
         var stack = new StackPanel();
@@ -1223,11 +1535,21 @@ public sealed partial class PaperWindow
             return FormatTodoDueRelativeLabel(dueAt, now);
         }
 
-        return FormatTodoDueAbsoluteLabel(dueAt, now);
+        return FormatTodoDueAbsoluteLabel(dueAt, now, TodoDueYearDisplayModes.None);
     }
 
-    private static string FormatTodoDueAbsoluteLabel(DateTime dueAt, DateTime now)
+    private static string FormatTodoDueAbsoluteLabel(DateTime dueAt, DateTime now, string? yearDisplayMode)
     {
+        var normalizedYearMode = TodoDueYearDisplayModes.Normalize(yearDisplayMode);
+        if (normalizedYearMode == TodoDueYearDisplayModes.Full)
+        {
+            return dueAt.ToString("yyyy年M/d HH:mm", CultureInfo.CurrentCulture);
+        }
+        if (normalizedYearMode == TodoDueYearDisplayModes.Short)
+        {
+            return dueAt.ToString("yy年M/d HH:mm", CultureInfo.CurrentCulture);
+        }
+
         if (dueAt.Date == now.Date)
         {
             return dueAt.ToString("HH:mm", CultureInfo.CurrentCulture);
@@ -1246,24 +1568,27 @@ public sealed partial class PaperWindow
         var delta = dueAt - now;
         var isPast = delta.TotalSeconds < 0;
         var span = delta.Duration();
-        var value = Math.Max(1, (int)Math.Round(span.TotalMinutes));
-        var unitKey = "TodoDueRelativeMinuteUnit";
+        var totalMinutes = Math.Max(1, (int)Math.Ceiling(span.TotalMinutes));
+        var days = totalMinutes / (24 * 60);
+        var hours = (totalMinutes % (24 * 60)) / 60;
+        var minutes = totalMinutes % 60;
+        var parts = new List<string>();
 
-        if (span.TotalDays >= 1)
+        if (days > 0)
         {
-            value = Math.Max(1, (int)Math.Round(span.TotalDays));
-            unitKey = "TodoDueRelativeDayUnit";
+            parts.Add(string.Format(CultureInfo.CurrentUICulture, Strings.Get("TodoDueRelativeDayUnit"), days));
         }
-        else if (span.TotalHours >= 1)
+        if (hours > 0)
         {
-            value = Math.Max(1, (int)Math.Round(span.TotalHours));
-            unitKey = "TodoDueRelativeHourUnit";
+            parts.Add(string.Format(CultureInfo.CurrentUICulture, Strings.Get("TodoDueRelativeHourUnit"), hours));
+        }
+        if (minutes > 0 || parts.Count == 0)
+        {
+            parts.Add(string.Format(CultureInfo.CurrentUICulture, Strings.Get("TodoDueRelativeMinuteUnit"), minutes <= 0 ? 1 : minutes));
         }
 
-        var text = string.Format(
-            CultureInfo.CurrentUICulture,
-            Strings.Get(unitKey),
-            value);
+        var text = string.Concat(parts);
+
         return isPast
             ? Strings.Format("TodoDueRelativePast", text)
             : Strings.Format("TodoDueRelativeFuture", text);
@@ -1289,7 +1614,7 @@ public sealed partial class PaperWindow
             return;
         }
 
-        if (e.Key == Key.Back && string.IsNullOrEmpty(box.Text) && _paper.Items.Count > 1)
+        if (e.Key == Key.Back && AllTodoTextColumnsBlank(item) && _paper.Items.Count > 1)
         {
             var previous = PreviousItem(item);
             var next = NextItem(item);
@@ -1947,12 +2272,7 @@ public sealed partial class PaperWindow
             BorderThickness = new Thickness(1),
             Opacity = 0.65,
             IsHitTestVisible = false,
-            Effect = new DropShadowEffect
-            {
-                BlurRadius = 18,
-                ShadowDepth = 3,
-                Opacity = 0.24
-            }
+            Effect = AppUi.FloatingShadow()
         };
 
         var grid = new Grid
@@ -2189,11 +2509,15 @@ public sealed partial class PaperWindow
 
     private static bool IsBlank(PaperItem item)
     {
-        return string.IsNullOrWhiteSpace(item.Text) &&
+        return AllTodoTextColumnsBlank(item) &&
             string.IsNullOrWhiteSpace(item.DueAtLocal) &&
             item.ReminderIntervalValue is not int &&
             string.IsNullOrWhiteSpace(item.LinkedNoteId);
     }
+
+    private static bool AllTodoTextColumnsBlank(PaperItem item)
+        => string.IsNullOrWhiteSpace(item.Text) &&
+            (item.TodoExtraColumns == null || item.TodoExtraColumns.All(string.IsNullOrWhiteSpace));
 
     private string? CurrentFocusedTodoItemId()
     {
@@ -2303,6 +2627,9 @@ public sealed partial class PaperWindow
             Text = i.Text,
             Done = i.Done,
             Order = i.Order,
+            TodoColumnCount = TodoItemColumnCount(i),
+            TodoExtraColumns = i.TodoExtraColumns?.ToList() ?? new List<string>(),
+            TodoColumnWidths = i.TodoColumnWidths?.ToList() ?? new List<double>(),
             LinkedNoteId = i.LinkedNoteId,
             DueAtLocal = i.DueAtLocal,
             ReminderIntervalValue = i.ReminderIntervalValue,

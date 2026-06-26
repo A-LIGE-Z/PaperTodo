@@ -167,6 +167,7 @@ public sealed partial class PaperWindow
         var box = _noteBox;
         box.SetMarkdownRenderMode(_controller.State.MarkdownRenderMode);
         box.SetTextZoom(CurrentTextZoom());
+        box.SetLineSpacing(_controller.State.NoteLineSpacing);
 
         host.Children.Add(box);
         var editorMenu = CreateContextMenu();
@@ -410,6 +411,7 @@ public sealed partial class PaperWindow
             else
             {
                 _noteBox.SetTextZoom(zoom);
+                _noteBox.SetLineSpacing(_controller.State.NoteLineSpacing);
             }
         }
 
@@ -552,7 +554,23 @@ public sealed partial class PaperWindow
             return;
         }
 
+        if (_paper.IsPinnedToDesktop)
+        {
+            _controller.SetPaperPinnedToDesktop(_paper, false);
+            return;
+        }
+
         SetCollapsedState(false);
+    }
+
+    public void UpdateNoteLineSpacing()
+    {
+        if (_paper.Type != PaperTypes.Note)
+        {
+            return;
+        }
+
+        _noteBox?.SetLineSpacing(_controller.State.NoteLineSpacing);
     }
 
     private void OpenCapsuleForEditing()

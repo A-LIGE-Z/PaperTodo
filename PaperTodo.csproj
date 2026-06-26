@@ -6,10 +6,10 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
-    <Version>2.8</Version>
-    <AssemblyVersion>2.8.0.0</AssemblyVersion>
-    <FileVersion>2.8.0.0</FileVersion>
-    <InformationalVersion>2.8</InformationalVersion>
+    <Version>2.20</Version>
+    <AssemblyVersion>2.20.0.0</AssemblyVersion>
+    <FileVersion>2.20.0.0</FileVersion>
+    <InformationalVersion>2.20</InformationalVersion>
     <ApplicationIcon>assets\icons\PaperTodo.ico</ApplicationIcon>
     <OutputPath>$(MSBuildProjectDirectory)\输出\PaperTodo-v$(Version)\</OutputPath>
     <SatelliteResourceLanguages>en;ja;ko</SatelliteResourceLanguages>
@@ -18,6 +18,8 @@
   </PropertyGroup>
   <ItemGroup>
     <EmbeddedResource Include="assets\icons\PaperTodo.ico" />
+    <Resource Include="assets\icons\pin.png" />
+    <Resource Include="assets\icons\unpin.png" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="AvalonEdit" Version="6.3.0.90" />

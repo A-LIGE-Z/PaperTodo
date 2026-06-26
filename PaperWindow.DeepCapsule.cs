@@ -329,6 +329,12 @@ public sealed partial class PaperWindow
             return;
         }
 
+        if (_paper.IsPinnedToDesktop)
+        {
+            _controller.SetPaperPinnedToDesktop(_paper, false);
+            return;
+        }
+
         if (_paper.IsCollapsed)
         {
             ShowMainWindowForDeepCapsuleActivation();
