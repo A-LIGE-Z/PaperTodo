@@ -50,4 +50,18 @@ public static class AppUi
             Opacity = Theme.IsDark ? 0.36 : 0.2
         };
     }
+
+    public static DropShadowEffect NoteCanvasElementShadow(int layerRank, int layerCount, bool active)
+    {
+        var normalized = Math.Clamp((double)Math.Max(1, layerRank) / Math.Max(1, layerCount), 0.0, 1.0);
+        return new DropShadowEffect
+        {
+            BlurRadius = active ? 24 : 10 + (normalized * 10),
+            ShadowDepth = active ? 5 : 1.5 + (normalized * 3.5),
+            Direction = 315,
+            Opacity = active
+                ? (Theme.IsDark ? 0.52 : 0.30)
+                : (Theme.IsDark ? 0.24 + (normalized * 0.14) : 0.14 + (normalized * 0.12))
+        };
+    }
 }

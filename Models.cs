@@ -37,6 +37,21 @@ public static class MarkdownRenderModes
     }
 }
 
+public static class NoteCanvasElementTypes
+{
+    public const string Code = "code";
+
+    public static bool IsValid(string? type)
+    {
+        return type is Code;
+    }
+
+    public static string Normalize(string? type)
+    {
+        return Code;
+    }
+}
+
 public static class ExternalMarkdownFileExtensions
 {
     public const string Default = ".md";
@@ -271,6 +286,19 @@ public sealed class PaperData
 
     public List<PaperItem> Items { get; set; } = new();
     public string Content { get; set; } = "";
+    public List<NoteCanvasElement> NoteCanvasElements { get; set; } = new();
+}
+
+public sealed class NoteCanvasElement
+{
+    public string Id { get; set; } = Guid.NewGuid().ToString("N");
+    public string Type { get; set; } = NoteCanvasElementTypes.Code;
+    public string Text { get; set; } = "";
+    public double X { get; set; } = 32;
+    public double Y { get; set; } = 32;
+    public double Width { get; set; } = 180;
+    public double Height { get; set; } = 96;
+    public int ZIndex { get; set; }
 }
 
 public sealed class PaperItem

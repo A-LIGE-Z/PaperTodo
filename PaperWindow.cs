@@ -66,6 +66,13 @@ public sealed partial class PaperWindow : Window
     private TextBlock? _titleText;
     private TextBox? _titleEditBox;
     private TextBlock? _textZoomIndicator;
+    private TextBlock? _noteModeText;
+    private TextBlock? _noteStatsText;
+    private TextBlock? _noteZoomText;
+    private TextBlock? _noteCanvasElementCountText;
+    private Canvas? _noteCanvasLayer;
+    private NoteCanvasElement? _activeNoteCanvasElement;
+    private NoteCanvasDragState? _noteCanvasDrag;
     private UIElement? _paperBodyElement;
     private UIElement? _noteBodyElement;
     private FrameworkElement? _titleHostElement;
@@ -373,6 +380,33 @@ public sealed partial class PaperWindow : Window
         public Window? Ghost { get; set; }
     }
 
+    private sealed class NoteCanvasDragState
+    {
+        public NoteCanvasDragState(NoteCanvasElement element, FrameworkElement view, UIElement captureTarget, Point startPoint, double startX, double startY, double startWidth, double startHeight, bool resizing)
+        {
+            Element = element;
+            View = view;
+            CaptureTarget = captureTarget;
+            StartPoint = startPoint;
+            StartX = startX;
+            StartY = startY;
+            StartWidth = startWidth;
+            StartHeight = startHeight;
+            Resizing = resizing;
+        }
+
+        public NoteCanvasElement Element { get; }
+        public FrameworkElement View { get; }
+        public UIElement CaptureTarget { get; }
+        public Point StartPoint { get; }
+        public double StartX { get; }
+        public double StartY { get; }
+        public double StartWidth { get; }
+        public double StartHeight { get; }
+        public bool Resizing { get; }
+        public bool Changed { get; set; }
+    }
+
     private enum DropPlacement
     {
         Before,
@@ -399,6 +433,8 @@ public sealed partial class PaperWindow : Window
     private static Brush NoteLinkTargetBorderBrush => Theme.Tint(150);
     private static Brush LinkedNoteBgBrush => Theme.Tint((byte)(Theme.IsDark ? 28 : 18));
     private static Brush LinkedNoteHoverBgBrush => Theme.Tint((byte)(Theme.IsDark ? 48 : 34));
+    private static Brush NoteBindingBrush => Theme.Tint((byte)(Theme.IsDark ? 88 : 104));
+    private static Brush NoteStatusBrush => Theme.Tint((byte)(Theme.IsDark ? 16 : 10));
 
     private static Brush CheckBoxBorderBrush => Theme.CheckBoxBorderBrush;
 
@@ -779,6 +815,9 @@ public sealed partial class PaperWindow : Window
         Resources["MenuHoverBrushKey"] = MenuHoverBrush;
         Resources["TitleBarBrushKey"] = TitleBarBrush;
         Resources["TitleBarDividerBrushKey"] = TitleBarDividerBrush;
+        Resources["NoteCanvasBrushKey"] = NoteCanvasBrush;
+        Resources["NoteBindingBrushKey"] = NoteBindingBrush;
+        Resources["NoteStatusBrushKey"] = NoteStatusBrush;
 
         Resources["CheckBoxBorderBrushKey"] = CheckBoxBorderBrush;
         Resources["CheckBoxActiveBrushKey"] = Theme.ActiveBrush;
@@ -866,6 +905,8 @@ public sealed partial class PaperWindow : Window
                 _noteBox.RefreshVisualStyle();
             }
 
+            RefreshNoteCanvasLayer();
+            RefreshNoteStatusBar();
         }
         else
         {
@@ -896,6 +937,11 @@ public sealed partial class PaperWindow : Window
         if (_noteBox != null)
         {
             _noteBox.RefreshTypography();
+        }
+
+        if (_paper.Type == PaperTypes.Note)
+        {
+            RefreshNoteCanvasLayer();
         }
 
         if (_paper.Type == PaperTypes.Todo)
@@ -1554,6 +1600,13 @@ public sealed partial class PaperWindow : Window
             menu.Items.Add(MenuSeparator());
             menu.Items.Add(MenuHeader(Strings.Get("MenuTodo")));
             menu.Items.Add(MenuItem(Strings.Get("MenuClearDone"), (_, _) => ClearDoneItems()));
+        }
+
+        if (_paper.Type == PaperTypes.Note && !_paper.IsCollapsed && !forDeepCapsuleSlot && !_paper.IsPinnedToDesktop)
+        {
+            menu.Items.Add(MenuSeparator());
+            menu.Items.Add(MenuHeader("\u753b\u5e03"));
+            menu.Items.Add(MenuItem("\u6dfb\u52a0\u4ee3\u7801\u5757", (_, _) => AddNoteCanvasElement(NoteCanvasElementTypes.Code)));
         }
 
         if (_paper.Type is PaperTypes.Todo or PaperTypes.Note)

@@ -474,7 +474,7 @@
 没有选择系统字体时，程序目录下的 papertodo.ttf 或 papertodo.otf 会作为自定义字体优先使用。</value>
   </data>
   <data name="TipSystemFont" xml:space="preserve">
-    <value>从当前 Windows 已安装字体中选择一个字体；选择后会优先应用到界面、托盘、胶囊、待办和笔记正文。选择语言默认会回到上方字体预设。</value>
+    <value>从当前 Windows 已安装字体中选择一个字体；选择后会应用到界面、托盘、胶囊、待办和笔记正文。选择语言默认会清除手动系统字体，并使用应用默认字体规则。</value>
   </data>
   <data name="TipMarkdownRender" xml:space="preserve">
     <value>基础模式只做轻量高亮；增强模式进一步美化标题、列表和强调。</value>

@@ -15,11 +15,10 @@ public static class AppTypography
     private static string _preset = UiFontPresets.Default;
     private static string _systemFontFamilyName = "";
     private static FontFamily? _customFontFamily;
-    private static readonly Lazy<IReadOnlyList<string>> SystemFontFamilyNameCache = new(LoadSystemFontFamilyNames);
 
     public static XmlLanguage Language { get; } = XmlLanguage.GetLanguage(CultureInfo.CurrentUICulture.IetfLanguageTag);
 
-    public static IReadOnlyList<string> SystemFontFamilyNames => SystemFontFamilyNameCache.Value;
+    public static IReadOnlyList<string> SystemFontFamilyNames => LoadSystemFontFamilyNames();
 
     public static FontFamily UiFontFamily => ResolveSystemFontFamily() ?? _customFontFamily ?? ResolveUiFontFamily();
 
@@ -60,10 +59,50 @@ public static class AppTypography
     {
         return Fonts.SystemFontFamilies
             .Select(font => font.Source)
+            .Concat(RegistryFontFamilyNames())
             .Where(name => !string.IsNullOrWhiteSpace(name))
             .Distinct(StringComparer.CurrentCultureIgnoreCase)
             .OrderBy(name => name, StringComparer.CurrentCultureIgnoreCase)
             .ToList();
+    }
+
+    private static IEnumerable<string> RegistryFontFamilyNames()
+    {
+        const string fontsKeyPath = @"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts";
+        foreach (var root in new[] { Microsoft.Win32.Registry.CurrentUser, Microsoft.Win32.Registry.LocalMachine })
+        {
+            using var key = root.OpenSubKey(fontsKeyPath);
+            if (key == null)
+            {
+                continue;
+            }
+
+            foreach (var valueName in key.GetValueNames())
+            {
+                foreach (var familyName in SplitRegistryFontFamilyName(valueName))
+                {
+                    yield return familyName;
+                }
+            }
+        }
+    }
+
+    private static IEnumerable<string> SplitRegistryFontFamilyName(string valueName)
+    {
+        var text = valueName.Trim();
+        var typeMarker = text.IndexOf(" (", StringComparison.Ordinal);
+        if (typeMarker > 0)
+        {
+            text = text[..typeMarker];
+        }
+
+        foreach (var name in text.Split('&', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            if (!string.IsNullOrWhiteSpace(name))
+            {
+                yield return name;
+            }
+        }
     }
 
     private static FontFamily? ResolveSystemFontFamily()

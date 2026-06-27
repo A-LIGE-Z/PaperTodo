@@ -945,6 +945,14 @@ public sealed class MarkdownTextBox : TextEditor
         return Math.Round(y) + 0.5;
     }
 
+    private static bool IsHeadingKind(MarkdownLineKind kind)
+    {
+        return kind is MarkdownLineKind.Heading1
+            or MarkdownLineKind.Heading2
+            or MarkdownLineKind.Heading3
+            or MarkdownLineKind.Heading;
+    }
+
     private bool TryGetMarkdownLinkAtOffset(int offset, out string url)
     {
         url = "";
@@ -1877,13 +1885,21 @@ public sealed class MarkdownTextBox : TextEditor
                 return;
             }
 
-            var width = textView.ActualWidth;
+            var width = Math.Max(0, textView.ActualWidth);
             var codeBrush = Theme.CodeBrush;
-            var quotePen = new Pen(Theme.QuoteBorderBrush, 3);
+            var codeBorderPen = new Pen(Theme.Tint((byte)(Theme.IsDark ? 92 : 70)), 1);
+            var quoteBrush = Theme.Tint((byte)(Theme.IsDark ? 34 : 22));
+            var quotePen = new Pen(Theme.QuoteBorderBrush, 3.5)
+            {
+                StartLineCap = PenLineCap.Round,
+                EndLineCap = PenLineCap.Round
+            };
+            var headingBrush = Theme.Tint((byte)(Theme.IsDark ? 30 : 18));
+            var headingPen = new Pen(Theme.ActiveBrush, 1);
             var inlineCodeBuilder = new BackgroundGeometryBuilder
             {
                 AlignToWholePixels = true,
-                CornerRadius = 3,
+                CornerRadius = 4,
                 BorderThickness = 0
             };
 
@@ -1909,7 +1925,10 @@ public sealed class MarkdownTextBox : TextEditor
                         }
                     }
 
-                    if (style.Kind is not (MarkdownLineKind.CodeBlock or MarkdownLineKind.Quote))
+                    var shouldDrawBlock =
+                        style.Kind is MarkdownLineKind.CodeBlock or MarkdownLineKind.CodeFence or MarkdownLineKind.Quote ||
+                        (_owner.IsPreviewMode && IsHeadingKind(style.Kind));
+                    if (!shouldDrawBlock)
                     {
                         continue;
                     }
@@ -1922,19 +1941,29 @@ public sealed class MarkdownTextBox : TextEditor
                         height = Math.Max(textView.DefaultLineHeight, nextTop - top);
                     }
 
-                    if (style.Kind == MarkdownLineKind.CodeBlock)
+                    if (style.Kind is MarkdownLineKind.CodeBlock or MarkdownLineKind.CodeFence)
                     {
+                        var rect = new Rect(1, top + 1, Math.Max(0, width - 6), Math.Max(1, height - 2));
                         drawingContext.DrawRoundedRectangle(
                             codeBrush,
-                            null,
-                            new Rect(0, top + 1, Math.Max(0, width - 4), Math.Max(1, height - 2)),
-                            4,
-                            4);
+                            codeBorderPen,
+                            rect,
+                            6,
+                            6);
                     }
-                    else
+                    else if (style.Kind == MarkdownLineKind.Quote)
                     {
-                        var x = 2.5;
-                        drawingContext.DrawLine(quotePen, new Point(x, top + 2), new Point(x, top + Math.Max(2, height - 2)));
+                        var rect = new Rect(0, top + 1, Math.Max(0, width - 6), Math.Max(1, height - 2));
+                        drawingContext.DrawRoundedRectangle(quoteBrush, null, rect, 5, 5);
+                        var x = 4.5;
+                        drawingContext.DrawLine(quotePen, new Point(x, top + 3), new Point(x, top + Math.Max(3, height - 3)));
+                    }
+                    else if (_owner.IsPreviewMode && IsHeadingKind(style.Kind))
+                    {
+                        var rect = new Rect(0, top + 1, Math.Max(0, width - 6), Math.Max(1, height - 2));
+                        drawingContext.DrawRoundedRectangle(headingBrush, null, rect, 5, 5);
+                        var y = SnapStrokeY(top + Math.Max(1, height - 1.5));
+                        drawingContext.DrawLine(headingPen, new Point(7, y), new Point(Math.Max(7, width - 12), y));
                     }
                 }
             }
@@ -2169,6 +2198,17 @@ public sealed class MarkdownTextBox : TextEditor
             _owner = owner;
         }
 
+        private double HeadingFontSize(MarkdownLineKind kind)
+        {
+            return _owner.ScaledFontSize(kind switch
+            {
+                MarkdownLineKind.Heading1 => 19,
+                MarkdownLineKind.Heading2 => 16.5,
+                MarkdownLineKind.Heading3 => 15,
+                _ => NoteTypography.FontSize
+            });
+        }
+
         protected override void ColorizeLine(DocumentLine line)
         {
             var document = CurrentContext.Document;
@@ -2226,16 +2266,10 @@ public sealed class MarkdownTextBox : TextEditor
                 switch (style.Kind)
                 {
                     case MarkdownLineKind.Heading1:
-                        MarkHeading(line, 0, markerLength, _owner.ScaledFontSize(17), symbol);
-                        break;
                     case MarkdownLineKind.Heading2:
-                        MarkHeading(line, 0, markerLength, _owner.ScaledFontSize(15), symbol);
-                        break;
                     case MarkdownLineKind.Heading3:
-                        MarkHeading(line, 0, markerLength, _owner.ScaledFontSize(14), symbol);
-                        break;
                     case MarkdownLineKind.Heading:
-                        MarkHeading(line, 0, markerLength, _owner.ScaledFontSize(NoteTypography.FontSize), symbol);
+                        MarkHeading(line, 0, markerLength, HeadingFontSize(style.Kind), symbol);
                         break;
                     case MarkdownLineKind.CodeFence:
                         MarkCode(line, 0, markerLength, symbol);
@@ -2255,16 +2289,10 @@ public sealed class MarkdownTextBox : TextEditor
             switch (style.Kind)
             {
                 case MarkdownLineKind.Heading1:
-                    MarkHeading(line, style.ContentStart, contentLength, _owner.ScaledFontSize(17), null);
-                    break;
                 case MarkdownLineKind.Heading2:
-                    MarkHeading(line, style.ContentStart, contentLength, _owner.ScaledFontSize(15), null);
-                    break;
                 case MarkdownLineKind.Heading3:
-                    MarkHeading(line, style.ContentStart, contentLength, _owner.ScaledFontSize(14), null);
-                    break;
                 case MarkdownLineKind.Heading:
-                    MarkHeading(line, style.ContentStart, contentLength, _owner.ScaledFontSize(NoteTypography.FontSize), null);
+                    MarkHeading(line, style.ContentStart, contentLength, HeadingFontSize(style.Kind), null);
                     break;
                 case MarkdownLineKind.Quote:
                     MarkSymbol(line, style.ContentStart, contentLength, weak);

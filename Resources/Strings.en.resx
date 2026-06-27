@@ -471,7 +471,7 @@ Choosing YaHei or DengXian unifies the UI, tray, capsules, todos, and note text 
 When no system font is selected, papertodo.ttf or papertodo.otf in the app folder is used as the custom font first.</value>
   </data>
   <data name="TipSystemFont" xml:space="preserve">
-    <value>Choose from fonts currently installed in Windows. The selected font takes priority for the UI, tray, capsules, todos, and note text. Choose language default to return to the preset above.</value>
+    <value>Choose from fonts currently installed in Windows. The selected font applies to the UI, tray, capsules, todos, and note text. Choose language default to clear the manual system font and use the app default font rules.</value>
   </data>
   <data name="TipMarkdownRender" xml:space="preserve">
     <value>Basic mode applies light highlighting; Enhanced also styles headings, lists, and emphasis.</value>

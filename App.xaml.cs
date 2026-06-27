@@ -29,6 +29,15 @@ public partial class App : Application
             return;
         }
 
+        if (startupCommand.Kind == StartupCommandKind.Exit)
+        {
+            _singleInstance.Dispose();
+            _singleInstance = null;
+            Shutdown();
+            Environment.Exit(0);
+            return;
+        }
+
         base.OnStartup(e);
         ShutdownMode = ShutdownMode.OnExplicitShutdown;
 
@@ -49,12 +58,6 @@ public partial class App : Application
             _singleInstance = null;
 
             Shutdown();
-            return;
-        }
-
-        if (startupCommand.Kind == StartupCommandKind.Exit)
-        {
-            _controller.ExecuteStartupCommand(startupCommand);
             return;
         }
 

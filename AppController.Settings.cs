@@ -317,12 +317,14 @@ public sealed partial class AppController
     private void SetSystemFontFamily(string? fontFamilyName)
     {
         var normalized = AppTypography.NormalizeSystemFontFamilyName(fontFamilyName);
-        if (State.SystemFontFamilyName == normalized)
+        if (State.SystemFontFamilyName == normalized &&
+            State.UiFontPreset == UiFontPresets.Default)
         {
             return;
         }
 
         State.SystemFontFamilyName = normalized;
+        State.UiFontPreset = UiFontPresets.Default;
         AppTypography.Configure(State.UiFontPreset, State.SystemFontFamilyName);
         SaveNow();
         RefreshTypography();
@@ -1309,8 +1311,6 @@ public sealed partial class AppController
         displayPanel.Children.Add(CreateThemeSegmentSelector());
         displayPanel.Children.Add(WrapWithHint(SettingsFieldLabel(Strings.Get("SettingsCustomThemeColor")), "TipCustomThemeColor"));
         displayPanel.Children.Add(CreateCustomThemeColorEditor());
-        displayPanel.Children.Add(WrapWithHint(SettingsFieldLabel(Strings.Get("SettingsUiFont")), "TipUiFont"));
-        displayPanel.Children.Add(CreateUiFontPresetSegmentSelector());
         displayPanel.Children.Add(WrapWithHint(SettingsFieldLabel(Strings.Get("SettingsSystemFont")), "TipSystemFont"));
         displayPanel.Children.Add(CreateSystemFontSelector());
         displayPanel.Children.Add(WrapWithHint(SettingsFieldLabel(Strings.Get("TrayMarkdownRenderMode")), "TipMarkdownRender"));
@@ -1850,10 +1850,34 @@ public sealed partial class AppController
         border.AppendChild(contentDock);
         root.AppendChild(border);
 
+        var toggle = new FrameworkElementFactory(typeof(ToggleButton), "DropDownToggle");
+        toggle.SetValue(Control.BackgroundProperty, Brushes.Transparent);
+        toggle.SetValue(Control.BorderThicknessProperty, new Thickness(0));
+        toggle.SetValue(UIElement.FocusableProperty, false);
+        toggle.SetValue(ButtonBase.ClickModeProperty, ClickMode.Press);
+        toggle.SetBinding(ToggleButton.IsCheckedProperty, new Binding(nameof(ComboBox.IsDropDownOpen))
+        {
+            RelativeSource = RelativeSource.TemplatedParent,
+            Mode = BindingMode.TwoWay
+        });
+
+        var toggleChrome = new FrameworkElementFactory(typeof(Border));
+        toggleChrome.SetValue(Border.BackgroundProperty, new TemplateBindingExtension(Control.BackgroundProperty));
+        var toggleTemplate = new ControlTemplate(typeof(ToggleButton))
+        {
+            VisualTree = toggleChrome
+        };
+        toggle.SetValue(Control.TemplateProperty, toggleTemplate);
+        root.AppendChild(toggle);
+
         var popup = new FrameworkElementFactory(typeof(Popup), "PART_Popup");
         popup.SetValue(Popup.AllowsTransparencyProperty, true);
         popup.SetValue(Popup.FocusableProperty, false);
         popup.SetValue(Popup.PlacementProperty, PlacementMode.Bottom);
+        popup.SetBinding(Popup.PlacementTargetProperty, new Binding
+        {
+            RelativeSource = RelativeSource.TemplatedParent
+        });
         popup.SetBinding(Popup.IsOpenProperty, new Binding(nameof(ComboBox.IsDropDownOpen))
         {
             RelativeSource = RelativeSource.TemplatedParent,
@@ -1874,6 +1898,7 @@ public sealed partial class AppController
 
         var scroll = new FrameworkElementFactory(typeof(ScrollViewer));
         scroll.SetValue(ScrollViewer.CanContentScrollProperty, true);
+        scroll.SetValue(FrameworkElement.MaxHeightProperty, new TemplateBindingExtension(ComboBox.MaxDropDownHeightProperty));
         scroll.SetValue(ScrollViewer.VerticalScrollBarVisibilityProperty, ScrollBarVisibility.Auto);
         scroll.SetValue(ScrollViewer.HorizontalScrollBarVisibilityProperty, ScrollBarVisibility.Disabled);
 

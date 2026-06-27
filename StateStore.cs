@@ -254,7 +254,7 @@ public sealed class StateStore
         state.DeepCapsuleSide = DeepCapsuleSides.Normalize(state.DeepCapsuleSide);
         state.DeepCapsuleMonitorDeviceName = WindowWorkAreaHelper.NormalizeQueueMonitorDeviceName(state.DeepCapsuleMonitorDeviceName);
         state.TodoVisualSize = TodoVisualSizes.Normalize(state.TodoVisualSize);
-        state.UiFontPreset = UiFontPresets.Normalize(state.UiFontPreset);
+        state.UiFontPreset = UiFontPresets.Default;
         state.SystemFontFamilyName = AppTypography.NormalizeSystemFontFamilyName(state.SystemFontFamilyName);
         state.PinnedTodoHotKey = NormalizeHotKeyForSettings(state.PinnedTodoHotKey);
         state.PinnedNoteHotKey = NormalizeHotKeyForSettings(state.PinnedNoteHotKey);
@@ -399,6 +399,7 @@ public sealed class StateStore
                 .Cast<PaperItem>()
                 .ToList();
             paper.Content ??= "";
+            NormalizeNoteCanvasElements(paper);
             if (!state.UseCapsuleMode)
             {
                 paper.IsCollapsed = false;
@@ -476,6 +477,36 @@ public sealed class StateStore
             foreach (var note in state.Papers.Where(p => p.Type == PaperTypes.Note && linkedNoteIds.Contains(p.Id)))
             {
                 note.IsCollapsed = false;
+            }
+        }
+    }
+
+    private static void NormalizeNoteCanvasElements(PaperData paper)
+    {
+        paper.NoteCanvasElements ??= new List<NoteCanvasElement>();
+        paper.NoteCanvasElements = paper.NoteCanvasElements
+            .Where(element => element != null)
+            .Cast<NoteCanvasElement>()
+            .ToList();
+
+        var usedElementIds = new HashSet<string>(StringComparer.Ordinal);
+        for (var i = 0; i < paper.NoteCanvasElements.Count; i++)
+        {
+            var element = paper.NoteCanvasElements[i];
+            if (string.IsNullOrWhiteSpace(element.Id) || !usedElementIds.Add(element.Id))
+            {
+                element.Id = NewUniqueId(usedElementIds);
+            }
+
+            element.Type = NoteCanvasElementTypes.Normalize(element.Type);
+            element.Text ??= "";
+            element.X = Math.Clamp(NormalizeCoordinate(element.X, 32), -2000, 8000);
+            element.Y = Math.Clamp(NormalizeCoordinate(element.Y, 32), -2000, 8000);
+            element.Width = Math.Clamp(NormalizePaperDimension(element.Width, 220, 72), 72, 1600);
+            element.Height = Math.Clamp(NormalizePaperDimension(element.Height, 110, 48), 48, 1600);
+            if (element.ZIndex <= 0)
+            {
+                element.ZIndex = (i + 1) * 10;
             }
         }
     }

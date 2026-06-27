@@ -14,6 +14,8 @@ public sealed partial class PaperWindow
 {
     private static readonly object PersistentScriptProcessLock = new();
     private static readonly Dictionary<string, Process> PersistentScriptProcesses = new(StringComparer.OrdinalIgnoreCase);
+    private const string NotePreviewStatusText = "\u9884\u89c8";
+    private const string NoteEditStatusText = "\u7f16\u8f91";
 
     public void UpdateMarkdownRenderMode()
     {
@@ -140,7 +142,14 @@ public sealed partial class PaperWindow
 
     private UIElement BuildNoteBody()
     {
-        var host = new Grid();
+        var host = new Grid
+        {
+            ClipToBounds = true,
+            SnapsToDevicePixels = true
+        };
+        host.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        host.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star), MinHeight = 0 });
+        host.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
         _noteBox = new MarkdownTextBox
         {
@@ -160,7 +169,7 @@ public sealed partial class PaperWindow
             FontWeight = NoteTypography.FontWeight,
             FontStretch = NoteTypography.FontStretch,
             Language = NoteTypography.Language,
-            Margin = NoteTypography.ContentPadding,
+            Margin = NotePageContentMargin(),
             FocusVisualStyle = null
         };
         NoteTypography.ApplyTextRendering(_noteBox);
@@ -169,7 +178,18 @@ public sealed partial class PaperWindow
         box.SetTextZoom(CurrentTextZoom());
         box.SetLineSpacing(_controller.State.NoteLineSpacing);
 
-        host.Children.Add(box);
+        var toolbar = BuildNoteCanvasToolbar();
+        Grid.SetRow(toolbar, 0);
+        host.Children.Add(toolbar);
+
+        var noteSurface = BuildNoteSurface(box);
+        Grid.SetRow(noteSurface, 1);
+        host.Children.Add(noteSurface);
+
+        var statusBar = BuildNoteStatusBar();
+        Grid.SetRow(statusBar, 2);
+        host.Children.Add(statusBar);
+
         var editorMenu = CreateContextMenu();
         editorMenu.Items.Add(MenuHeader(Strings.Get("MenuFormat")));
         editorMenu.Items.Add(MenuItem(Strings.Get("MenuBold"), (_, _) => box.WrapSelection("**", "**")));
@@ -197,6 +217,7 @@ public sealed partial class PaperWindow
             box.SetPreviewMode(true);
             box.ContextMenu = previewMenu;
             isPreviewing = true;
+            RefreshNoteStatusBar();
             TraceNoteRender($"ShowPreview after isPreviewing={isPreviewing} boxPreview={box.IsPreviewMode}");
         }
 
@@ -213,6 +234,7 @@ public sealed partial class PaperWindow
             {
                 box.Focus();
             }
+            RefreshNoteStatusBar();
             TraceNoteRender($"ShowEditor after focus={focus} isPreviewing={isPreviewing} boxPreview={box.IsPreviewMode} focused={box.IsKeyboardFocusWithin}");
         }
 
@@ -271,6 +293,7 @@ public sealed partial class PaperWindow
                 _controller.RefreshTodoRowsForLinkedNote(_paper.Id);
             }
             _controller.MarkDirty();
+            RefreshNoteStatusBar();
         };
 
         box.PreviewKeyDown += (_, e) =>
@@ -392,6 +415,749 @@ public sealed partial class PaperWindow
         return host;
     }
 
+    private static Thickness NotePageContentMargin()
+    {
+        var padding = NoteTypography.ContentPadding;
+        return new Thickness(padding.Left + 11, padding.Top + 4, padding.Right + 8, padding.Bottom + 4);
+    }
+
+    private static Brush NoteCanvasBrush => CreateNoteCanvasBrush();
+
+    private static Brush CreateNoteCanvasBrush()
+    {
+        var fillBrush = Theme.Tint((byte)(Theme.IsDark ? 14 : 9));
+        var gridBrush = Theme.Tint((byte)(Theme.IsDark ? 38 : 28));
+        var fill = TryGetSolidColor(fillBrush, out var fillColor) ? fillColor : Colors.Transparent;
+        var grid = TryGetSolidColor(gridBrush, out var gridColor) ? gridColor : Colors.Transparent;
+
+        var group = new DrawingGroup();
+        group.Children.Add(new GeometryDrawing(new SolidColorBrush(fill), null, new RectangleGeometry(new Rect(0, 0, 24, 24))));
+
+        var pen = new Pen(new SolidColorBrush(grid), 1);
+        group.Children.Add(new GeometryDrawing(null, pen, new LineGeometry(new Point(0, 0), new Point(24, 0))));
+        group.Children.Add(new GeometryDrawing(null, pen, new LineGeometry(new Point(0, 0), new Point(0, 24))));
+
+        var brush = new DrawingBrush(group)
+        {
+            TileMode = TileMode.Tile,
+            Viewport = new Rect(0, 0, 24, 24),
+            ViewportUnits = BrushMappingMode.Absolute,
+            Stretch = Stretch.None
+        };
+
+        if (brush.CanFreeze)
+        {
+            brush.Freeze();
+        }
+
+        return brush;
+    }
+
+    private FrameworkElement BuildNoteSurface(MarkdownTextBox box)
+    {
+        var canvas = new Border
+        {
+            Margin = new Thickness(8, 6, 8, 0),
+            Padding = new Thickness(7),
+            BorderThickness = new Thickness(1),
+            CornerRadius = AppUi.PanelRadius,
+            ClipToBounds = true,
+            SnapsToDevicePixels = true
+        };
+        canvas.SetResourceReference(Border.BackgroundProperty, "NoteCanvasBrushKey");
+        canvas.SetResourceReference(Border.BorderBrushProperty, "TitleBarDividerBrushKey");
+
+        var page = new Border
+        {
+            BorderThickness = new Thickness(1),
+            CornerRadius = AppUi.BlockRadius,
+            ClipToBounds = true,
+            SnapsToDevicePixels = true
+        };
+        page.SetResourceReference(Border.BackgroundProperty, "PaperBrushKey");
+        page.SetResourceReference(Border.BorderBrushProperty, "PaperBorderBrushKey");
+
+        var pageGrid = new Grid
+        {
+            ClipToBounds = true,
+            SnapsToDevicePixels = true
+        };
+
+        var bindingLine = new Border
+        {
+            Width = 2,
+            HorizontalAlignment = HorizontalAlignment.Left,
+            VerticalAlignment = VerticalAlignment.Stretch,
+            Margin = new Thickness(14, 14, 0, 14),
+            CornerRadius = new CornerRadius(1),
+            Opacity = 0.72,
+            IsHitTestVisible = false
+        };
+        bindingLine.SetResourceReference(Border.BackgroundProperty, "NoteBindingBrushKey");
+
+        pageGrid.Children.Add(bindingLine);
+        pageGrid.Children.Add(box);
+        _noteCanvasLayer = new Canvas
+        {
+            ClipToBounds = true,
+            Background = null,
+            Focusable = false
+        };
+        pageGrid.Children.Add(_noteCanvasLayer);
+        RefreshNoteCanvasLayer();
+        page.Child = pageGrid;
+        canvas.Child = page;
+        return canvas;
+    }
+
+    private Border BuildNoteCanvasToolbar()
+    {
+        var toolbar = new Border
+        {
+            MinHeight = 31,
+            Padding = new Thickness(9, 3, 9, 4),
+            BorderThickness = new Thickness(0, 0, 0, 1),
+            SnapsToDevicePixels = true
+        };
+        toolbar.SetResourceReference(Border.BackgroundProperty, "NoteStatusBrushKey");
+        toolbar.SetResourceReference(Border.BorderBrushProperty, "TitleBarDividerBrushKey");
+
+        var layout = new Grid
+        {
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        layout.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        layout.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        layout.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var tools = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        tools.Children.Add(NoteCanvasToolButton("{}", "\u6dfb\u52a0\u4ee3\u7801\u5757", () => AddNoteCanvasElement(NoteCanvasElementTypes.Code)));
+
+        _noteCanvasElementCountText = new TextBlock
+        {
+            FontSize = 11,
+            Margin = new Thickness(8, 0, 0, 0),
+            VerticalAlignment = VerticalAlignment.Center,
+            TextTrimming = TextTrimming.CharacterEllipsis
+        };
+        _noteCanvasElementCountText.SetResourceReference(TextBlock.ForegroundProperty, "WeakTextBrushKey");
+
+        Grid.SetColumn(tools, 0);
+        Grid.SetColumn(_noteCanvasElementCountText, 2);
+        layout.Children.Add(tools);
+        layout.Children.Add(_noteCanvasElementCountText);
+
+        toolbar.Child = layout;
+        RefreshNoteCanvasSummary();
+        return toolbar;
+    }
+
+    private Button NoteCanvasToolButton(string label, string tooltip, Action onClick)
+    {
+        var button = IconButton(label, tooltip);
+        button.MinWidth = 28;
+        button.Click += (_, _) => onClick();
+        return button;
+    }
+
+    private Border BuildNoteStatusBar()
+    {
+        var bar = new Border
+        {
+            MinHeight = 26,
+            Padding = new Thickness(10, 3, 10, 4),
+            BorderThickness = new Thickness(0, 1, 0, 0),
+            IsHitTestVisible = false,
+            SnapsToDevicePixels = true
+        };
+        bar.SetResourceReference(Border.BackgroundProperty, "NoteStatusBrushKey");
+        bar.SetResourceReference(Border.BorderBrushProperty, "TitleBarDividerBrushKey");
+
+        var layout = new Grid
+        {
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        layout.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        layout.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        layout.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var modePill = new Border
+        {
+            MinWidth = 42,
+            Padding = new Thickness(7, 1, 7, 2),
+            CornerRadius = AppUi.ControlRadius,
+            HorizontalAlignment = HorizontalAlignment.Left,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        modePill.SetResourceReference(Border.BackgroundProperty, "HoverBrushKey");
+
+        _noteModeText = new TextBlock
+        {
+            FontSize = 11,
+            FontWeight = FontWeights.SemiBold,
+            TextAlignment = TextAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        _noteModeText.SetResourceReference(TextBlock.ForegroundProperty, "TextBrushKey");
+        modePill.Child = _noteModeText;
+
+        _noteStatsText = new TextBlock
+        {
+            FontSize = 11,
+            Margin = new Thickness(10, 0, 8, 0),
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        _noteStatsText.SetResourceReference(TextBlock.ForegroundProperty, "WeakTextBrushKey");
+
+        _noteZoomText = new TextBlock
+        {
+            FontSize = 11,
+            MinWidth = 38,
+            TextAlignment = TextAlignment.Right,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        _noteZoomText.SetResourceReference(TextBlock.ForegroundProperty, "WeakTextBrushKey");
+
+        Grid.SetColumn(modePill, 0);
+        Grid.SetColumn(_noteStatsText, 1);
+        Grid.SetColumn(_noteZoomText, 2);
+        layout.Children.Add(modePill);
+        layout.Children.Add(_noteStatsText);
+        layout.Children.Add(_noteZoomText);
+
+        bar.Child = layout;
+        RefreshNoteStatusBar();
+        return bar;
+    }
+
+    private void RefreshNoteStatusBar()
+    {
+        if (_paper.Type != PaperTypes.Note)
+        {
+            return;
+        }
+
+        var text = _noteBox?.Text ?? _paper.Content ?? "";
+        if (_noteModeText != null)
+        {
+            _noteModeText.Text = _noteBox?.IsPreviewMode == true ? NotePreviewStatusText : NoteEditStatusText;
+        }
+
+        if (_noteStatsText != null)
+        {
+            var elementCount = _paper.NoteCanvasElements?.Count ?? 0;
+            _noteStatsText.Text = $"{BuildNoteStatsText(text)} | {elementCount} \u5143\u7d20";
+        }
+
+        if (_noteZoomText != null)
+        {
+            _noteZoomText.Text = $"{(int)Math.Round(CurrentTextZoom() * 100)}%";
+        }
+    }
+
+    private static string BuildNoteStatsText(string text)
+    {
+        return $"{CountNoteTextCharacters(text)} \u5b57 | {CountNoteLines(text)} \u884c";
+    }
+
+    private static int CountNoteTextCharacters(string text)
+    {
+        var count = 0;
+        foreach (var c in text)
+        {
+            if (!char.IsWhiteSpace(c) && !char.IsControl(c))
+            {
+                count++;
+            }
+        }
+
+        return count;
+    }
+
+    private static int CountNoteLines(string text)
+    {
+        if (string.IsNullOrEmpty(text))
+        {
+            return 1;
+        }
+
+        var lines = 1;
+        foreach (var c in text)
+        {
+            if (c == '\n')
+            {
+                lines++;
+            }
+        }
+
+        return lines;
+    }
+
+    private void RefreshNoteCanvasLayer()
+    {
+        if (_paper.Type != PaperTypes.Note || _noteCanvasLayer == null)
+        {
+            return;
+        }
+
+        _noteCanvasLayer.Children.Clear();
+        _paper.NoteCanvasElements ??= new List<NoteCanvasElement>();
+
+        var orderedElements = OrderedNoteCanvasElements();
+        for (var i = 0; i < orderedElements.Count; i++)
+        {
+            var element = orderedElements[i];
+            var layerRank = i + 1;
+            var view = BuildNoteCanvasElementView(element, layerRank, orderedElements.Count);
+            Canvas.SetLeft(view, element.X);
+            Canvas.SetTop(view, element.Y);
+            Panel.SetZIndex(view, layerRank * 10);
+            _noteCanvasLayer.Children.Add(view);
+        }
+
+        RefreshNoteCanvasSummary();
+        RefreshNoteStatusBar();
+    }
+
+    private FrameworkElement BuildNoteCanvasElementView(NoteCanvasElement element, int layerRank, int layerCount)
+    {
+        var isActive = string.Equals(_activeNoteCanvasElement?.Id, element.Id, StringComparison.Ordinal);
+        var isTopLayer = layerRank == layerCount && layerCount > 1;
+        var chrome = new Border
+        {
+            Width = element.Width,
+            Height = element.Height,
+            MinWidth = 72,
+            MinHeight = 48,
+            CornerRadius = AppUi.BlockRadius,
+            BorderThickness = new Thickness(isActive || isTopLayer ? 2 : 1),
+            Background = NoteCanvasElementBackground(element),
+            BorderBrush = NoteCanvasElementBorderBrush(element, isActive, isTopLayer),
+            Effect = AppUi.NoteCanvasElementShadow(layerRank, layerCount, isActive || isTopLayer),
+            ClipToBounds = true,
+            SnapsToDevicePixels = true
+        };
+        chrome.ContextMenu = BuildNoteCanvasElementContextMenu(element);
+        chrome.PreviewMouseLeftButtonDown += (_, _) => _activeNoteCanvasElement = element;
+
+        var root = new Grid
+        {
+            ClipToBounds = true
+        };
+        root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star), MinHeight = 0 });
+
+        var header = new Border
+        {
+            Height = 22,
+            Padding = new Thickness(7, 2, 6, 2),
+            Background = NoteCanvasElementHeaderBrush(element, isActive, isTopLayer),
+            Cursor = Cursors.SizeAll,
+            ToolTip = "\u62d6\u52a8\u5143\u7d20"
+        };
+        var headerLayout = new Grid();
+        headerLayout.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        headerLayout.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        var headerText = new TextBlock
+        {
+            Text = NoteCanvasElementTypeLabel(element.Type),
+            FontSize = 10,
+            FontWeight = FontWeights.SemiBold,
+            VerticalAlignment = VerticalAlignment.Center,
+            TextTrimming = TextTrimming.CharacterEllipsis
+        };
+        headerText.SetResourceReference(TextBlock.ForegroundProperty, "WeakTextBrushKey");
+
+        var layerBadge = new Border
+        {
+            Padding = new Thickness(5, 0, 5, 1),
+            MinWidth = 32,
+            CornerRadius = AppUi.SmallRadius,
+            Background = NoteCanvasElementLayerBadgeBrush(isActive, isTopLayer),
+            HorizontalAlignment = HorizontalAlignment.Right,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        var layerText = new TextBlock
+        {
+            Text = isTopLayer ? $"\u9876\u5c42 {layerRank}" : $"\u5c42 {layerRank}",
+            FontSize = 9.5,
+            FontWeight = FontWeights.SemiBold,
+            TextAlignment = TextAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        layerText.SetResourceReference(TextBlock.ForegroundProperty, isTopLayer ? "TextBrushKey" : "WeakTextBrushKey");
+        layerBadge.Child = layerText;
+
+        Grid.SetColumn(headerText, 0);
+        Grid.SetColumn(layerBadge, 1);
+        headerLayout.Children.Add(headerText);
+        headerLayout.Children.Add(layerBadge);
+        header.Child = headerLayout;
+
+        header.PreviewMouseLeftButtonDown += (_, e) => BeginNoteCanvasElementDrag(element, chrome, header, e, resizing: false);
+        header.PreviewMouseMove += (_, e) => UpdateNoteCanvasElementDrag(e);
+        header.PreviewMouseLeftButtonUp += (_, e) => EndNoteCanvasElementDrag(e);
+        header.LostMouseCapture += (_, _) => EndNoteCanvasElementDrag(null);
+
+        var editor = new TextBox
+        {
+            Text = element.Text,
+            AcceptsReturn = true,
+            AcceptsTab = true,
+            TextWrapping = TextWrapping.Wrap,
+            BorderThickness = new Thickness(0),
+            Background = Brushes.Transparent,
+            Foreground = TextBrush,
+            CaretBrush = TextBrush,
+            Padding = new Thickness(9, 7, 9, 7),
+            FontFamily = element.Type == NoteCanvasElementTypes.Code ? NoteTypography.CodeFontFamily : NoteTypography.FontFamily,
+            FontSize = element.Type == NoteCanvasElementTypes.Code ? NoteTypography.CodeFontSize : NoteTypography.FontSize,
+            FontStyle = NoteTypography.FontStyle,
+            FontWeight = NoteTypography.FontWeight,
+            FontStretch = NoteTypography.FontStretch,
+            Language = NoteTypography.Language,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            FocusVisualStyle = null,
+            ContextMenu = chrome.ContextMenu
+        };
+        NoteTypography.ApplyTextRendering(editor);
+        editor.TextChanged += (_, _) =>
+        {
+            if (!string.Equals(element.Text, editor.Text, StringComparison.Ordinal))
+            {
+                element.Text = editor.Text;
+                _controller.MarkDirty();
+                RefreshNoteCanvasSummary();
+                RefreshNoteStatusBar();
+            }
+        };
+        editor.PreviewMouseLeftButtonDown += (_, _) => _activeNoteCanvasElement = element;
+
+        var resizeGrip = new Border
+        {
+            Width = 15,
+            Height = 15,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            VerticalAlignment = VerticalAlignment.Bottom,
+            Margin = new Thickness(0, 0, 2, 2),
+            CornerRadius = new CornerRadius(4),
+            Background = Theme.Tint((byte)(Theme.IsDark ? 72 : 58)),
+            Cursor = Cursors.SizeNWSE,
+            ToolTip = "\u8c03\u6574\u5927\u5c0f"
+        };
+        resizeGrip.PreviewMouseLeftButtonDown += (_, e) => BeginNoteCanvasElementDrag(element, chrome, resizeGrip, e, resizing: true);
+        resizeGrip.PreviewMouseMove += (_, e) => UpdateNoteCanvasElementDrag(e);
+        resizeGrip.PreviewMouseLeftButtonUp += (_, e) => EndNoteCanvasElementDrag(e);
+        resizeGrip.LostMouseCapture += (_, _) => EndNoteCanvasElementDrag(null);
+
+        Grid.SetRow(header, 0);
+        Grid.SetRow(editor, 1);
+        Grid.SetRowSpan(resizeGrip, 2);
+        root.Children.Add(header);
+        root.Children.Add(editor);
+        root.Children.Add(resizeGrip);
+
+        chrome.Child = root;
+        return chrome;
+    }
+
+    private ContextMenu BuildNoteCanvasElementContextMenu(NoteCanvasElement element)
+    {
+        var menu = CreateContextMenu();
+        menu.Items.Add(MenuHeader($"{NoteCanvasElementTypeLabel(element.Type)} \u00b7 \u5c42 {NoteCanvasElementLayerRank(element)}"));
+        menu.Items.Add(MenuItem("\u4e0a\u79fb\u4e00\u5c42", (_, _) => MoveNoteCanvasElementLayer(element, 1)));
+        menu.Items.Add(MenuItem("\u4e0b\u79fb\u4e00\u5c42", (_, _) => MoveNoteCanvasElementLayer(element, -1)));
+        menu.Items.Add(MenuItem("\u7f6e\u9876", (_, _) => BringNoteCanvasElementToFront(element)));
+        menu.Items.Add(MenuItem("\u7f6e\u5e95", (_, _) => SendNoteCanvasElementToBack(element)));
+        menu.Items.Add(MenuItem("\u590d\u5236", (_, _) => DuplicateNoteCanvasElement(element)));
+        menu.Items.Add(MenuSeparator());
+        menu.Items.Add(MenuItem(Strings.Get("MenuDelete"), (_, _) => DeleteNoteCanvasElement(element)));
+        return menu;
+    }
+
+    private void AddNoteCanvasElement(string type)
+    {
+        if (_paper.Type != PaperTypes.Note || _paper.IsPinnedToDesktop)
+        {
+            return;
+        }
+
+        _paper.NoteCanvasElements ??= new List<NoteCanvasElement>();
+        var maxZ = _paper.NoteCanvasElements.Count == 0 ? 0 : _paper.NoteCanvasElements.Max(e => e.ZIndex);
+        var element = new NoteCanvasElement
+        {
+            Id = Guid.NewGuid().ToString("N"),
+            Type = NoteCanvasElementTypes.Normalize(type),
+            Text = DefaultNoteCanvasElementText(type),
+            Width = DefaultNoteCanvasElementWidth(type),
+            Height = DefaultNoteCanvasElementHeight(type),
+            ZIndex = maxZ + 10
+        };
+
+        var center = NextNoteCanvasElementPoint(element.Width, element.Height);
+        element.X = center.X;
+        element.Y = center.Y;
+        _paper.NoteCanvasElements.Add(element);
+        _activeNoteCanvasElement = element;
+        _controller.MarkDirty();
+        RefreshNoteCanvasLayer();
+    }
+
+    private Point NextNoteCanvasElementPoint(double width, double height)
+    {
+        var layerWidth = _noteCanvasLayer?.ActualWidth > 0 ? _noteCanvasLayer.ActualWidth : Math.Max(220, _paper.Width - 40);
+        var layerHeight = _noteCanvasLayer?.ActualHeight > 0 ? _noteCanvasLayer.ActualHeight : Math.Max(160, _paper.Height - 90);
+        var offset = Math.Min(80, (_paper.NoteCanvasElements?.Count ?? 0) * 12);
+        var x = Math.Max(10, Math.Min(layerWidth - width - 10, 28 + offset));
+        var y = Math.Max(10, Math.Min(layerHeight - height - 10, 28 + offset));
+        return new Point(x, y);
+    }
+
+    private static string DefaultNoteCanvasElementText(string type)
+    {
+        return "Console.WriteLine(\"PaperTodo\");";
+    }
+
+    private static double DefaultNoteCanvasElementWidth(string type)
+    {
+        return 230;
+    }
+
+    private static double DefaultNoteCanvasElementHeight(string type)
+    {
+        return 116;
+    }
+
+    private static string NoteCanvasElementTypeLabel(string type)
+    {
+        return "CODE";
+    }
+
+    private List<NoteCanvasElement> OrderedNoteCanvasElements()
+    {
+        return (_paper.NoteCanvasElements ?? new List<NoteCanvasElement>())
+            .OrderBy(e => e.ZIndex)
+            .ThenBy(e => e.Id, StringComparer.Ordinal)
+            .ToList();
+    }
+
+    private int NoteCanvasElementLayerRank(NoteCanvasElement element)
+    {
+        var ordered = OrderedNoteCanvasElements();
+        var index = ordered.FindIndex(e => string.Equals(e.Id, element.Id, StringComparison.Ordinal));
+        return index < 0 ? 1 : index + 1;
+    }
+
+    private static Brush NoteCanvasElementBackground(NoteCanvasElement element)
+    {
+        return Theme.CodeBrush;
+    }
+
+    private static Brush NoteCanvasElementHeaderBrush(NoteCanvasElement element, bool isActive, bool isTopLayer)
+    {
+        if (isActive || isTopLayer)
+        {
+            return Theme.Tint((byte)(Theme.IsDark ? 96 : 76));
+        }
+
+        return Theme.Tint((byte)(Theme.IsDark ? 70 : 50));
+    }
+
+    private static Brush NoteCanvasElementBorderBrush(NoteCanvasElement element, bool isActive, bool isTopLayer)
+    {
+        if (isActive || isTopLayer)
+        {
+            return Theme.ActiveBrush;
+        }
+
+        return Theme.Tint((byte)(Theme.IsDark ? 110 : 96));
+    }
+
+    private static Brush NoteCanvasElementLayerBadgeBrush(bool isActive, bool isTopLayer)
+    {
+        if (isActive || isTopLayer)
+        {
+            return Theme.Tint((byte)(Theme.IsDark ? 118 : 96));
+        }
+
+        return Theme.Tint((byte)(Theme.IsDark ? 46 : 34));
+    }
+
+    private void BeginNoteCanvasElementDrag(NoteCanvasElement element, FrameworkElement view, UIElement captureTarget, MouseButtonEventArgs e, bool resizing)
+    {
+        if (_paper.IsPinnedToDesktop || _noteCanvasLayer == null)
+        {
+            return;
+        }
+
+        _activeNoteCanvasElement = element;
+        _noteCanvasDrag = new NoteCanvasDragState(
+            element,
+            view,
+            captureTarget,
+            e.GetPosition(_noteCanvasLayer),
+            element.X,
+            element.Y,
+            element.Width,
+            element.Height,
+            resizing);
+        captureTarget.CaptureMouse();
+        e.Handled = true;
+    }
+
+    private void UpdateNoteCanvasElementDrag(MouseEventArgs e)
+    {
+        var drag = _noteCanvasDrag;
+        if (drag == null || _noteCanvasLayer == null || e.LeftButton != MouseButtonState.Pressed)
+        {
+            return;
+        }
+
+        var point = e.GetPosition(_noteCanvasLayer);
+        var dx = point.X - drag.StartPoint.X;
+        var dy = point.Y - drag.StartPoint.Y;
+        if (Math.Abs(dx) < 0.5 && Math.Abs(dy) < 0.5)
+        {
+            return;
+        }
+
+        if (drag.Resizing)
+        {
+            var width = Math.Clamp(drag.StartWidth + dx, 72, Math.Max(72, _noteCanvasLayer.ActualWidth - drag.Element.X));
+            var height = Math.Clamp(drag.StartHeight + dy, 48, Math.Max(48, _noteCanvasLayer.ActualHeight - drag.Element.Y));
+            drag.Element.Width = Math.Round(width, 1);
+            drag.Element.Height = Math.Round(height, 1);
+            drag.View.Width = drag.Element.Width;
+            drag.View.Height = drag.Element.Height;
+        }
+        else
+        {
+            var maxX = Math.Max(0, _noteCanvasLayer.ActualWidth - drag.Element.Width);
+            var maxY = Math.Max(0, _noteCanvasLayer.ActualHeight - drag.Element.Height);
+            drag.Element.X = Math.Round(Math.Clamp(drag.StartX + dx, 0, maxX), 1);
+            drag.Element.Y = Math.Round(Math.Clamp(drag.StartY + dy, 0, maxY), 1);
+            Canvas.SetLeft(drag.View, drag.Element.X);
+            Canvas.SetTop(drag.View, drag.Element.Y);
+        }
+
+        drag.Changed = true;
+        e.Handled = true;
+    }
+
+    private void EndNoteCanvasElementDrag(MouseEventArgs? e)
+    {
+        var drag = _noteCanvasDrag;
+        if (drag == null)
+        {
+            return;
+        }
+
+        _noteCanvasDrag = null;
+        if (drag.CaptureTarget.IsMouseCaptured)
+        {
+            drag.CaptureTarget.ReleaseMouseCapture();
+        }
+
+        if (drag.Changed)
+        {
+            _controller.MarkDirty();
+            RefreshNoteCanvasSummary();
+            RefreshNoteStatusBar();
+        }
+
+        if (e != null)
+        {
+            e.Handled = true;
+        }
+    }
+
+    private void DeleteNoteCanvasElement(NoteCanvasElement element)
+    {
+        if (_paper.NoteCanvasElements.Remove(element))
+        {
+            if (ReferenceEquals(_activeNoteCanvasElement, element))
+            {
+                _activeNoteCanvasElement = null;
+            }
+
+            _controller.MarkDirty();
+            RefreshNoteCanvasLayer();
+        }
+    }
+
+    private void DuplicateNoteCanvasElement(NoteCanvasElement element)
+    {
+        var maxZ = _paper.NoteCanvasElements.Count == 0 ? 0 : _paper.NoteCanvasElements.Max(e => e.ZIndex);
+        var copy = new NoteCanvasElement
+        {
+            Id = Guid.NewGuid().ToString("N"),
+            Type = element.Type,
+            Text = element.Text,
+            X = element.X + 18,
+            Y = element.Y + 18,
+            Width = element.Width,
+            Height = element.Height,
+            ZIndex = maxZ + 10
+        };
+        _paper.NoteCanvasElements.Add(copy);
+        _activeNoteCanvasElement = copy;
+        _controller.MarkDirty();
+        RefreshNoteCanvasLayer();
+    }
+
+    private void BringNoteCanvasElementToFront(NoteCanvasElement element)
+    {
+        var maxZ = _paper.NoteCanvasElements.Count == 0 ? 0 : _paper.NoteCanvasElements.Max(e => e.ZIndex);
+        element.ZIndex = maxZ + 10;
+        _activeNoteCanvasElement = element;
+        _controller.MarkDirty();
+        RefreshNoteCanvasLayer();
+    }
+
+    private void SendNoteCanvasElementToBack(NoteCanvasElement element)
+    {
+        var minZ = _paper.NoteCanvasElements.Count == 0 ? 0 : _paper.NoteCanvasElements.Min(e => e.ZIndex);
+        element.ZIndex = minZ - 10;
+        _activeNoteCanvasElement = element;
+        _controller.MarkDirty();
+        RefreshNoteCanvasLayer();
+    }
+
+    private void MoveNoteCanvasElementLayer(NoteCanvasElement element, int direction)
+    {
+        var ordered = OrderedNoteCanvasElements();
+        var index = ordered.FindIndex(e => string.Equals(e.Id, element.Id, StringComparison.Ordinal));
+        if (index < 0)
+        {
+            return;
+        }
+
+        var nextIndex = Math.Clamp(index + direction, 0, ordered.Count - 1);
+        if (nextIndex == index)
+        {
+            return;
+        }
+
+        (ordered[index].ZIndex, ordered[nextIndex].ZIndex) = (ordered[nextIndex].ZIndex, ordered[index].ZIndex);
+        _activeNoteCanvasElement = element;
+        _controller.MarkDirty();
+        RefreshNoteCanvasLayer();
+    }
+
+    private void RefreshNoteCanvasSummary()
+    {
+        if (_noteCanvasElementCountText != null)
+        {
+            var count = _paper.NoteCanvasElements?.Count ?? 0;
+            _noteCanvasElementCountText.Text = $"{count} \u5143\u7d20";
+        }
+    }
+
 
     public void UpdateTextZoom()
     {
@@ -425,6 +1191,8 @@ public sealed partial class PaperWindow
                 host.Visibility = Math.Abs(zoom - 1.0) < 0.001 ? Visibility.Collapsed : Visibility.Visible;
             }
         }
+
+        RefreshNoteStatusBar();
     }
 
     private double CurrentTextZoom()
